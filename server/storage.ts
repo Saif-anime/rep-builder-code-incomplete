@@ -1,6 +1,6 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles,
+  anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -12,7 +12,8 @@ import {
   type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto,
   type EnrichmentRun, type InsertEnrichmentRun,
   type SessionFlag, type InsertSessionFlag,
-  type DriverProfile, type InsertDriverProfile
+  type DriverProfile, type InsertDriverProfile,
+  type PcnRecommendation, type InsertPcnRecommendation
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -190,6 +191,13 @@ export interface IStorage {
   updateSessionFlag(id: number, flag: Partial<InsertSessionFlag>): Promise<SessionFlag | undefined>;
   resolveSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
   dismissSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
+
+  // PCN Recommendations
+  createPcnRecommendation(recommendation: InsertPcnRecommendation): Promise<PcnRecommendation>;
+  getPcnRecommendation(id: number): Promise<PcnRecommendation | undefined>;
+  getPcnRecommendationsBySession(sessionId: number): Promise<PcnRecommendation[]>;
+  getPcnRecommendationsByFlag(flagId: number): Promise<PcnRecommendation[]>;
+  getLatestPcnRecommendationForSession(sessionId: number): Promise<PcnRecommendation | undefined>;
 
   // Driver Profiles
   getDriverProfile(siteId: number, vrm: string): Promise<DriverProfile | undefined>;
@@ -973,6 +981,37 @@ export class DatabaseStorage implements IStorage {
       .where(eq(sessionFlags.id, id))
       .returning();
     return dismissed || undefined;
+  }
+
+  // PCN Recommendations
+  async createPcnRecommendation(recommendation: InsertPcnRecommendation): Promise<PcnRecommendation> {
+    const [created] = await db.insert(pcnRecommendations).values(recommendation).returning();
+    return created;
+  }
+
+  async getPcnRecommendation(id: number): Promise<PcnRecommendation | undefined> {
+    const [rec] = await db.select().from(pcnRecommendations).where(eq(pcnRecommendations.id, id));
+    return rec || undefined;
+  }
+
+  async getPcnRecommendationsBySession(sessionId: number): Promise<PcnRecommendation[]> {
+    return db.select().from(pcnRecommendations)
+      .where(eq(pcnRecommendations.sessionId, sessionId))
+      .orderBy(desc(pcnRecommendations.createdAt));
+  }
+
+  async getPcnRecommendationsByFlag(flagId: number): Promise<PcnRecommendation[]> {
+    return db.select().from(pcnRecommendations)
+      .where(eq(pcnRecommendations.flagId, flagId))
+      .orderBy(desc(pcnRecommendations.createdAt));
+  }
+
+  async getLatestPcnRecommendationForSession(sessionId: number): Promise<PcnRecommendation | undefined> {
+    const [latest] = await db.select().from(pcnRecommendations)
+      .where(eq(pcnRecommendations.sessionId, sessionId))
+      .orderBy(desc(pcnRecommendations.createdAt))
+      .limit(1);
+    return latest || undefined;
   }
 
   // Driver Profiles

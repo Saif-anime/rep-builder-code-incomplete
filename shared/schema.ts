@@ -949,3 +949,71 @@ export const driverProfilesRelations = relations(driverProfiles, ({ one }) => ({
     references: [parkingSites.id],
   }),
 }));
+
+// ==================== PCN RECOMMENDATIONS ====================
+export type RecommendationSource = "SYSTEM" | "USER";
+export type RecommendationAction = "HOLD_PCN" | "PROCEED_PCN" | "REVIEW_REQUIRED" | "AUTO_DISMISS";
+
+export const pcnRecommendations = pgTable("pcn_recommendations", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").references(() => parkingSessions.id).notNull(),
+  flagId: integer("flag_id").references(() => sessionFlags.id),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  vrm: varchar("vrm", { length: 20 }).notNull(),
+  action: text("action").$type<RecommendationAction>().notNull(),
+  previousAction: text("previous_action").$type<RecommendationAction>(),
+  source: text("source").$type<RecommendationSource>().notNull().default("SYSTEM"),
+  createdBy: varchar("created_by").references(() => users.id),
+  reason: text("reason").notNull(),
+  reasonPlain: text("reason_plain").notNull(),
+  evidenceJson: jsonb("evidence_json").$type<{
+    weatherConditions?: string;
+    weatherAlerts?: string[];
+    localEvents?: Array<{ name: string; type: string; distance?: string }>;
+    driverProfile?: {
+      classification: string;
+      riskScore: number;
+      riskFlag: string;
+    };
+    sessionDetails?: {
+      entryAt: string;
+      exitAt?: string;
+      durationMinutes?: number;
+      maxStayMinutes?: number;
+    };
+    siteContext?: string[];
+    overrideReason?: string;
+  }>(),
+  confidence: real("confidence").notNull().default(0.5),
+  isOverride: boolean("is_override").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPcnRecommendationSchema = createInsertSchema(pcnRecommendations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPcnRecommendation = z.infer<typeof insertPcnRecommendationSchema>;
+export type PcnRecommendation = typeof pcnRecommendations.$inferSelect;
+
+export const pcnRecommendationsRelations = relations(pcnRecommendations, ({ one }) => ({
+  session: one(parkingSessions, {
+    fields: [pcnRecommendations.sessionId],
+    references: [parkingSessions.id],
+  }),
+  flag: one(sessionFlags, {
+    fields: [pcnRecommendations.flagId],
+    references: [sessionFlags.id],
+  }),
+  site: one(parkingSites, {
+    fields: [pcnRecommendations.siteId],
+    references: [parkingSites.id],
+  }),
+  creator: one(users, {
+    fields: [pcnRecommendations.createdBy],
+    references: [users.id],
+  }),
+}));
