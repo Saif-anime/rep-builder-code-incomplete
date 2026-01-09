@@ -922,6 +922,109 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== ANPR EVENTS ====================
+  app.post("/api/anpr/events", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { anprService } = await import("./anpr-service");
+      const { insertAnprEventSchema } = await import("@shared/schema");
+      const { z } = await import("zod");
+
+      const eventSchema = insertAnprEventSchema.extend({
+        eventType: z.enum(["ENTRY", "EXIT"]),
+      });
+
+      if (Array.isArray(req.body)) {
+        const events = req.body.map((e: any) => {
+          const parsed = eventSchema.parse({
+            ...e,
+            occurredAt: new Date(e.occurredAt),
+            vrm: e.vrm?.toUpperCase().replace(/\s+/g, ""),
+          });
+          return parsed;
+        });
+        
+        const results = await anprService.processBatchEvents(events);
+        
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "create",
+          entityType: "anpr_event",
+          entityId: "batch",
+          details: { count: results.length },
+        });
+
+        res.status(201).json({
+          success: true,
+          processed: results.length,
+          results: results.map(r => ({
+            eventId: r.event.id,
+            sessionId: r.session?.id,
+            action: r.action,
+            orphanReason: r.orphanReason,
+          })),
+        });
+      } else {
+        const parsed = eventSchema.parse({
+          ...req.body,
+          occurredAt: new Date(req.body.occurredAt),
+          vrm: req.body.vrm?.toUpperCase().replace(/\s+/g, ""),
+        });
+
+        const result = await anprService.processEvent(parsed);
+        
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "create",
+          entityType: "anpr_event",
+          entityId: result.event.id.toString(),
+          details: { 
+            vrm: result.event.vrm,
+            eventType: result.event.eventType,
+            sessionAction: result.action,
+          },
+        });
+
+        res.status(201).json({
+          success: true,
+          event: result.event,
+          session: result.session,
+          action: result.action,
+          orphanReason: result.orphanReason,
+        });
+      }
+    } catch (error: any) {
+      console.error("ANPR event error:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid event data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to process ANPR event" });
+    }
+  });
+
+  app.get("/api/sites/:id/sessions", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+
+      const { from, to } = req.query;
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
+
+      const sessions = await storage.getSessionsBySite(siteId, fromDate, toDate);
+      res.json(sessions);
+    } catch (error) {
+      console.error("Get sessions error:", error);
+      res.status(500).json({ error: "Failed to fetch sessions" });
+    }
+  });
+
   // ==================== AI SETTINGS ====================
   app.get("/api/settings/ai", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
