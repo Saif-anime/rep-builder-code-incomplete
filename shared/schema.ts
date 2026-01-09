@@ -578,3 +578,158 @@ export const parkingSessionsRelations = relations(parkingSessions, ({ one }) => 
     references: [anprEvents.id],
   }),
 }));
+
+// ==================== SIGNAGE INSPECTIONS ====================
+export const signageInspectionStatusEnum = ["draft", "submitted", "approved", "rejected"] as const;
+export type SignageInspectionStatus = typeof signageInspectionStatusEnum[number];
+
+export const signageConditionEnum = ["good", "damaged", "missing"] as const;
+export type SignageCondition = typeof signageConditionEnum[number];
+
+export const signageInspections = pgTable("signage_inspections", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  inspectionDate: timestamp("inspection_date").notNull(),
+  inspectorId: varchar("inspector_id").references(() => users.id).notNull(),
+  inspectorName: text("inspector_name").notNull(),
+  siteCode: text("site_code"),
+  siteAddress: text("site_address"),
+  status: text("status").notNull().default("draft"), // draft, submitted, approved, rejected
+  
+  // Section 2: Entrance Signage
+  entranceSignagePresent: boolean("entrance_signage_present"),
+  entranceClearlyVisible: boolean("entrance_clearly_visible"),
+  entranceCorrectWording: boolean("entrance_correct_wording"),
+  entranceHeightCompliant: boolean("entrance_height_compliant"),
+  entranceLightingDay: boolean("entrance_lighting_day"),
+  entranceLightingNight: boolean("entrance_lighting_night"),
+  entranceCondition: text("entrance_condition"), // good, damaged, missing
+  
+  // Section 3: Terms & Conditions Signage
+  tcTariffVisible: boolean("tc_tariff_visible"),
+  tcFontReadable: boolean("tc_font_readable"),
+  tcDistanceReadable: real("tc_distance_readable"), // in meters
+  tcLanguageCorrect: boolean("tc_language_correct"),
+  tcLightingPresent: boolean("tc_lighting_present"),
+  
+  // Section 4: Bay-Specific Signage - Disabled
+  disabledSignPresent: boolean("disabled_sign_present"),
+  disabledMarkingsVisible: boolean("disabled_markings_visible"),
+  disabledUprightSign: boolean("disabled_upright_sign"),
+  disabledWordingCorrect: boolean("disabled_wording_correct"),
+  
+  // Section 4: Bay-Specific Signage - EV
+  evSignPresent: boolean("ev_sign_present"),
+  evMarkingsVisible: boolean("ev_markings_visible"),
+  evUprightSign: boolean("ev_upright_sign"),
+  evWordingCorrect: boolean("ev_wording_correct"),
+  
+  // Section 4: Bay-Specific Signage - Parent & Child
+  parentChildSignPresent: boolean("parent_child_sign_present"),
+  parentChildMarkingsVisible: boolean("parent_child_markings_visible"),
+  parentChildUprightSign: boolean("parent_child_upright_sign"),
+  parentChildWordingCorrect: boolean("parent_child_wording_correct"),
+  
+  // Section 5: General Compliance Check
+  bpaIpcCompliant: boolean("bpa_ipc_compliant"),
+  conflictingSignagePresent: boolean("conflicting_signage_present"),
+  obstructionsPresent: boolean("obstructions_present"),
+  weatherDamage: boolean("weather_damage"),
+  graffitiPresent: boolean("graffiti_present"),
+  generalNotes: text("general_notes"),
+  
+  // Section 6: Declaration
+  signatureData: text("signature_data"), // Base64 encoded signature image
+  declarationTimestamp: timestamp("declaration_timestamp"),
+  
+  // Compliance Scores (calculated)
+  overallComplianceScore: real("overall_compliance_score"),
+  entranceScore: real("entrance_score"),
+  tcScore: real("tc_score"),
+  baySignageScore: real("bay_signage_score"),
+  generalScore: real("general_score"),
+  appealRiskScore: real("appeal_risk_score"),
+  nightVisibilityRisk: real("night_visibility_risk"),
+  
+  // AI Analysis
+  aiAnalysis: jsonb("ai_analysis").$type<{
+    summary?: string;
+    weaknesses?: string[];
+    recommendations?: string[];
+    legalRisks?: string[];
+    complianceIssues?: string[];
+  }>(),
+  
+  // Metadata
+  submittedAt: timestamp("submitted_at"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSignageInspectionSchema = createInsertSchema(signageInspections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  submittedAt: true,
+  approvedAt: true,
+});
+
+export type InsertSignageInspection = z.infer<typeof insertSignageInspectionSchema>;
+export type SignageInspection = typeof signageInspections.$inferSelect;
+
+// ==================== SIGNAGE PHOTOS ====================
+export const signagePhotos = pgTable("signage_photos", {
+  id: serial("id").primaryKey(),
+  inspectionId: integer("inspection_id").references(() => signageInspections.id, { onDelete: "cascade" }).notNull(),
+  section: text("section").notNull(), // entrance, tc, disabled, ev, parent_child, general
+  photoPath: text("photo_path").notNull(),
+  thumbnailPath: text("thumbnail_path"),
+  caption: text("caption"),
+  sha256Hash: text("sha256_hash"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  metadata: jsonb("metadata").$type<{
+    width?: number;
+    height?: number;
+    format?: string;
+    fileSize?: number;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertSignagePhotoSchema = createInsertSchema(signagePhotos).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSignagePhoto = z.infer<typeof insertSignagePhotoSchema>;
+export type SignagePhoto = typeof signagePhotos.$inferSelect;
+
+// ==================== SIGNAGE RELATIONS ====================
+export const signageInspectionsRelations = relations(signageInspections, ({ one, many }) => ({
+  site: one(parkingSites, {
+    fields: [signageInspections.siteId],
+    references: [parkingSites.id],
+  }),
+  inspector: one(users, {
+    fields: [signageInspections.inspectorId],
+    references: [users.id],
+  }),
+  approver: one(users, {
+    fields: [signageInspections.approvedBy],
+    references: [users.id],
+  }),
+  photos: many(signagePhotos),
+}));
+
+export const signagePhotosRelations = relations(signagePhotos, ({ one }) => ({
+  inspection: one(signageInspections, {
+    fields: [signagePhotos.inspectionId],
+    references: [signageInspections.id],
+  }),
+  uploader: one(users, {
+    fields: [signagePhotos.uploadedBy],
+    references: [users.id],
+  }),
+}));

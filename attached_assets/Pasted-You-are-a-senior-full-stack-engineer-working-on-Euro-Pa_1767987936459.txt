@@ -1,0 +1,190 @@
+You are a senior full-stack engineer working on
+Euro Parking Services – Parking Enforcement System (Replit).
+
+The business already uses a SIGNAGE INSPECTION PDF FORM.
+Your task is to DIGITISE this PDF and make it
+the authoritative source for signage data, analysis, and compliance.
+
+====================================================
+PRIMARY GOAL
+====================================================
+1. Convert signage PDF form into a dynamic web form
+2. Store all signage data structurally in DB
+3. Link signage data to parking sites, evidence & AI analysis
+4. Maintain 1:1 parity with the PDF (no missing fields)
+
+====================================================
+PDF HANDLING (MANDATORY)
+====================================================
+- Admin can upload the official signage PDF
+- Parse & map fields manually (NOT OCR auto-guessing)
+- Each PDF field = exact matching form input
+- Support:
+  - Checkbox
+  - Yes/No
+  - Multi-select
+  - Text
+  - Signature
+  - Image attachments
+
+====================================================
+SIGNAGE FORM STRUCTURE
+====================================================
+Create a DIGITAL SIGNAGE INSPECTION FORM
+based EXACTLY on the PDF sections:
+
+--------------------------------------
+SECTION 1: SITE INFORMATION
+--------------------------------------
+- Parking Site (dropdown)
+- Site Code
+- Address
+- Inspection Date
+- Inspector Name
+
+--------------------------------------
+SECTION 2: ENTRANCE SIGNAGE
+--------------------------------------
+- Entrance signage present (Yes/No)
+- Clearly visible on entry
+- Correct wording
+- Height compliant
+- Lighting adequate (Day/Night)
+- Condition (Good/Damaged/Missing)
+- Photo upload
+
+--------------------------------------
+SECTION 3: TERMS & CONDITIONS SIGNAGE
+--------------------------------------
+- Tariff visible
+- Font readable
+- Distance readable (meters)
+- Language correct
+- Lighting present
+- Photo upload
+
+--------------------------------------
+SECTION 4: BAY-SPECIFIC SIGNAGE
+--------------------------------------
+For each bay type:
+- Disabled
+- EV
+- Parent & Child
+
+Capture:
+- Sign present (Yes/No)
+- Markings visible
+- Upright sign present
+- Wording correct
+- Photo upload
+
+--------------------------------------
+SECTION 5: GENERAL COMPLIANCE CHECK
+--------------------------------------
+- BPA/IPC compliant
+- Conflicting signage present
+- Obstructions
+- Weather damage
+- Graffiti
+- Notes
+
+--------------------------------------
+SECTION 6: DECLARATION
+--------------------------------------
+- Inspector signature
+- Timestamp
+- Submission confirmation
+
+====================================================
+DATABASE DESIGN (MANDATORY)
+====================================================
+Tables:
+- signage_inspections
+- signage_sections
+- signage_photos
+
+Each inspection:
+- Linked to parking_site_id
+- Versioned (audit history)
+- Immutable after submission
+
+====================================================
+ADMIN UI
+====================================================
+Parking Site → Tabs:
+- Overview
+- Cameras
+- Signage (PDF-based)
+
+Features:
+- Start new signage inspection
+- View past inspections
+- Compare inspections over time
+- Export to PDF
+
+====================================================
+EVIDENCE LINKING
+====================================================
+When evidence (camera/manual) is uploaded:
+- Auto-attach latest signage inspection
+- Flag if signage was:
+  - Non-compliant
+  - Missing
+  - Damaged
+
+====================================================
+ANALYSIS & AI
+====================================================
+Create Signage Analysis Engine:
+
+Metrics:
+- Site signage compliance score
+- Violation vs signage quality correlation
+- Appeal risk score (based on signage)
+- Missing signage alerts
+- Night-time visibility risk
+
+AI tasks:
+- Summarise signage weaknesses
+- Recommend signage improvements
+- Flag legally risky sites
+
+====================================================
+VALIDATION RULES
+====================================================
+- Inspection cannot submit without photos
+- Disabled/EV bays MUST have signage
+- Entrance signage mandatory
+- Non-compliant sites show RED warning badge
+
+====================================================
+TECH RULES
+====================================================
+- React + Tailwind
+- Node + Express
+- SQLite/Postgres
+- Replit-ready
+- No Docker
+- No TODOs
+- Production-grade code
+
+====================================================
+SECURITY & AUDIT
+====================================================
+- Only Admin/Inspector roles allowed
+- All edits logged
+- Evidence read-only after inspection
+
+====================================================
+OUTPUT REQUIRED
+====================================================
+- Full working signage system
+- PDF-accurate digital form
+- Analysis & dashboards
+- Evidence integration
+
+IMPORTANT:
+DO NOT SIMPLIFY
+DO NOT CHANGE FIELD MEANING
+FOLLOW THE PDF EXACTLY
+GENERATE FULL IMPLEMENTATION
