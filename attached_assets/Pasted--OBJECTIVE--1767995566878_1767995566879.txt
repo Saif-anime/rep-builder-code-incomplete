@@ -1,0 +1,134 @@
+====================================================
+OBJECTIVE
+====================================================
+Refactor the Signage Inspection module so that:
+
+❌ ALL manual form sections are REMOVED
+❌ NO empty inputs are shown
+✅ UI is populated ONLY from uploaded PDF data
+✅ PDF becomes the single source of truth
+
+This page must be READ-ONLY + DATA-DRIVEN.
+
+====================================================
+SECTIONS TO REMOVE COMPLETELY
+====================================================
+
+DELETE the following UI sections and logic:
+
+- Site Info
+- Entrance
+- T&C
+- Bay Signage
+- General
+- Declaration
+- Manual navigation tabs
+- Manual input fields
+- Save Draft button
+
+There must be NO editable form inputs.
+
+====================================================
+NEW UX FLOW (MANDATORY)
+====================================================
+
+1️⃣ User opens `/signage/:siteId`
+2️⃣ User clicks **“Import from PDF”**
+3️⃣ PDF is uploaded
+4️⃣ Backend parses PDF
+5️⃣ Extracted data is returned as structured JSON
+6️⃣ UI dynamically renders sections ONLY if data exists
+
+If no PDF uploaded → show:
+"Please upload a signage inspection PDF"
+
+====================================================
+BACKEND REQUIREMENTS
+====================================================
+
+Update endpoint:
+
+POST /api/signage-inspections/parse-pdf
+
+Must return:
+
+{
+  success: true,
+  pdfFileName: string,
+  extractedData: {
+    siteInformation?: {},
+    entranceSignage?: {},
+    termsAndConditions?: {},
+    baySignage?: {},
+    generalSignage?: {},
+    declaration?: {}
+  },
+  extractedText: string
+}
+
+❗ Only include sections that exist in the PDF
+❗ Do NOT fabricate missing data
+❗ Missing sections = omitted keys
+
+====================================================
+FRONTEND RENDERING RULES
+====================================================
+
+1. Render sections dynamically:
+   - Only show sections present in extractedData
+   - Hide everything else
+
+2. Each section rendered as:
+   - Card / Accordion
+   - Read-only labels + values
+   - No inputs
+
+3. Display metadata header:
+   - PDF name
+   - Upload timestamp
+   - Parsed successfully ✔
+
+====================================================
+UI STRUCTURE (EXAMPLE)
+====================================================
+
+[ PDF Metadata Card ]
+
+[ Site Information Card ] (only if exists)
+[ Entrance Signage Card ] (only if exists)
+[ Terms & Conditions Card ] (only if exists)
+[ Bay Signage Card ] (only if exists)
+[ Declaration Card ] (only if exists)
+
+====================================================
+ERROR HANDLING
+====================================================
+
+If PDF parsing fails:
+- Show backend error message
+- Do not render empty UI
+- Allow retry upload
+
+====================================================
+CLEANUP TASKS
+====================================================
+
+- Remove unused form state
+- Remove validation schemas
+- Remove draft/save logic
+- Remove tab navigation
+- Remove manual submission APIs
+
+====================================================
+NON-NEGOTIABLE
+====================================================
+
+❌ NO manual editing
+❌ NO placeholder sections
+❌ NO default values
+✅ PDF is the ONLY data source
+
+Implement fully.
+Do NOT simplify.
+Do NOT partially remove sections.
+🎯 WHAT THIS AC

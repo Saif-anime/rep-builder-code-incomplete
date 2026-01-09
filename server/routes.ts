@@ -77,9 +77,18 @@ const pdfUpload = multer({
   },
 });
 
-function parsePdfToSignageData(text: string): Record<string, any> {
+interface ExtractedSections {
+  siteInformation?: Record<string, any>;
+  entranceSignage?: Record<string, any>;
+  termsAndConditions?: Record<string, any>;
+  baySignage?: Record<string, any>;
+  generalSignage?: Record<string, any>;
+  declaration?: Record<string, any>;
+}
+
+function parsePdfToSignageData(text: string): { extractedData: ExtractedSections; flatData: Record<string, any> } {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  const data: Record<string, any> = {};
+  const flatData: Record<string, any> = {};
   
   const parseYesNo = (value: string): boolean | null => {
     const lower = value.toLowerCase().trim();
@@ -104,73 +113,132 @@ function parsePdfToSignageData(text: string): Record<string, any> {
     return val ? parseYesNo(val) : null;
   };
 
-  data.inspectorName = findValue(["inspector name", "inspector", "surveyor", "auditor", "completed by"]);
-  data.siteCode = findValue(["site code", "site id", "location code", "site ref", "reference"]);
-  data.siteAddress = findValue(["site address", "address", "location", "site location"]);
+  flatData.inspectorName = findValue(["inspector name", "inspector", "surveyor", "auditor", "completed by"]);
+  flatData.siteCode = findValue(["site code", "site id", "location code", "site ref", "reference"]);
+  flatData.siteAddress = findValue(["site address", "address", "location", "site location"]);
   
   const dateVal = findValue(["inspection date", "date", "survey date", "audit date"]);
   if (dateVal) {
     const parsed = new Date(dateVal);
     if (!isNaN(parsed.getTime())) {
-      data.inspectionDate = parsed.toISOString().split("T")[0];
+      flatData.inspectionDate = parsed.toISOString().split("T")[0];
     }
   }
 
-  data.entranceSignagePresent = findBoolValue(["entrance signage present", "entrance sign", "main entrance sign"]);
-  data.entranceClearlyVisible = findBoolValue(["entrance clearly visible", "entrance visibility", "sign visible"]);
-  data.entranceCorrectWording = findBoolValue(["entrance correct wording", "correct wording", "wording correct"]);
-  data.entranceHeightCompliant = findBoolValue(["entrance height compliant", "height compliant", "sign height"]);
-  data.entranceLightingDay = findBoolValue(["entrance lighting day", "daytime lighting", "day lighting", "visible in daylight"]);
-  data.entranceLightingNight = findBoolValue(["entrance lighting night", "night lighting", "nighttime lighting", "illuminated"]);
+  flatData.entranceSignagePresent = findBoolValue(["entrance signage present", "entrance sign", "main entrance sign"]);
+  flatData.entranceClearlyVisible = findBoolValue(["entrance clearly visible", "entrance visibility", "sign visible"]);
+  flatData.entranceCorrectWording = findBoolValue(["entrance correct wording", "correct wording", "wording correct"]);
+  flatData.entranceHeightCompliant = findBoolValue(["entrance height compliant", "height compliant", "sign height"]);
+  flatData.entranceLightingDay = findBoolValue(["entrance lighting day", "daytime lighting", "day lighting", "visible in daylight"]);
+  flatData.entranceLightingNight = findBoolValue(["entrance lighting night", "night lighting", "nighttime lighting", "illuminated"]);
   
   const conditionVal = findValue(["entrance condition", "sign condition", "condition"]);
   if (conditionVal) {
     const lower = conditionVal.toLowerCase();
-    if (lower.includes("good") || lower.includes("excellent")) data.entranceCondition = "good";
-    else if (lower.includes("damaged") || lower.includes("poor") || lower.includes("worn")) data.entranceCondition = "damaged";
-    else if (lower.includes("missing") || lower.includes("none")) data.entranceCondition = "missing";
+    if (lower.includes("good") || lower.includes("excellent")) flatData.entranceCondition = "good";
+    else if (lower.includes("damaged") || lower.includes("poor") || lower.includes("worn")) flatData.entranceCondition = "damaged";
+    else if (lower.includes("missing") || lower.includes("none")) flatData.entranceCondition = "missing";
   }
 
-  data.tcTariffVisible = findBoolValue(["tariff visible", "tariff sign", "t&c tariff", "pricing visible"]);
-  data.tcFontReadable = findBoolValue(["font readable", "text readable", "font size", "readable font"]);
-  data.tcLanguageCorrect = findBoolValue(["language correct", "correct language", "english"]);
-  data.tcLightingPresent = findBoolValue(["t&c lighting", "tc lighting", "terms lighting"]);
+  flatData.tcTariffVisible = findBoolValue(["tariff visible", "tariff sign", "t&c tariff", "pricing visible"]);
+  flatData.tcFontReadable = findBoolValue(["font readable", "text readable", "font size", "readable font"]);
+  flatData.tcLanguageCorrect = findBoolValue(["language correct", "correct language", "english"]);
+  flatData.tcLightingPresent = findBoolValue(["t&c lighting", "tc lighting", "terms lighting"]);
   
   const distanceVal = findValue(["readable distance", "reading distance", "visible from"]);
   if (distanceVal) {
     const numMatch = distanceVal.match(/(\d+(?:\.\d+)?)/);
-    if (numMatch) data.tcDistanceReadable = parseFloat(numMatch[1]);
+    if (numMatch) flatData.tcDistanceReadable = parseFloat(numMatch[1]);
   }
 
-  data.disabledSignPresent = findBoolValue(["disabled sign present", "disabled bay sign", "blue badge sign"]);
-  data.disabledMarkingsVisible = findBoolValue(["disabled markings", "disabled bay markings", "blue badge markings"]);
-  data.disabledUprightSign = findBoolValue(["disabled upright", "disabled vertical sign"]);
-  data.disabledWordingCorrect = findBoolValue(["disabled wording", "disabled sign wording"]);
+  flatData.disabledSignPresent = findBoolValue(["disabled sign present", "disabled bay sign", "blue badge sign"]);
+  flatData.disabledMarkingsVisible = findBoolValue(["disabled markings", "disabled bay markings", "blue badge markings"]);
+  flatData.disabledUprightSign = findBoolValue(["disabled upright", "disabled vertical sign"]);
+  flatData.disabledWordingCorrect = findBoolValue(["disabled wording", "disabled sign wording"]);
 
-  data.evSignPresent = findBoolValue(["ev sign present", "ev bay sign", "electric vehicle sign", "ev charging sign"]);
-  data.evMarkingsVisible = findBoolValue(["ev markings", "ev bay markings", "charging bay markings"]);
-  data.evUprightSign = findBoolValue(["ev upright", "ev vertical sign"]);
-  data.evWordingCorrect = findBoolValue(["ev wording", "ev sign wording"]);
+  flatData.evSignPresent = findBoolValue(["ev sign present", "ev bay sign", "electric vehicle sign", "ev charging sign"]);
+  flatData.evMarkingsVisible = findBoolValue(["ev markings", "ev bay markings", "charging bay markings"]);
+  flatData.evUprightSign = findBoolValue(["ev upright", "ev vertical sign"]);
+  flatData.evWordingCorrect = findBoolValue(["ev wording", "ev sign wording"]);
 
-  data.parentChildSignPresent = findBoolValue(["parent child sign", "parent & child sign", "family bay sign"]);
-  data.parentChildMarkingsVisible = findBoolValue(["parent child markings", "family bay markings"]);
-  data.parentChildUprightSign = findBoolValue(["parent child upright", "family bay upright"]);
-  data.parentChildWordingCorrect = findBoolValue(["parent child wording", "family bay wording"]);
+  flatData.parentChildSignPresent = findBoolValue(["parent child sign", "parent & child sign", "family bay sign"]);
+  flatData.parentChildMarkingsVisible = findBoolValue(["parent child markings", "family bay markings"]);
+  flatData.parentChildUprightSign = findBoolValue(["parent child upright", "family bay upright"]);
+  flatData.parentChildWordingCorrect = findBoolValue(["parent child wording", "family bay wording"]);
 
-  data.bpaIpcCompliant = findBoolValue(["bpa compliant", "ipc compliant", "bpa/ipc", "code of practice"]);
-  data.conflictingSignagePresent = findBoolValue(["conflicting signage", "conflicting signs", "contradictory"]);
-  data.obstructionsPresent = findBoolValue(["obstructions", "sign obstructed", "blocked"]);
-  data.weatherDamage = findBoolValue(["weather damage", "weather worn", "faded"]);
-  data.graffitiPresent = findBoolValue(["graffiti", "vandalism", "defaced"]);
+  flatData.bpaIpcCompliant = findBoolValue(["bpa compliant", "ipc compliant", "bpa/ipc", "code of practice"]);
+  flatData.conflictingSignagePresent = findBoolValue(["conflicting signage", "conflicting signs", "contradictory"]);
+  flatData.obstructionsPresent = findBoolValue(["obstructions", "sign obstructed", "blocked"]);
+  flatData.weatherDamage = findBoolValue(["weather damage", "weather worn", "faded"]);
+  flatData.graffitiPresent = findBoolValue(["graffiti", "vandalism", "defaced"]);
 
   const notesVal = findValue(["general notes", "notes", "comments", "observations", "additional notes"]);
-  if (notesVal) data.generalNotes = notesVal;
+  if (notesVal) flatData.generalNotes = notesVal;
 
-  Object.keys(data).forEach(key => {
-    if (data[key] === null || data[key] === undefined) delete data[key];
+  const signatureName = findValue(["signature", "signed by", "authorised by"]);
+  if (signatureName) flatData.signatureName = signatureName;
+
+  Object.keys(flatData).forEach(key => {
+    if (flatData[key] === null || flatData[key] === undefined) delete flatData[key];
   });
 
-  return data;
+  const extractedData: ExtractedSections = {};
+
+  const siteInfo: Record<string, any> = {};
+  if (flatData.inspectorName) siteInfo.inspectorName = flatData.inspectorName;
+  if (flatData.siteCode) siteInfo.siteCode = flatData.siteCode;
+  if (flatData.siteAddress) siteInfo.siteAddress = flatData.siteAddress;
+  if (flatData.inspectionDate) siteInfo.inspectionDate = flatData.inspectionDate;
+  if (Object.keys(siteInfo).length > 0) extractedData.siteInformation = siteInfo;
+
+  const entrance: Record<string, any> = {};
+  if (flatData.entranceSignagePresent !== undefined) entrance.signagePresent = flatData.entranceSignagePresent;
+  if (flatData.entranceClearlyVisible !== undefined) entrance.clearlyVisible = flatData.entranceClearlyVisible;
+  if (flatData.entranceCorrectWording !== undefined) entrance.correctWording = flatData.entranceCorrectWording;
+  if (flatData.entranceHeightCompliant !== undefined) entrance.heightCompliant = flatData.entranceHeightCompliant;
+  if (flatData.entranceLightingDay !== undefined) entrance.lightingDay = flatData.entranceLightingDay;
+  if (flatData.entranceLightingNight !== undefined) entrance.lightingNight = flatData.entranceLightingNight;
+  if (flatData.entranceCondition) entrance.condition = flatData.entranceCondition;
+  if (Object.keys(entrance).length > 0) extractedData.entranceSignage = entrance;
+
+  const tc: Record<string, any> = {};
+  if (flatData.tcTariffVisible !== undefined) tc.tariffVisible = flatData.tcTariffVisible;
+  if (flatData.tcFontReadable !== undefined) tc.fontReadable = flatData.tcFontReadable;
+  if (flatData.tcLanguageCorrect !== undefined) tc.languageCorrect = flatData.tcLanguageCorrect;
+  if (flatData.tcLightingPresent !== undefined) tc.lightingPresent = flatData.tcLightingPresent;
+  if (flatData.tcDistanceReadable !== undefined) tc.readableDistance = flatData.tcDistanceReadable;
+  if (Object.keys(tc).length > 0) extractedData.termsAndConditions = tc;
+
+  const bay: Record<string, any> = {};
+  if (flatData.disabledSignPresent !== undefined) bay.disabledSignPresent = flatData.disabledSignPresent;
+  if (flatData.disabledMarkingsVisible !== undefined) bay.disabledMarkingsVisible = flatData.disabledMarkingsVisible;
+  if (flatData.disabledUprightSign !== undefined) bay.disabledUprightSign = flatData.disabledUprightSign;
+  if (flatData.disabledWordingCorrect !== undefined) bay.disabledWordingCorrect = flatData.disabledWordingCorrect;
+  if (flatData.evSignPresent !== undefined) bay.evSignPresent = flatData.evSignPresent;
+  if (flatData.evMarkingsVisible !== undefined) bay.evMarkingsVisible = flatData.evMarkingsVisible;
+  if (flatData.evUprightSign !== undefined) bay.evUprightSign = flatData.evUprightSign;
+  if (flatData.evWordingCorrect !== undefined) bay.evWordingCorrect = flatData.evWordingCorrect;
+  if (flatData.parentChildSignPresent !== undefined) bay.parentChildSignPresent = flatData.parentChildSignPresent;
+  if (flatData.parentChildMarkingsVisible !== undefined) bay.parentChildMarkingsVisible = flatData.parentChildMarkingsVisible;
+  if (flatData.parentChildUprightSign !== undefined) bay.parentChildUprightSign = flatData.parentChildUprightSign;
+  if (flatData.parentChildWordingCorrect !== undefined) bay.parentChildWordingCorrect = flatData.parentChildWordingCorrect;
+  if (Object.keys(bay).length > 0) extractedData.baySignage = bay;
+
+  const general: Record<string, any> = {};
+  if (flatData.bpaIpcCompliant !== undefined) general.bpaIpcCompliant = flatData.bpaIpcCompliant;
+  if (flatData.conflictingSignagePresent !== undefined) general.conflictingSignagePresent = flatData.conflictingSignagePresent;
+  if (flatData.obstructionsPresent !== undefined) general.obstructionsPresent = flatData.obstructionsPresent;
+  if (flatData.weatherDamage !== undefined) general.weatherDamage = flatData.weatherDamage;
+  if (flatData.graffitiPresent !== undefined) general.graffitiPresent = flatData.graffitiPresent;
+  if (flatData.generalNotes) general.notes = flatData.generalNotes;
+  if (Object.keys(general).length > 0) extractedData.generalSignage = general;
+
+  const declaration: Record<string, any> = {};
+  if (flatData.signatureName) declaration.signedBy = flatData.signatureName;
+  if (flatData.inspectionDate) declaration.date = flatData.inspectionDate;
+  if (Object.keys(declaration).length > 0) extractedData.declaration = declaration;
+
+  return { extractedData, flatData };
 }
 
 function calculateFileHash(filePath: string): string {
@@ -2390,15 +2458,15 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
       }
       
-      const extractedData = parsePdfToSignageData(pdfData.text);
+      const { extractedData, flatData } = parsePdfToSignageData(pdfData.text);
       const inspectionData = {
-        ...extractedData,
+        ...flatData,
         siteId,
         inspectorId: req.user!.id,
-        inspectorName: extractedData.inspectorName || req.user!.fullName || req.user!.username,
-        inspectionDate: extractedData.inspectionDate ? new Date(extractedData.inspectionDate) : new Date(),
-        siteCode: extractedData.siteCode || site.locationCode,
-        siteAddress: extractedData.siteAddress || [site.addressLine1, site.city, site.postcode].filter(Boolean).join(", "),
+        inspectorName: flatData.inspectorName || req.user!.fullName || req.user!.username,
+        inspectionDate: flatData.inspectionDate ? new Date(flatData.inspectionDate) : new Date(),
+        siteCode: flatData.siteCode || site.locationCode,
+        siteAddress: flatData.siteAddress || [site.addressLine1, site.city, site.postcode].filter(Boolean).join(", "),
       };
       const parsed = insertSignageInspectionSchema.safeParse(inspectionData);
       if (!parsed.success) {
@@ -2410,10 +2478,10 @@ export async function registerRoutes(
         action: "create",
         entityType: "signage_inspection",
         entityId: String(inspection.id),
-        details: { siteId, source: "pdf_upload", extractedFields: Object.keys(extractedData) },
+        details: { siteId, source: "pdf_upload", extractedFields: Object.keys(flatData) },
       });
       console.log("[PDF Upload] Inspection created:", inspection.id);
-      res.status(201).json({ success: true, inspection, extractedData, rawText: pdfData.text.substring(0, 2000) });
+      res.status(201).json({ success: true, inspection, extractedData, flatData, rawText: pdfData.text.substring(0, 2000), pdfFileName: req.file.originalname });
     } catch (error: any) {
       console.error("[PDF Upload] Unexpected error:", error.message, error.stack);
       res.status(500).json({ success: false, message: "Server error processing PDF" });
@@ -2443,8 +2511,15 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
       }
       
-      const extractedData = parsePdfToSignageData(pdfData.text);
-      res.json({ success: true, extractedText: pdfData.text, mappedFields: extractedData, pageCount: pdfData.numpages });
+      const { extractedData, flatData } = parsePdfToSignageData(pdfData.text);
+      res.json({ 
+        success: true, 
+        pdfFileName: req.file.originalname,
+        extractedData,
+        flatData,
+        extractedText: pdfData.text, 
+        pageCount: pdfData.numpages 
+      });
     } catch (error: any) {
       console.error("[PDF Parse] Unexpected error:", error.message, error.stack);
       res.status(500).json({ success: false, message: "Server error processing PDF" });
