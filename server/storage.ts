@@ -1,6 +1,6 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings,
+  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -8,7 +8,8 @@ import {
   type ParkingSite, type InsertParkingSite,
   type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession,
   type SiteRule, type InsertSiteRule, type SiteNote, type InsertSiteNote,
-  type SiteSurroundings, type InsertSiteSurroundings
+  type SiteSurroundings, type InsertSiteSurroundings,
+  type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -146,6 +147,24 @@ export interface IStorage {
     notes: SiteNote[];
     surroundings: SiteSurroundings | undefined;
   }>;
+
+  // Signage Inspections
+  getSignageInspection(id: number): Promise<SignageInspection | undefined>;
+  getSignageInspectionsBySite(siteId: number): Promise<SignageInspection[]>;
+  getLatestSignageInspection(siteId: number): Promise<SignageInspection | undefined>;
+  createSignageInspection(inspection: InsertSignageInspection): Promise<SignageInspection>;
+  updateSignageInspection(id: number, inspection: Partial<InsertSignageInspection>): Promise<SignageInspection | undefined>;
+  deleteSignageInspection(id: number): Promise<void>;
+  submitSignageInspection(id: number): Promise<SignageInspection | undefined>;
+  approveSignageInspection(id: number, approverId: string): Promise<SignageInspection | undefined>;
+  rejectSignageInspection(id: number): Promise<SignageInspection | undefined>;
+
+  // Signage Photos
+  getSignagePhoto(id: number): Promise<SignagePhoto | undefined>;
+  getSignagePhotosByInspection(inspectionId: number): Promise<SignagePhoto[]>;
+  getSignagePhotosBySection(inspectionId: number, section: string): Promise<SignagePhoto[]>;
+  createSignagePhoto(photo: InsertSignagePhoto): Promise<SignagePhoto>;
+  deleteSignagePhoto(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -678,6 +697,124 @@ export class DatabaseStorage implements IStorage {
     ]);
 
     return { site, rules, notes, surroundings };
+  }
+
+  // Signage Inspections
+  async getSignageInspection(id: number): Promise<SignageInspection | undefined> {
+    const [inspection] = await db.select().from(signageInspections).where(eq(signageInspections.id, id));
+    return inspection || undefined;
+  }
+
+  async getSignageInspectionsBySite(siteId: number): Promise<SignageInspection[]> {
+    return db
+      .select()
+      .from(signageInspections)
+      .where(eq(signageInspections.siteId, siteId))
+      .orderBy(desc(signageInspections.inspectionDate));
+  }
+
+  async getLatestSignageInspection(siteId: number): Promise<SignageInspection | undefined> {
+    const [inspection] = await db
+      .select()
+      .from(signageInspections)
+      .where(and(
+        eq(signageInspections.siteId, siteId),
+        eq(signageInspections.status, "submitted")
+      ))
+      .orderBy(desc(signageInspections.inspectionDate))
+      .limit(1);
+    return inspection || undefined;
+  }
+
+  async createSignageInspection(inspection: InsertSignageInspection): Promise<SignageInspection> {
+    const [created] = await db.insert(signageInspections).values(inspection).returning();
+    return created;
+  }
+
+  async updateSignageInspection(id: number, inspection: Partial<InsertSignageInspection>): Promise<SignageInspection | undefined> {
+    const [updated] = await db
+      .update(signageInspections)
+      .set({ ...inspection, updatedAt: new Date() })
+      .where(eq(signageInspections.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSignageInspection(id: number): Promise<void> {
+    await db.delete(signageInspections).where(eq(signageInspections.id, id));
+  }
+
+  async submitSignageInspection(id: number): Promise<SignageInspection | undefined> {
+    const [updated] = await db
+      .update(signageInspections)
+      .set({ 
+        status: "submitted", 
+        submittedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(signageInspections.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async approveSignageInspection(id: number, approverId: string): Promise<SignageInspection | undefined> {
+    const [updated] = await db
+      .update(signageInspections)
+      .set({ 
+        status: "approved", 
+        approvedBy: approverId,
+        approvedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(signageInspections.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async rejectSignageInspection(id: number): Promise<SignageInspection | undefined> {
+    const [updated] = await db
+      .update(signageInspections)
+      .set({ 
+        status: "rejected",
+        updatedAt: new Date() 
+      })
+      .where(eq(signageInspections.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Signage Photos
+  async getSignagePhoto(id: number): Promise<SignagePhoto | undefined> {
+    const [photo] = await db.select().from(signagePhotos).where(eq(signagePhotos.id, id));
+    return photo || undefined;
+  }
+
+  async getSignagePhotosByInspection(inspectionId: number): Promise<SignagePhoto[]> {
+    return db
+      .select()
+      .from(signagePhotos)
+      .where(eq(signagePhotos.inspectionId, inspectionId))
+      .orderBy(signagePhotos.section, signagePhotos.createdAt);
+  }
+
+  async getSignagePhotosBySection(inspectionId: number, section: string): Promise<SignagePhoto[]> {
+    return db
+      .select()
+      .from(signagePhotos)
+      .where(and(
+        eq(signagePhotos.inspectionId, inspectionId),
+        eq(signagePhotos.section, section)
+      ))
+      .orderBy(signagePhotos.createdAt);
+  }
+
+  async createSignagePhoto(photo: InsertSignagePhoto): Promise<SignagePhoto> {
+    const [created] = await db.insert(signagePhotos).values(photo).returning();
+    return created;
+  }
+
+  async deleteSignagePhoto(id: number): Promise<void> {
+    await db.delete(signagePhotos).where(eq(signagePhotos.id, id));
   }
 }
 
