@@ -289,6 +289,85 @@ export const insertSiteSchema = createInsertSchema(sites).omit({
 export type InsertSite = z.infer<typeof insertSiteSchema>;
 export type Site = typeof sites.$inferSelect;
 
+// ==================== SITE RULES ====================
+export const siteRules = pgTable("site_rules", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  maxStayMinutes: integer("max_stay_minutes"),
+  graceEntryMinutes: integer("grace_entry_minutes").default(5),
+  graceExitMinutes: integer("grace_exit_minutes").default(5),
+  enforcementMode: text("enforcement_mode").notNull().default("standard"), // standard, lenient, strict, disabled
+  allowlists: jsonb("allowlists").$type<{
+    vrms?: string[];
+    permitTypes?: string[];
+    vehicleTypes?: string[];
+  }>(),
+  denylists: jsonb("denylists").$type<{
+    vrms?: string[];
+    reasons?: string[];
+  }>(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSiteRuleSchema = createInsertSchema(siteRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSiteRule = z.infer<typeof insertSiteRuleSchema>;
+export type SiteRule = typeof siteRules.$inferSelect;
+
+// ==================== SITE NOTES ====================
+export const siteNotes = pgTable("site_notes", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  noteType: text("note_type").notNull().default("general"), // general, policy, warning, info, enforcement
+  content: text("content").notNull(),
+  tags: text("tags").array(),
+  validFrom: timestamp("valid_from").notNull().defaultNow(),
+  validTo: timestamp("valid_to"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSiteNoteSchema = createInsertSchema(siteNotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSiteNote = z.infer<typeof insertSiteNoteSchema>;
+export type SiteNote = typeof siteNotes.$inferSelect;
+
+// ==================== SITE SURROUNDINGS ====================
+export const siteSurroundings = pgTable("site_surroundings", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull().unique(),
+  nearbyPlaces: jsonb("nearby_places").$type<{
+    shops?: Array<{ name: string; type?: string; distance?: string }>;
+    offices?: Array<{ name: string; type?: string; distance?: string }>;
+    venues?: Array<{ name: string; type?: string; distance?: string }>;
+    other?: Array<{ name: string; type?: string; distance?: string }>;
+  }>(),
+  freeTextSummary: text("free_text_summary"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSiteSurroundingsSchema = createInsertSchema(siteSurroundings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSiteSurroundings = z.infer<typeof insertSiteSurroundingsSchema>;
+export type SiteSurroundings = typeof siteSurroundings.$inferSelect;
+
 // ==================== AI SETTINGS ====================
 export const aiSettings = pgTable("ai_settings", {
   id: serial("id").primaryKey(),
