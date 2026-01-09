@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
@@ -384,7 +384,20 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/evidence/upload", authenticateToken, upload.array("files", 10), async (req: AuthRequest, res: Response) => {
+  app.post("/api/evidence/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
+    upload.array("files", 10)(req, res, (err: any) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ error: "File too large. Maximum size is 50MB." });
+        }
+        if (err.message === "Only images and videos are allowed") {
+          return res.status(415).json({ error: "Unsupported file type. Only images and videos allowed." });
+        }
+        return res.status(400).json({ error: err.message || "File upload error" });
+      }
+      next();
+    });
+  }, async (req: AuthRequest, res: Response) => {
     try {
       const files = req.files as Express.Multer.File[];
       if (!files || files.length === 0) {
@@ -392,7 +405,10 @@ export async function registerRoutes(
       }
 
       const { violationType, bayId, notes } = req.body;
-      const createdEvidence = [];
+      const evidenceIds: number[] = [];
+      const parkingEventIds: number[] = [];
+      let aiSummary: string | null = null;
+      let violationsDetected = false;
 
       for (const file of files) {
         const hash = calculateFileHash(file.path);
@@ -415,29 +431,58 @@ export async function registerRoutes(
           },
         });
 
-        createdEvidence.push(ev);
+        evidenceIds.push(ev.id);
 
         await storage.createAuditLog({
           userId: req.user!.id,
           action: "create",
           entityType: "evidence",
           entityId: ev.id.toString(),
-          details: { type: "manual", violationType },
+          details: { type: "manual", violationType, filename: file.originalname },
         });
 
-        // Create parking event for the evidence
         if (violationType) {
-          await storage.createParkingEvent({
+          const parkingEvent = await storage.createParkingEvent({
             evidenceId: ev.id,
             bayId: bayId ? parseInt(bayId) : null,
             violationType,
             isViolation: true,
             status: "pending",
           });
+          parkingEventIds.push(parkingEvent.id);
+
+          if (isImage) {
+            try {
+              const fetchedBay = bayId ? await storage.getBay(parseInt(bayId)) : null;
+              const bayData = fetchedBay ?? null;
+              const analysisResult = await analyzeEvidence(ev, bayData, [], violationType);
+              
+              if (analysisResult) {
+                await storage.updateParkingEvent(parkingEvent.id, {
+                  aiConfidence: analysisResult.confidence,
+                  aiExplanation: analysisResult.explanation,
+                  status: "analyzed",
+                });
+                
+                if (!aiSummary) {
+                  aiSummary = analysisResult.explanation;
+                }
+                violationsDetected = analysisResult.isViolation || violationsDetected;
+              }
+            } catch (aiError) {
+              console.error("AI analysis error (non-blocking):", aiError);
+            }
+          }
         }
       }
 
-      res.status(201).json(createdEvidence);
+      res.status(201).json({
+        success: true,
+        evidenceIds,
+        parkingEventIds,
+        aiSummary,
+        violationsDetected,
+      });
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Failed to upload evidence" });

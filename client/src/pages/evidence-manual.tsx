@@ -82,28 +82,57 @@ export default function ManualUploadPage() {
       if (data.bayId) formData.append("bayId", data.bayId);
       if (data.notes) formData.append("notes", data.notes);
 
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        throw new Error("Session expired. Please log in again.");
+      }
+
       const response = await fetch("/api/evidence/upload", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 
-      if (!response.ok) throw new Error("Upload failed");
+      if (response.status === 401) {
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("auth_user");
+        window.location.href = "/login";
+        throw new Error("Session expired");
+      }
+      
+      if (response.status === 413) {
+        throw new Error("File too large. Maximum size is 50MB.");
+      }
+      
+      if (response.status === 415) {
+        throw new Error("Unsupported file type. Only images and videos allowed.");
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Upload failed");
+      }
+      
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const aiAnalyzed = data.aiSummary ? " AI analysis completed." : "";
       toast({
         title: "Evidence uploaded",
-        description: "The evidence has been uploaded successfully.",
+        description: `${data.evidenceIds?.length || 1} file(s) uploaded successfully.${aiAnalyzed}`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/parking-events"] });
       setSelectedFiles([]);
       form.reset();
       setIsDialogOpen(false);
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Upload failed",
-        description: "Failed to upload evidence. Please try again.",
+        description: error.message || "Failed to upload evidence. Please try again.",
         variant: "destructive",
       });
     },

@@ -1,0 +1,157 @@
+Fix the MANUAL EVIDENCE UPLOAD feature in the
+Euro Parking Services enforcement system.
+
+================================================
+PROBLEM
+================================================
+Manual evidence upload fails with:
+HTTP 401 Unauthorized
+
+Even though:
+- User is logged in
+- JWT token exists
+- Other APIs work
+
+================================================
+ROOT CAUSES TO FIX
+================================================
+1. Authorization header missing on file upload
+2. JWT middleware blocking multer
+3. Multer not parsing multipart/form-data
+4. AI analysis not triggered after upload
+
+================================================
+GOAL
+================================================
+Allow AUTHENTICATED users to:
+- Upload images/videos manually
+- Store evidence correctly
+- Run AI analysis after upload
+- Return structured response
+
+================================================
+BACKEND FIXES (MANDATORY)
+================================================
+
+1️⃣ JWT AUTH MIDDLEWARE
+Create middleware/auth.js
+
+- Extract token from:
+  Authorization: Bearer <token>
+- Validate JWT
+- Attach user to req.user
+- Return 401 ONLY if token missing or invalid
+
+2️⃣ MULTER CONFIG
+Create middleware/upload.js
+
+- Accept images & videos
+- Max size 50MB
+- Store files in:
+  storage/manual-evidence/
+- Preserve original file
+- Auto-create folders
+
+3️⃣ MIDDLEWARE ORDER (CRITICAL)
+Route must be:
+
+authMiddleware → multer → controller
+
+NOT the other way around
+
+================================================
+UPLOAD API
+================================================
+POST /api/evidence/upload
+
+Headers:
+Authorization: Bearer <JWT>
+
+Body (multipart/form-data):
+- files[] (images/videos)
+- violationType
+- bayId
+- officerNotes
+
+================================================
+CONTROLLER LOGIC
+================================================
+For each uploaded file:
+- Save metadata to DB
+- Generate SHA256 hash
+- Store officer ID
+- Timestamp
+- Trigger AI analysis
+
+================================================
+AI ANALYSIS PIPELINE
+================================================
+After upload:
+- Send image to YOLO
+- Detect vehicles / people
+- Detect bay misuse
+- Run ANPR if visible
+- Send summary to OpenAI
+- Store AI result
+
+================================================
+FRONTEND FIXES (MANDATORY)
+================================================
+Fix React upload logic:
+
+- Use FormData
+- DO NOT set Content-Type manually
+- Add Authorization header
+- Show backend error messages
+
+================================================
+FRONTEND EXAMPLE REQUIREMENT
+================================================
+Axios upload must include:
+
+headers: {
+  Authorization: `Bearer ${token}`
+}
+
+================================================
+ERROR HANDLING
+================================================
+- 401 → show "Session expired"
+- 413 → file too large
+- 415 → unsupported file type
+- 500 → upload failed
+
+================================================
+RESPONSE FORMAT
+================================================
+Return:
+
+{
+  success: true,
+  evidenceIds: [],
+  aiSummary: "...",
+  violationsDetected: true
+}
+
+================================================
+REPLIT RULES
+================================================
+- Node.js only
+- No Docker
+- Use relative paths
+- Fully working
+- No TODOs
+
+================================================
+DELIVERABLE
+================================================
+- Manual upload works
+- Auth respected
+- Files stored
+- AI analysis triggered
+- UI shows success
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.
