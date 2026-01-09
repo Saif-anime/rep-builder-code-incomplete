@@ -47,7 +47,7 @@ export default function EvidencePage() {
 
   const filteredCameras = useMemo(() => {
     if (!selectedSiteId) return [];
-    return allCameras.filter(c => c.siteId === selectedSiteId);
+    return allCameras.filter(c => String(c.siteId) === selectedSiteId);
   }, [allCameras, selectedSiteId]);
 
   const uploadMutation = useMutation({
@@ -138,7 +138,7 @@ export default function EvidencePage() {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/jpeg,image/png,video/mp4,video/x-msvideo,video/avi,.jpg,.jpeg,.png,.mp4,.avi"
+                    accept=".jpg,.jpeg,.png,.mp4,.avi"
                     onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
                     data-testid="input-upload-files"
                   />
@@ -172,14 +172,13 @@ export default function EvidencePage() {
                       <SelectValue placeholder={selectedSiteId ? "Select a camera" : "Select a site first"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredCameras.length === 0 ? (
-                        <SelectItem value="_none" disabled>No cameras at this site</SelectItem>
-                      ) : (
-                        filteredCameras.map((camera) => (
-                          <SelectItem key={camera.id} value={camera.id.toString()}>
-                            {camera.name}
-                          </SelectItem>
-                        ))
+                      {filteredCameras.map((camera) => (
+                        <SelectItem key={camera.id} value={camera.id.toString()}>
+                          {camera.name}
+                        </SelectItem>
+                      ))}
+                      {filteredCameras.length === 0 && (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No cameras at this site</div>
                       )}
                     </SelectContent>
                   </Select>

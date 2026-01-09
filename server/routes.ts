@@ -45,11 +45,12 @@ const upload = multer({
   storage: multerStorage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: (req, file, cb) => {
-    const allowedExtensions = /jpeg|jpg|png|gif|mp4|webm|mov|avi/;
-    const allowedMimetypes = /jpeg|jpg|png|gif|mp4|webm|mov|avi|x-msvideo|quicktime/;
-    const extname = allowedExtensions.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedMimetypes.test(file.mimetype);
-    if (extname || mimetype) {
+    const allowedExtensions = /^(jpeg|jpg|png|mp4|avi)$/i;
+    const allowedMimetypes = /^(image\/jpeg|image\/png|video\/mp4|video\/x-msvideo|video\/avi)$/;
+    const ext = path.extname(file.originalname).toLowerCase().replace(".", "");
+    const extValid = allowedExtensions.test(ext);
+    const mimeValid = allowedMimetypes.test(file.mimetype);
+    if (extValid || mimeValid) {
       cb(null, true);
     } else {
       cb(new Error("Only images (JPG, PNG) and videos (MP4, AVI) are allowed"));
@@ -223,7 +224,8 @@ export async function registerRoutes(
       let cameras = await storage.getAllCameras();
       
       if (siteId && siteId !== "all") {
-        cameras = cameras.filter(c => c.siteId === siteId);
+        const siteIdStr = String(siteId);
+        cameras = cameras.filter(c => c.siteId === siteIdStr);
       }
       
       const sanitized = cameras.map(({ password, ...c }) => c);
