@@ -3,8 +3,7 @@ import { storage } from "./storage";
 import type { Evidence, ParkingEvent, Bay, Detection, NumberPlate } from "@shared/schema";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 interface ViolationAnalysis {
@@ -79,7 +78,7 @@ Respond in JSON format:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.1",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: 1024,
@@ -154,7 +153,7 @@ Keep it under 200 words and formal in tone.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.1",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       max_completion_tokens: 512,
     });
@@ -195,7 +194,7 @@ Keep it under 300 words.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.1",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       max_completion_tokens: 512,
     });
