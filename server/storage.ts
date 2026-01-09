@@ -1,13 +1,13 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags,
+  anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
   type AuditLog, type InsertAuditLog, type Site, type InsertSite, type AiSetting, type InsertAiSetting,
   type ParkingSite, type InsertParkingSite,
   type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession,
-  type SiteRule, type InsertSiteRule, type SiteNote, type InsertSiteNote,
+  type SiteRule, type InsertSiteRule, type SitePolicy, type InsertSitePolicy, type SiteNote, type InsertSiteNote,
   type SiteSurroundings, type InsertSiteSurroundings,
   type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto,
   type EnrichmentRun, type InsertEnrichmentRun,
@@ -127,6 +127,12 @@ export interface IStorage {
   createSiteRules(rules: InsertSiteRule): Promise<SiteRule>;
   updateSiteRules(id: number, rules: Partial<InsertSiteRule>): Promise<SiteRule | undefined>;
   deleteSiteRules(id: number): Promise<void>;
+
+  // Site Policies
+  getSitePolicy(siteId: number): Promise<SitePolicy | undefined>;
+  createSitePolicy(policy: InsertSitePolicy): Promise<SitePolicy>;
+  updateSitePolicy(id: number, policy: Partial<InsertSitePolicy>): Promise<SitePolicy | undefined>;
+  deleteSitePolicy(id: number): Promise<void>;
 
   // Site Notes
   getSiteNote(id: number): Promise<SiteNote | undefined>;
@@ -626,6 +632,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSiteRules(id: number): Promise<void> {
     await db.delete(siteRules).where(eq(siteRules.id, id));
+  }
+
+  // Site Policies
+  async getSitePolicy(siteId: number): Promise<SitePolicy | undefined> {
+    const [policy] = await db
+      .select()
+      .from(sitePolicies)
+      .where(and(eq(sitePolicies.siteId, siteId), eq(sitePolicies.isActive, true)));
+    return policy || undefined;
+  }
+
+  async createSitePolicy(policy: InsertSitePolicy): Promise<SitePolicy> {
+    const [created] = await db.insert(sitePolicies).values(policy).returning();
+    return created;
+  }
+
+  async updateSitePolicy(id: number, policy: Partial<InsertSitePolicy>): Promise<SitePolicy | undefined> {
+    const [updated] = await db
+      .update(sitePolicies)
+      .set({ ...policy, updatedAt: new Date() })
+      .where(eq(sitePolicies.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSitePolicy(id: number): Promise<void> {
+    await db.delete(sitePolicies).where(eq(sitePolicies.id, id));
   }
 
   // Site Notes

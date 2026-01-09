@@ -326,6 +326,28 @@ export const insertSiteRuleSchema = createInsertSchema(siteRules).omit({
 export type InsertSiteRule = z.infer<typeof insertSiteRuleSchema>;
 export type SiteRule = typeof siteRules.$inferSelect;
 
+// ==================== SITE POLICIES ====================
+export const sitePolicies = pgTable("site_policies", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull().unique(),
+  eventCategoriesEnforce: text("event_categories_enforce").array().default([]), // Categories where enforcement proceeds (e.g., SPORTS_MATCH)
+  eventCategoriesGrace: text("event_categories_grace").array().default([]), // Categories where PCN is held (e.g., WEATHER, ROAD_CLOSURE)
+  defaultEventPolicy: text("default_event_policy").notNull().default("hold"), // hold, enforce, review
+  weatherPolicy: text("weather_policy").notNull().default("hold"), // hold, enforce, review
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSitePolicySchema = createInsertSchema(sitePolicies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSitePolicy = z.infer<typeof insertSitePolicySchema>;
+export type SitePolicy = typeof sitePolicies.$inferSelect;
+
 // ==================== SITE NOTES ====================
 export const siteNotes = pgTable("site_notes", {
   id: serial("id").primaryKey(),
