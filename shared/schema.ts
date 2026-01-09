@@ -87,6 +87,7 @@ export type Bay = typeof bays.$inferSelect;
 export const evidence = pgTable("evidence", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(), // camera, manual
+  siteId: integer("site_id").references(() => parkingSites.id),
   cameraId: integer("camera_id").references(() => cameras.id),
   bayId: integer("bay_id").references(() => bays.id),
   uploadedBy: varchar("uploaded_by").references(() => users.id),

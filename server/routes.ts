@@ -218,8 +218,13 @@ export async function registerRoutes(
   // ==================== CAMERAS ====================
   app.get("/api/cameras", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
-      const cameras = await storage.getAllCameras();
-      // Don't expose passwords
+      const { siteId } = req.query;
+      let cameras = await storage.getAllCameras();
+      
+      if (siteId && siteId !== "all") {
+        cameras = cameras.filter(c => c.siteId === siteId);
+      }
+      
       const sanitized = cameras.map(({ password, ...c }) => c);
       res.json(sanitized);
     } catch (error) {
@@ -405,13 +410,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No files uploaded" });
       }
 
-      const { violationType, bayId, notes } = req.body;
+      const { violationType, bayId, notes, siteId, cameraId } = req.body;
       const evidenceIds: number[] = [];
       const parkingEventIds: number[] = [];
       let aiSummary: string | null = null;
       let violationsDetected = false;
       
       const parsedBayId = bayId && bayId !== "" ? parseInt(bayId) : null;
+      const parsedSiteId = siteId && siteId !== "" ? parseInt(siteId) : null;
+      const parsedCameraId = cameraId && cameraId !== "" ? parseInt(cameraId) : null;
 
       for (const file of files) {
         const hash = calculateFileHash(file.path);
@@ -420,6 +427,8 @@ export async function registerRoutes(
         const ev = await storage.createEvidence({
           type: "manual",
           uploadedBy: req.user!.id,
+          siteId: parsedSiteId,
+          cameraId: parsedCameraId,
           bayId: parsedBayId,
           imagePath: isImage ? `/uploads/${file.filename}` : null,
           videoPath: !isImage ? `/uploads/${file.filename}` : null,

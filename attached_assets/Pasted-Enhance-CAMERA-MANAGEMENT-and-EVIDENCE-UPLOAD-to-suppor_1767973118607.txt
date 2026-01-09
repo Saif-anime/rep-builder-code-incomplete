@@ -1,0 +1,177 @@
+Enhance CAMERA MANAGEMENT and EVIDENCE UPLOAD
+to support SITE and CAMERA association.
+
+================================================
+GOAL
+================================================
+1. When adding a camera, allow assignment to a parking site
+2. When uploading manual evidence, allow selecting site & camera
+3. Persist relationships in database
+4. Reflect selections throughout the dashboard
+
+================================================
+CAMERA MANAGEMENT (MANDATORY)
+================================================
+Update Add / Edit Camera flow to include fields:
+
+1. Camera Name (text)
+2. Site Name (dropdown)
+3. IP Address (text)
+4. Username (text)
+5. Password (secure field)
+
+================================================
+CAMERA FORM REQUIREMENTS
+================================================
+- Site Name dropdown populated from parking_sites table
+- Camera belongs to exactly ONE site
+- Validate IP format
+- Encrypt or securely store credentials
+- Allow edit & delete
+
+================================================
+DATABASE UPDATES
+================================================
+
+Modify cameras table:
+- id
+- camera_name
+- site_id (FK → parking_sites.id)
+- ip_address
+- username
+- password_encrypted
+- status
+- created_at
+
+================================================
+BACKEND API (MANDATORY)
+================================================
+
+GET  /api/sites
+POST /api/cameras
+PUT  /api/cameras/:id
+GET  /api/cameras
+
+Camera POST body:
+{
+  cameraName,
+  siteId,
+  ipAddress,
+  username,
+  password
+}
+
+================================================
+MANUAL EVIDENCE UPLOAD (MANDATORY)
+================================================
+Enhance manual upload form to include:
+
+1. Site Name (dropdown)
+2. Camera Name (dropdown, filtered by site)
+
+================================================
+MANUAL EVIDENCE FORM LOGIC
+================================================
+- Site dropdown populated from parking_sites
+- Camera dropdown updates based on selected site
+- Camera optional (manual uploads may not be camera-based)
+- Validate selections
+
+================================================
+DATABASE UPDATES – EVIDENCE
+================================================
+
+Modify evidence table:
+- id
+- source (camera | manual)
+- site_id
+- camera_id (nullable)
+- file_path
+- violation_type
+- officer_notes
+- status
+- created_at
+
+================================================
+BACKEND EVIDENCE API
+================================================
+POST /api/evidence/upload
+
+Accept multipart/form-data:
+- files[]
+- siteId
+- cameraId (optional)
+- violationType
+- officerNotes
+
+================================================
+FRONTEND REQUIREMENTS
+================================================
+- React + Tailwind
+- Clean modal forms
+- Dropdown dependent loading
+- Loading & error states
+- Maintain selected values on error
+
+================================================
+DATA CONSISTENCY RULES
+================================================
+- Camera must belong to selected site
+- Evidence site must always be present
+- Camera optional only for manual uploads
+
+================================================
+UI DISPLAY REQUIREMENTS
+================================================
+Evidence cards must display:
+- Site Name
+- Camera Name (if available)
+- Source (Camera / Manual)
+- Status
+- Timestamp
+
+================================================
+REPLIT RULES
+================================================
+- Node.js + Express
+- SQLite compatible
+- No Docker
+- Fully wired
+- No TODOs
+- One-click run
+
+================================================
+DELIVERABLE
+================================================
+- Camera add/edit supports site assignment
+- Manual upload includes site & camera selection
+- Database relations enforced
+- UI reflects metadata correctly
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.
+✅ WHAT THIS PROMPT FIXES & ADDS
+✔ Camera ↔ Site relationship
+✔ Dropdown-driven UI
+✔ Correct evidence metadata
+✔ Clean admin workflow
+✔ Scalable data model
+
+🚀 NEXT OPTIONAL FEATURES (WHEN READY)
+Camera → Bay mapping
+
+Auto-site selection from camera
+
+Heatmap per site
+
+Site-based permissions
+
+Just tell me what you want next.
+
+
+
+
+
+
