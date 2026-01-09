@@ -83,8 +83,20 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
    - Analyzes parking sessions with external context (weather, local events, site inventory)
    - Provider interfaces for weather and events (mock implementations, can swap for real APIs)
    - Site inventory analysis: aggregates rules, notes, and surroundings
-   - Anomaly detection: identifies overstay spikes (>1.5x baseline rate of 15%)
+   - Anomaly detection: identifies overstay spikes with intelligent baseline calculation
    - Stores enrichment results in database for historical analysis
+
+10. **Spike Detection & Session Flagging**
+    - Historical baseline calculation: 28-day lookback on same weekday/hour band
+    - Configurable spike threshold multiplier (default 1.5x baseline)
+    - Automatic session flagging when spike detected
+    - Flag types: POSSIBLE_DISRUPTION, WEATHER_DISRUPTION, EVENT_DISRUPTION, ROAD_INCIDENT
+    - Flag severity levels: low, medium, high, critical
+    - Recommendations: HOLD_PCN (suspend enforcement), REVIEW_REQUIRED (manual review)
+    - Evidence capture: weather conditions, local events, site inventory hits
+    - Site-level override policies: hold_on_disruption, always_enforce, review_required
+    - Per-site enforcement overrides: enforceOnWeather, enforceOnEvents
+    - Flag workflow: OPEN → RESOLVED/DISMISSED
 
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
@@ -115,9 +127,14 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `POST /api/signage-inspections/parse-pdf` - Preview PDF extraction
 - `POST /api/signage-inspections/:id/photos` - Upload inspection photos
 - `DELETE /api/signage-photos/:id` - Delete inspection photo
-- `POST /api/sites/:id/enrichment/run` - Run context enrichment analysis
+- `POST /api/sites/:id/enrichment/run` - Run context enrichment analysis (includes automatic flagging)
 - `GET /api/sites/:id/enrichment/runs` - Get enrichment run history for a site
 - `GET /api/enrichment/runs/:id` - Get specific enrichment run details
+- `GET /api/sites/:id/flags` - Get session flags for a site (query params: from, to, status)
+- `GET /api/sessions/:id/flags` - Get flags for a specific session
+- `GET /api/flags/:id` - Get specific flag details
+- `POST /api/flags/:id/resolve` - Resolve a flag (Admin/Operator)
+- `POST /api/flags/:id/dismiss` - Dismiss a flag (Admin/Operator)
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)

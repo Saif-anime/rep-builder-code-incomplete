@@ -641,7 +641,7 @@ export async function runEnrichment(
     getSiteInventoryHits(siteId, windowStart, windowEnd),
   ]);
   
-  const anomalySummary = await getAnomalySummary(siteId, windowStart, windowEnd, rules);
+  const anomalySummary = await getAnomalySummary(siteId, windowStart, windowEnd, rules || null);
   
   console.log(`[Enrichment] Completed enrichment for site ${siteId}`);
   console.log(`  - Weather: ${weatherSummary?.conditions || "N/A"}`);
@@ -666,7 +666,7 @@ export async function runEnrichment(
       windowEnd,
       enrichmentRunId,
       results,
-      rules
+      rules || null
     );
     console.log(`[Enrichment] Flagging result: ${flaggingResult.flagsCreated} flags created, recommendation: ${flaggingResult.recommendation}`);
   }

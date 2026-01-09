@@ -1626,14 +1626,22 @@ export async function registerRoutes(
       });
 
       try {
-        const results = await runEnrichment(siteId, startDate, endDate, req.user?.id);
+        const results = await runEnrichment(siteId, startDate, endDate, req.user?.id, undefined, enrichmentRun.id);
         
         const updatedRun = await storage.updateEnrichmentRun(enrichmentRun.id, {
           status: "completed",
-          results,
+          results: {
+            weatherSummary: results.weatherSummary,
+            localEventsSummary: results.localEventsSummary,
+            siteInventoryHits: results.siteInventoryHits,
+            anomalySummary: results.anomalySummary,
+          },
         });
 
-        res.json(updatedRun);
+        res.json({
+          ...updatedRun,
+          flaggingResult: results.flaggingResult,
+        });
       } catch (enrichmentError) {
         console.error("[Enrichment] Run failed:", enrichmentError);
         
@@ -1677,6 +1685,99 @@ export async function registerRoutes(
       res.json(run);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch enrichment run" });
+    }
+  });
+
+  // ==================== SESSION FLAGS ====================
+  app.get("/api/sites/:id/flags", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const { from, to, status } = req.query;
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
+
+      const flags = await storage.getSessionFlagsBySite(siteId, fromDate, toDate);
+      
+      if (status) {
+        const filteredFlags = flags.filter(f => f.status === status);
+        return res.json(filteredFlags);
+      }
+      
+      res.json(flags);
+    } catch (error) {
+      console.error("[Flags] Error fetching flags:", error);
+      res.status(500).json({ error: "Failed to fetch session flags" });
+    }
+  });
+
+  app.get("/api/sessions/:id/flags", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      if (isNaN(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID" });
+      }
+
+      const flags = await storage.getSessionFlagsBySession(sessionId);
+      res.json(flags);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch session flags" });
+    }
+  });
+
+  app.get("/api/flags/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid flag ID" });
+      }
+
+      const flag = await storage.getSessionFlag(id);
+      if (!flag) {
+        return res.status(404).json({ error: "Flag not found" });
+      }
+      res.json(flag);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch flag" });
+    }
+  });
+
+  app.post("/api/flags/:id/resolve", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid flag ID" });
+      }
+
+      const { notes } = req.body;
+      const resolved = await storage.resolveSessionFlag(id, req.user!.id, notes);
+      if (!resolved) {
+        return res.status(404).json({ error: "Flag not found" });
+      }
+      res.json(resolved);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to resolve flag" });
+    }
+  });
+
+  app.post("/api/flags/:id/dismiss", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid flag ID" });
+      }
+
+      const { notes } = req.body;
+      const dismissed = await storage.dismissSessionFlag(id, req.user!.id, notes);
+      if (!dismissed) {
+        return res.status(404).json({ error: "Flag not found" });
+      }
+      res.json(dismissed);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to dismiss flag" });
     }
   });
 
