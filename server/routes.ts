@@ -1066,6 +1066,301 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== SITE RULES ====================
+  app.get("/api/sites/:id/rules", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const rules = await storage.getSiteRules(siteId);
+      res.json(rules || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site rules" });
+    }
+  });
+
+  app.post("/api/sites/:id/rules", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const existing = await storage.getSiteRules(siteId);
+      if (existing) {
+        return res.status(409).json({ error: "Rules already exist for this site. Use PATCH to update." });
+      }
+      const rules = await storage.createSiteRules({ ...req.body, siteId });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "site_rules",
+        entityId: String(rules.id),
+        details: req.body,
+      });
+      res.status(201).json(rules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create site rules" });
+    }
+  });
+
+  app.patch("/api/sites/:id/rules", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSiteRules(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Rules not found for this site" });
+      }
+      const rules = await storage.updateSiteRules(existing.id, req.body);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_rules",
+        entityId: String(existing.id),
+        details: req.body,
+      });
+      res.json(rules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update site rules" });
+    }
+  });
+
+  app.delete("/api/sites/:id/rules", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSiteRules(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Rules not found for this site" });
+      }
+      await storage.deleteSiteRules(existing.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "site_rules",
+        entityId: String(existing.id),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete site rules" });
+    }
+  });
+
+  // ==================== SITE NOTES ====================
+  app.get("/api/sites/:id/notes", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const notes = await storage.getSiteNotes(siteId);
+      res.json(notes);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site notes" });
+    }
+  });
+
+  app.post("/api/sites/:id/notes", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const noteData = {
+        ...req.body,
+        siteId,
+        createdBy: req.user!.id,
+        validFrom: req.body.validFrom ? new Date(req.body.validFrom) : new Date(),
+        validTo: req.body.validTo ? new Date(req.body.validTo) : null,
+      };
+      const note = await storage.createSiteNote(noteData);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "site_note",
+        entityId: String(note.id),
+        details: { content: note.content, tags: note.tags },
+      });
+      res.status(201).json(note);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create site note" });
+    }
+  });
+
+  app.patch("/api/notes/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const noteId = parseInt(req.params.id);
+      if (isNaN(noteId)) {
+        return res.status(400).json({ error: "Invalid note ID" });
+      }
+      const existing = await storage.getSiteNote(noteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Note not found" });
+      }
+      const updateData = { ...req.body };
+      if (updateData.validFrom) updateData.validFrom = new Date(updateData.validFrom);
+      if (updateData.validTo) updateData.validTo = new Date(updateData.validTo);
+      const note = await storage.updateSiteNote(noteId, updateData);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_note",
+        entityId: String(noteId),
+        details: req.body,
+      });
+      res.json(note);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update site note" });
+    }
+  });
+
+  app.delete("/api/notes/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const noteId = parseInt(req.params.id);
+      if (isNaN(noteId)) {
+        return res.status(400).json({ error: "Invalid note ID" });
+      }
+      const existing = await storage.getSiteNote(noteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Note not found" });
+      }
+      await storage.deleteSiteNote(noteId);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "site_note",
+        entityId: String(noteId),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete site note" });
+    }
+  });
+
+  // ==================== SITE SURROUNDINGS ====================
+  app.get("/api/sites/:id/surroundings", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const surroundings = await storage.getSiteSurroundings(siteId);
+      res.json(surroundings || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site surroundings" });
+    }
+  });
+
+  app.post("/api/sites/:id/surroundings", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const existing = await storage.getSiteSurroundings(siteId);
+      if (existing) {
+        return res.status(409).json({ error: "Surroundings already exist for this site. Use PATCH to update." });
+      }
+      const surroundings = await storage.createSiteSurroundings({ ...req.body, siteId });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "site_surroundings",
+        entityId: String(surroundings.id),
+        details: req.body,
+      });
+      res.status(201).json(surroundings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create site surroundings" });
+    }
+  });
+
+  app.patch("/api/sites/:id/surroundings", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSiteSurroundings(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Surroundings not found for this site" });
+      }
+      const surroundings = await storage.updateSiteSurroundings(existing.id, req.body);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_surroundings",
+        entityId: String(existing.id),
+        details: req.body,
+      });
+      res.json(surroundings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update site surroundings" });
+    }
+  });
+
+  app.delete("/api/sites/:id/surroundings", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSiteSurroundings(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Surroundings not found for this site" });
+      }
+      await storage.deleteSiteSurroundings(existing.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "site_surroundings",
+        entityId: String(existing.id),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete site surroundings" });
+    }
+  });
+
+  // ==================== SITE CONTEXT ====================
+  app.get("/api/sites/:id/context", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const { at } = req.query;
+      const atTime = at ? new Date(at as string) : new Date();
+      if (isNaN(atTime.getTime())) {
+        return res.status(400).json({ error: "Invalid 'at' time parameter" });
+      }
+      const context = await storage.getSiteContext(siteId, atTime);
+      if (!context.site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      res.json(context);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site context" });
+    }
+  });
+
   // ==================== AI SETTINGS ====================
   app.get("/api/settings/ai", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
