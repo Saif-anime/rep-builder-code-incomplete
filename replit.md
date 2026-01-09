@@ -54,9 +54,13 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
    - Overstay
    - No Permit
 
-5. **ANPR**
-   - UK number plate format validation
-   - Current, prefix, suffix, and dateless formats
+5. **ANPR Session Tracking**
+   - UK number plate format validation (current, prefix, suffix, dateless)
+   - Intelligent entry/exit pairing with 24-hour configurable matching window
+   - Session states: OPEN, CLOSED, ORPHAN
+   - Orphan detection: DOUBLE_ENTRY (vehicle enters with existing open session), MISSING_ENTRY (exit without matching entry)
+   - VRM normalization (uppercase, whitespace removal)
+   - Batch event processing with chronological ordering
 
 6. **PCN Generation**
    - Automated PCN number generation
@@ -79,6 +83,8 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `POST /api/parking-events/:id/analyze` - AI analysis
 - `POST /api/parking-events/:id/generate-pcn` - PCN generation
 - `GET /api/number-plates` - ANPR results
+- `POST /api/anpr/events` - Submit ANPR events (single or batch)
+- `GET /api/sites/:id/sessions` - Get parking sessions for a site (with pagination/filtering)
 - `GET/PATCH /api/settings/ai` - AI threshold settings
 
 ## Design Guidelines
