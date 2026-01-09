@@ -107,6 +107,29 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
     - Configurable weatherPolicy: hold (default), enforce, review
     - Configurable defaultEventPolicy: hold (default), enforce, review
 
+12. **Driver Behaviour Profiling**
+    - Tracks visit statistics per VRM at each site (30d/90d/total visits)
+    - Duration analytics: median, mean, standard deviation calculations
+    - Arrival time bucket analysis with percentage distribution and variance detection
+    - Behavioural classifications:
+      - COMMUTER_PATTERN: Frequent short stays, low variance (≥20 visits/month, ≤20min median, ≤10min stddev)
+      - OCCASIONAL_PATRON: Low frequency, moderate duration (≤2 visits/month, 60-180min stays)
+      - FIRST_TIME_LATE: First visit with overstay (benefit of doubt)
+      - REGULAR_PATRON: Consistent reasonable usage
+      - UNKNOWN: Insufficient data for classification
+    - Risk scoring system (0-100) with weighted factors:
+      - DAILY_SHORT_STAY (40 weight): Daily ~20min patterns
+      - CONSISTENT_ARRIVAL (30 weight): Same arrival time variance ≤2h
+      - LOW_DURATION_VARIANCE (20 weight): Predictable stay lengths
+      - OCCASIONAL_MODERATE_STAY (-30 weight): Fair user indicator
+    - Risk flags:
+      - POSSIBLE_COMMUTER_MISUSE: High risk score (90) for suspected drop-off abuse
+      - LIKELY_FAIR_USER: Low risk for genuine patron behaviour
+      - FIRST_VISIT_GRACE: Benefit of doubt for first-time overstays
+      - NONE: No specific flag assigned
+    - VRM normalization: uppercase + whitespace removal for consistency
+    - Nightly batch recomputation with configurable date range filtering
+
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
 - `GET /api/dashboard/stats` - Dashboard statistics
@@ -145,6 +168,9 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET /api/flags/:id` - Get specific flag details
 - `POST /api/flags/:id/resolve` - Resolve a flag (Admin/Operator)
 - `POST /api/flags/:id/dismiss` - Dismiss a flag (Admin/Operator)
+- `GET /api/sites/:id/drivers/:vrm/profile` - Get or calculate driver profile for VRM at site
+- `GET /api/sites/:id/drivers` - List all driver profiles for a site
+- `POST /api/sites/:id/drivers/recompute` - Batch recompute all driver profiles (query params: from, to)
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)

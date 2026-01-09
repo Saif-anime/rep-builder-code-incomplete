@@ -160,21 +160,21 @@ function classifyBehaviour(
   if (isFrequent && isShortStay && isLowVariance) {
     riskFactors.push({
       name: "FREQUENT_SHORT_STAY",
-      weight: 35,
+      weight: 25,
       description: `${stats.visits30d} visits/month with ${Math.round(medianDuration)}min median stay`,
     });
     if (isConsistentArrivalTime) {
       riskFactors.push({
         name: "CONSISTENT_ARRIVAL",
-        weight: 25,
+        weight: 15,
         description: `Consistent arrival around ${arrivalAnalysis.mostCommonHour}:00`,
       });
     }
-    riskScore = 70;
+    riskScore = 40;
 
     return {
-      classification: "COMMUTER_PATTERN",
-      riskFlag: "POSSIBLE_COMMUTER_MISUSE",
+      classification: "REGULAR_PATRON",
+      riskFlag: "NONE",
       riskScore,
       riskFactors,
     };
