@@ -739,13 +739,147 @@ export async function registerRoutes(
     }
   });
 
-  // ==================== SITES ====================
+  // ==================== SITES (legacy) ====================
   app.get("/api/sites", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const sitesList = await storage.getAllSites();
       res.json(sitesList);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch sites" });
+    }
+  });
+
+  // ==================== PARKING SITES ====================
+  app.get("/api/parking-sites", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const parkingSitesList = await storage.getAllParkingSites();
+      res.json(parkingSitesList);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch parking sites" });
+    }
+  });
+
+  app.get("/api/parking-sites/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const site = await storage.getParkingSite(id);
+      if (!site) {
+        return res.status(404).json({ error: "Parking site not found" });
+      }
+      res.json(site);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch parking site" });
+    }
+  });
+
+  app.post("/api/parking-sites", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const site = await storage.createParkingSite(req.body);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "parking_site",
+        entityId: site.id.toString(),
+        details: { siteName: site.siteName },
+      });
+
+      res.status(201).json(site);
+    } catch (error) {
+      console.error("Create parking site error:", error);
+      res.status(500).json({ error: "Failed to create parking site" });
+    }
+  });
+
+  app.put("/api/parking-sites/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const site = await storage.updateParkingSite(id, req.body);
+      if (!site) {
+        return res.status(404).json({ error: "Parking site not found" });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "parking_site",
+        entityId: id.toString(),
+        details: { siteName: site.siteName },
+      });
+
+      res.json(site);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update parking site" });
+    }
+  });
+
+  app.delete("/api/parking-sites/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const site = await storage.getParkingSite(id);
+      if (!site) {
+        return res.status(404).json({ error: "Parking site not found" });
+      }
+
+      await storage.deleteParkingSite(id);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "parking_site",
+        entityId: id.toString(),
+        details: { siteName: site.siteName },
+      });
+
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete parking site" });
+    }
+  });
+
+  app.post("/api/parking-sites/import-json", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const { sites: importedSites } = req.body;
+      
+      if (!Array.isArray(importedSites)) {
+        return res.status(400).json({ error: "Invalid JSON format. Expected an array of sites." });
+      }
+
+      const parsedSites = importedSites.map((site: any) => ({
+        siteName: site.Name || site.siteName || "Unknown",
+        locationCode: site["Location Code"] || site.locationCode || null,
+        addressLine1: site["Address Line 1"] || site.addressLine1 || null,
+        addressLine2: site["Address Line 2"] || site.addressLine2 || null,
+        addressLine3: site["Address Line 3"] || site.addressLine3 || null,
+        addressLine4: site["Address Line 4"] || site.addressLine4 || null,
+        city: site["Town/City"] || site.city || null,
+        postcode: site.Postcode || site.postcode || null,
+        regulations: site.Regulations || site.regulations || null,
+        enforcer: site.Enforcer || site.enforcer || null,
+        totalBays: site.bays?.total || site.totalBays || 0,
+        disabledBays: site.bays?.disabled || site.disabledBays || 0,
+        evBays: site.bays?.ev || site.evBays || 0,
+        parentChildBays: site.bays?.parentChild || site.parentChildBays || 0,
+      }));
+
+      const created = await storage.importParkingSites(parsedSites);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "parking_site",
+        entityId: "bulk_import",
+        details: { count: created.length },
+      });
+
+      res.status(201).json({ 
+        success: true, 
+        imported: created.length,
+        sites: created 
+      });
+    } catch (error) {
+      console.error("Import parking sites error:", error);
+      res.status(500).json({ error: "Failed to import parking sites" });
     }
   });
 

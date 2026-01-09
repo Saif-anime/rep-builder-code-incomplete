@@ -12,12 +12,10 @@ import { Loader2 } from "lucide-react";
 
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import CameraEvidencePage from "@/pages/evidence-camera";
-import ManualUploadPage from "@/pages/evidence-manual";
+import EvidencePage from "@/pages/evidence";
 import AnalysisPage from "@/pages/analysis";
-import ANPRPage from "@/pages/anpr";
-import PCNPage from "@/pages/pcn";
 import UsersPage from "@/pages/users";
+import AdminSitesPage from "@/pages/admin-sites";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -27,12 +25,10 @@ function ProtectedRoutes() {
   return (
     <Switch location={location}>
       <Route path="/" component={DashboardPage} />
-      <Route path="/evidence/camera" component={CameraEvidencePage} />
-      <Route path="/evidence/manual" component={ManualUploadPage} />
+      <Route path="/evidence" component={EvidencePage} />
       <Route path="/analysis" component={AnalysisPage} />
-      <Route path="/anpr" component={ANPRPage} />
-      <Route path="/pcn" component={PCNPage} />
-      <Route path="/users" component={UsersPage} />
+      <Route path="/admin/users" component={UsersPage} />
+      <Route path="/admin/sites" component={AdminSitesPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>

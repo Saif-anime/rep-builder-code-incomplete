@@ -1,15 +1,13 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
-  Camera,
-  Upload,
+  FileImage,
   Brain,
   Users,
   Settings,
   LogOut,
-  Car,
-  FileText,
   Shield,
+  MapPin,
 } from "lucide-react";
 import {
   Sidebar,
@@ -34,44 +32,28 @@ const mainNavItems = [
     url: "/",
     icon: LayoutDashboard,
   },
-];
-
-const evidenceItems = [
   {
-    title: "Camera Evidence",
-    url: "/evidence/camera",
-    icon: Camera,
+    title: "Evidence",
+    url: "/evidence",
+    icon: FileImage,
   },
   {
-    title: "Manual Uploads",
-    url: "/evidence/manual",
-    icon: Upload,
-  },
-];
-
-const analysisItems = [
-  {
-    title: "AI Analysis",
+    title: "Analysis",
     url: "/analysis",
     icon: Brain,
-  },
-  {
-    title: "ANPR Results",
-    url: "/anpr",
-    icon: Car,
-  },
-  {
-    title: "PCN Management",
-    url: "/pcn",
-    icon: FileText,
   },
 ];
 
 const adminItems = [
   {
     title: "User Management",
-    url: "/users",
+    url: "/admin/users",
     icon: Users,
+  },
+  {
+    title: "Parking Sites",
+    url: "/admin/sites",
+    icon: MapPin,
   },
 ];
 
@@ -131,59 +113,11 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-medium text-muted-foreground">
-            Overview
+            Main
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {mainNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    className="transition-colors"
-                  >
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-medium text-muted-foreground">
-            Evidence
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {evidenceItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    className="transition-colors"
-                  >
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-medium text-muted-foreground">
-            Analysis
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {analysisItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild

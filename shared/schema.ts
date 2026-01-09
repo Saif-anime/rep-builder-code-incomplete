@@ -241,7 +241,36 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 
-// ==================== SITES ====================
+// ==================== PARKING SITES ====================
+export const parkingSites = pgTable("parking_sites", {
+  id: serial("id").primaryKey(),
+  siteName: text("site_name").notNull(),
+  locationCode: text("location_code"),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  addressLine3: text("address_line_3"),
+  addressLine4: text("address_line_4"),
+  city: text("city"),
+  postcode: text("postcode"),
+  regulations: text("regulations"),
+  enforcer: text("enforcer"),
+  totalBays: integer("total_bays").default(0),
+  disabledBays: integer("disabled_bays").default(0),
+  evBays: integer("ev_bays").default(0),
+  parentChildBays: integer("parent_child_bays").default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertParkingSiteSchema = createInsertSchema(parkingSites).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertParkingSite = z.infer<typeof insertParkingSiteSchema>;
+export type ParkingSite = typeof parkingSites.$inferSelect;
+
+// Keep legacy sites table for backwards compatibility
 export const sites = pgTable("sites", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),

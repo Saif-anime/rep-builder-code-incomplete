@@ -1,0 +1,187 @@
+Modify the EXISTING project to update sidebar navigation,
+pages, backend APIs, and database logic as described below.
+
+================================================
+GOAL
+================================================
+Simplify the dashboard, merge evidence views,
+remove unused sections, and add Parking Site management
+using JSON + manual entry.
+
+================================================
+SIDEBAR STRUCTURE (MANDATORY)
+================================================
+Update the LEFT SIDEBAR to contain ONLY:
+
+1. Dashboard
+2. Evidence
+3. Analysis
+4. Administration
+5. Settings
+6. Logout
+
+REMOVE COMPLETELY:
+- ANPR Results
+- PCN Management
+
+These must NOT appear in UI, routes, or sidebar.
+
+================================================
+EVIDENCE SECTION (SINGLE PAGE ONLY)
+================================================
+Create ONE unified page:
+
+/evidence
+
+This page must include:
+- Camera Evidence
+- Manual Uploads
+
+================================================
+EVIDENCE FILTER (MANDATORY)
+================================================
+At top of Evidence page, add filter:
+
+Filter options:
+- All
+- Camera Evidence
+- Manual Evidence
+
+Filtering must be:
+- Frontend controlled
+- Backend supported via query param
+
+Example:
+GET /api/evidence?source=camera
+GET /api/evidence?source=manual
+
+================================================
+EVIDENCE CARD REQUIREMENTS
+================================================
+Each evidence card must show:
+- Image thumbnail
+- Source badge (Camera / Manual)
+- Status (Pending / Analyzing / Completed)
+- Violation type
+- Timestamp
+- View / Download buttons
+
+================================================
+ANALYSIS SECTION (SIMPLIFIED)
+================================================
+Analysis page must show ONLY:
+- AI violation explanation
+- Confidence score
+- Detected bay misuse
+- Officer notes (if any)
+
+REMOVE:
+- ANPR Results
+- PCN-related UI
+- Any number-plate specific screens
+
+================================================
+ADMINISTRATION SECTION (UPDATED)
+================================================
+Administration must contain:
+
+1. User Management
+2. Parking Sites   ← NEW REQUIRED FEATURE
+
+================================================
+PARKING SITES FEATURE (MANDATORY)
+================================================
+Create Parking Site Management with:
+
+A. Import via JSON
+- Upload JSON file
+- Parse parking sites
+- Store in DB
+
+B. Manual Add
+- Site name
+- Address
+- Total bays
+- Disabled bays
+- EV bays
+- Parent & child bays
+
+C. CRUD Support
+- Add
+- Edit
+- Delete
+- View sites
+
+================================================
+JSON STRUCTURE SUPPORT
+================================================
+Support JSON input like:
+
+{
+  "siteName": "Euro Parking - Heathrow",
+  "address": "Terminal 5, Heathrow",
+  "bays": {
+    "total": 120,
+    "disabled": 6,
+    "ev": 10,
+    "parentChild": 8
+  }
+}
+
+================================================
+DATABASE REQUIREMENTS
+================================================
+Create table:
+parking_sites
+
+Fields:
+- id
+- site_name
+- address
+- total_bays
+- disabled_bays
+- ev_bays
+- parent_child_bays
+- created_at
+
+================================================
+BACKEND API (MANDATORY)
+================================================
+POST /api/sites/import-json
+POST /api/sites
+GET  /api/sites
+PUT  /api/sites/:id
+DELETE /api/sites/:id
+
+================================================
+FRONTEND REQUIREMENTS
+================================================
+- React + Tailwind
+- Clean enterprise UI
+- Modal for add/edit
+- JSON upload validation
+- Error handling
+
+================================================
+REPLIT RULES
+================================================
+- Node.js + Express
+- SQLite compatible
+- No Docker
+- Fully wired
+- No TODOs
+- One-click run
+
+================================================
+DELIVERABLE
+================================================
+- Sidebar updated correctly
+- Evidence merged into one page
+- Filter working
+- Analysis simplified
+- Parking Sites management live
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.

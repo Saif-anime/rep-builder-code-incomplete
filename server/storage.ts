@@ -1,9 +1,10 @@
 import {
-  users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings,
+  users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
-  type AuditLog, type InsertAuditLog, type Site, type InsertSite, type AiSetting, type InsertAiSetting
+  type AuditLog, type InsertAuditLog, type Site, type InsertSite, type AiSetting, type InsertAiSetting,
+  type ParkingSite, type InsertParkingSite
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -58,9 +59,17 @@ export interface IStorage {
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getRecentAuditLogs(limit?: number): Promise<AuditLog[]>;
 
-  // Sites
+  // Sites (legacy)
   getAllSites(): Promise<Site[]>;
   createSite(site: InsertSite): Promise<Site>;
+
+  // Parking Sites (new)
+  getParkingSite(id: number): Promise<ParkingSite | undefined>;
+  getAllParkingSites(): Promise<ParkingSite[]>;
+  createParkingSite(site: InsertParkingSite): Promise<ParkingSite>;
+  updateParkingSite(id: number, site: Partial<InsertParkingSite>): Promise<ParkingSite | undefined>;
+  deleteParkingSite(id: number): Promise<void>;
+  importParkingSites(sites: InsertParkingSite[]): Promise<ParkingSite[]>;
 
   // AI Settings
   getAiSettings(): Promise<Record<string, unknown>>;
@@ -290,6 +299,36 @@ export class DatabaseStorage implements IStorage {
     return site;
   }
 
+  // Parking Sites
+  async getParkingSite(id: number): Promise<ParkingSite | undefined> {
+    const [site] = await db.select().from(parkingSites).where(eq(parkingSites.id, id));
+    return site || undefined;
+  }
+
+  async getAllParkingSites(): Promise<ParkingSite[]> {
+    return db.select().from(parkingSites).orderBy(desc(parkingSites.createdAt));
+  }
+
+  async createParkingSite(insertSite: InsertParkingSite): Promise<ParkingSite> {
+    const [site] = await db.insert(parkingSites).values(insertSite).returning();
+    return site;
+  }
+
+  async updateParkingSite(id: number, siteData: Partial<InsertParkingSite>): Promise<ParkingSite | undefined> {
+    const [site] = await db.update(parkingSites).set(siteData).where(eq(parkingSites.id, id)).returning();
+    return site || undefined;
+  }
+
+  async deleteParkingSite(id: number): Promise<void> {
+    await db.delete(parkingSites).where(eq(parkingSites.id, id));
+  }
+
+  async importParkingSites(sitesToImport: InsertParkingSite[]): Promise<ParkingSite[]> {
+    if (sitesToImport.length === 0) return [];
+    const imported = await db.insert(parkingSites).values(sitesToImport).returning();
+    return imported;
+  }
+
   // AI Settings
   async getAiSettings(): Promise<Record<string, unknown>> {
     const settings = await db.select().from(aiSettings);
@@ -324,7 +363,7 @@ export class DatabaseStorage implements IStorage {
     today.setHours(0, 0, 0, 0);
     const [processedCount] = await db.select({ count: sql<number>`count(*)` }).from(evidence).where(sql`${evidence.createdAt} >= ${today}`);
     const [activeCount] = await db.select({ count: sql<number>`count(*)` }).from(cameras).where(eq(cameras.status, "online"));
-    const [siteCount] = await db.select({ count: sql<number>`count(*)` }).from(sites);
+    const [siteCount] = await db.select({ count: sql<number>`count(*)` }).from(parkingSites);
 
     const recentEvents = await db.select({
       id: parkingEvents.id,
