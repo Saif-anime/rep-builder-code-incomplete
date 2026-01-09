@@ -26,6 +26,7 @@ import {
 } from "./ai-analysis";
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
+import { runEnrichment } from "./contextEnrichment";
 import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
@@ -1584,6 +1585,98 @@ export async function registerRoutes(
       res.json(context);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch site context" });
+    }
+  });
+
+  // ==================== CONTEXT ENRICHMENT ====================
+  app.post("/api/sites/:id/enrichment/run", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+
+      const { windowStart, windowEnd } = req.body;
+      if (!windowStart || !windowEnd) {
+        return res.status(400).json({ error: "windowStart and windowEnd are required" });
+      }
+
+      const startDate = new Date(windowStart);
+      const endDate = new Date(windowEnd);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: "Invalid date format" });
+      }
+
+      if (startDate >= endDate) {
+        return res.status(400).json({ error: "windowStart must be before windowEnd" });
+      }
+
+      const enrichmentRun = await storage.createEnrichmentRun({
+        siteId,
+        windowStart: startDate,
+        windowEnd: endDate,
+        createdBy: req.user?.id || null,
+        status: "running",
+        results: null,
+      });
+
+      try {
+        const results = await runEnrichment(siteId, startDate, endDate, req.user?.id);
+        
+        const updatedRun = await storage.updateEnrichmentRun(enrichmentRun.id, {
+          status: "completed",
+          results,
+        });
+
+        res.json(updatedRun);
+      } catch (enrichmentError) {
+        console.error("[Enrichment] Run failed:", enrichmentError);
+        
+        await storage.updateEnrichmentRun(enrichmentRun.id, {
+          status: "failed",
+        });
+
+        return res.status(500).json({ error: "Enrichment run failed", details: String(enrichmentError) });
+      }
+    } catch (error) {
+      console.error("[Enrichment] Endpoint error:", error);
+      res.status(500).json({ error: "Failed to run enrichment" });
+    }
+  });
+
+  app.get("/api/sites/:id/enrichment/runs", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const runs = await storage.getEnrichmentRunsBySite(siteId);
+      res.json(runs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch enrichment runs" });
+    }
+  });
+
+  app.get("/api/enrichment/runs/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid run ID" });
+      }
+
+      const run = await storage.getEnrichmentRun(id);
+      if (!run) {
+        return res.status(404).json({ error: "Enrichment run not found" });
+      }
+      res.json(run);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch enrichment run" });
     }
   });
 
