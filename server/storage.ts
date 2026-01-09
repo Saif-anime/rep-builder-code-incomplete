@@ -1,6 +1,6 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos,
+  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -9,7 +9,8 @@ import {
   type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession,
   type SiteRule, type InsertSiteRule, type SiteNote, type InsertSiteNote,
   type SiteSurroundings, type InsertSiteSurroundings,
-  type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto
+  type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto,
+  type EnrichmentRun, type InsertEnrichmentRun
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -165,6 +166,12 @@ export interface IStorage {
   getSignagePhotosBySection(inspectionId: number, section: string): Promise<SignagePhoto[]>;
   createSignagePhoto(photo: InsertSignagePhoto): Promise<SignagePhoto>;
   deleteSignagePhoto(id: number): Promise<void>;
+
+  // Enrichment Runs
+  createEnrichmentRun(run: InsertEnrichmentRun): Promise<EnrichmentRun>;
+  getEnrichmentRun(id: number): Promise<EnrichmentRun | undefined>;
+  getEnrichmentRunsBySite(siteId: number): Promise<EnrichmentRun[]>;
+  updateEnrichmentRun(id: number, run: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -815,6 +822,31 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSignagePhoto(id: number): Promise<void> {
     await db.delete(signagePhotos).where(eq(signagePhotos.id, id));
+  }
+
+  // Enrichment Runs
+  async createEnrichmentRun(run: InsertEnrichmentRun): Promise<EnrichmentRun> {
+    const [created] = await db.insert(enrichmentRuns).values(run).returning();
+    return created;
+  }
+
+  async getEnrichmentRun(id: number): Promise<EnrichmentRun | undefined> {
+    const [run] = await db.select().from(enrichmentRuns).where(eq(enrichmentRuns.id, id));
+    return run || undefined;
+  }
+
+  async getEnrichmentRunsBySite(siteId: number): Promise<EnrichmentRun[]> {
+    return db.select().from(enrichmentRuns)
+      .where(eq(enrichmentRuns.siteId, siteId))
+      .orderBy(desc(enrichmentRuns.createdAt));
+  }
+
+  async updateEnrichmentRun(id: number, run: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined> {
+    const [updated] = await db.update(enrichmentRuns)
+      .set(run)
+      .where(eq(enrichmentRuns.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 
