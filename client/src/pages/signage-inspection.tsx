@@ -137,6 +137,7 @@ const generalLabels: Record<string, string> = {
 const declarationLabels: Record<string, string> = {
   signedBy: "Signed By",
   date: "Date",
+  hasSignature: "Digital Signature",
 };
 
 export default function SignageInspectionPage() {
@@ -166,6 +167,13 @@ export default function SignageInspectionPage() {
 
   const { data: inspection, isLoading: inspectionLoading } = useQuery<SignageInspection & { photos: SignagePhoto[] }>({
     queryKey: ["/api/signage-inspections", inspectionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/signage-inspections/${inspectionId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch inspection");
+      return res.json();
+    },
     enabled: !!inspectionId,
   });
 
@@ -281,6 +289,12 @@ export default function SignageInspectionPage() {
     if (insp.graffitiPresent !== null) general.graffitiPresent = insp.graffitiPresent;
     if (insp.generalNotes) general.notes = insp.generalNotes;
     if (Object.keys(general).length > 0) result.generalSignage = general;
+
+    const declaration: Record<string, any> = {};
+    if (insp.inspectorName) declaration.signedBy = insp.inspectorName;
+    if (insp.inspectionDate) declaration.date = new Date(insp.inspectionDate).toLocaleDateString();
+    if (insp.signatureData) declaration.hasSignature = true;
+    if (Object.keys(declaration).length > 0) result.declaration = declaration;
 
     return result;
   };
