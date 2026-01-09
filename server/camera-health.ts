@@ -157,7 +157,10 @@ async function runHealthChecks(): Promise<void> {
 
     for (const camera of allCameras) {
       try {
-        await db.update(cameras).set({ status: "checking" }).where(eq(cameras.id, camera.id));
+        await db.update(cameras).set({ 
+          status: "checking",
+          lastCheckedAt: new Date(),
+        }).where(eq(cameras.id, camera.id));
 
         const result = await checkCameraHealth({
           id: camera.id,
@@ -169,14 +172,15 @@ async function runHealthChecks(): Promise<void> {
 
         await updateCameraStatus(camera.id, result.online, result.message);
 
-        console.log(`[Camera Health] ${camera.name}: ${result.online ? "ONLINE" : "OFFLINE"} (${result.method}) - ${result.message}`);
-      } catch (error) {
-        console.error(`[Camera Health] Error checking ${camera.name}:`, error);
-        await updateCameraStatus(camera.id, false, "Health check error");
+        console.log(`[Camera Health] ${camera.name}: ${result.online ? "ONLINE" : "OFFLINE"} (${result.method})`);
+      } catch (error: any) {
+        const errorMessage = error.message || "Health check error";
+        console.error(`[Camera Health] Error checking ${camera.name}:`, errorMessage);
+        await updateCameraStatus(camera.id, false, errorMessage);
       }
     }
-  } catch (error) {
-    console.error("[Camera Health] Failed to run health checks:", error);
+  } catch (error: any) {
+    console.error("[Camera Health] Failed to run health checks:", error.message || error);
   }
 }
 
@@ -209,17 +213,27 @@ export async function checkSingleCamera(cameraId: number): Promise<HealthCheckRe
     return { online: false, message: "Camera not found", method: "failed" };
   }
 
-  await db.update(cameras).set({ status: "checking" }).where(eq(cameras.id, cameraId));
+  try {
+    await db.update(cameras).set({ 
+      status: "checking",
+      lastCheckedAt: new Date(),
+    }).where(eq(cameras.id, cameraId));
 
-  const result = await checkCameraHealth({
-    id: camera.id,
-    name: camera.name,
-    ipAddress: camera.ipAddress,
-    username: camera.username,
-    password: camera.password,
-  });
+    const result = await checkCameraHealth({
+      id: camera.id,
+      name: camera.name,
+      ipAddress: camera.ipAddress,
+      username: camera.username,
+      password: camera.password,
+    });
 
-  await updateCameraStatus(cameraId, result.online, result.message);
+    await updateCameraStatus(cameraId, result.online, result.message);
 
-  return result;
+    return result;
+  } catch (error: any) {
+    const errorMessage = error.message || "Health check failed unexpectedly";
+    await updateCameraStatus(cameraId, false, errorMessage);
+    console.error(`[Camera Health] Error checking camera ${camera.name}:`, errorMessage);
+    return { online: false, message: errorMessage, method: "failed" };
+  }
 }

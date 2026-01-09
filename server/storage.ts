@@ -47,7 +47,7 @@ export interface IStorage {
   getParkingEvent(id: number): Promise<ParkingEvent | undefined>;
   getAllParkingEvents(status?: string): Promise<ParkingEvent[]>;
   createParkingEvent(event: InsertParkingEvent): Promise<ParkingEvent>;
-  updateParkingEvent(id: number, event: Partial<InsertParkingEvent>): Promise<ParkingEvent | undefined>;
+  updateParkingEvent(id: number, event: Partial<InsertParkingEvent> & { pcnIssuedAt?: Date }): Promise<ParkingEvent | undefined>;
 
   // Number Plates
   getNumberPlate(id: number): Promise<NumberPlate | undefined>;
@@ -247,7 +247,7 @@ export class DatabaseStorage implements IStorage {
     return event;
   }
 
-  async updateParkingEvent(id: number, eventData: Partial<InsertParkingEvent>): Promise<ParkingEvent | undefined> {
+  async updateParkingEvent(id: number, eventData: Partial<InsertParkingEvent> & { pcnIssuedAt?: Date }): Promise<ParkingEvent | undefined> {
     const [event] = await db.update(parkingEvents).set({
       ...eventData,
       updatedAt: new Date(),

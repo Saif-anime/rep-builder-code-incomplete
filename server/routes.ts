@@ -271,6 +271,12 @@ export async function registerRoutes(
   app.post("/api/cameras/:id/check", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      
+      const camera = await storage.getCamera(id);
+      if (!camera) {
+        return res.status(404).json({ error: "Camera not found" });
+      }
+
       const result = await checkSingleCamera(id);
       
       await storage.createAuditLog({
@@ -278,15 +284,24 @@ export async function registerRoutes(
         action: "view",
         entityType: "camera",
         entityId: id.toString(),
-        details: { action: "health_check", result: result.online ? "online" : "offline" },
+        details: { action: "health_check", result: result.online ? "online" : "offline", message: result.message },
       });
+
+      const updatedCamera = await storage.getCamera(id);
 
       res.json({
         online: result.online,
         message: result.message,
         method: result.method,
+        camera: updatedCamera ? { 
+          status: updatedCamera.status, 
+          statusMessage: updatedCamera.statusMessage,
+          lastCheckedAt: updatedCamera.lastCheckedAt,
+          lastOnlineAt: updatedCamera.lastOnlineAt,
+        } : null,
       });
     } catch (error) {
+      console.error("Camera health check error:", error);
       res.status(500).json({ error: "Failed to check camera health" });
     }
   });
@@ -486,9 +501,9 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Evidence not found" });
       }
 
-      const bayData = event.bayId ? await storage.getBay(event.bayId) : null;
+      const bayData = event.bayId ? (await storage.getBay(event.bayId)) ?? null : null;
       const detections = await storage.getDetectionsByEvidence(event.evidenceId);
-      const plateData = event.numberPlateId ? await storage.getNumberPlate(event.numberPlateId) : null;
+      const plateData = event.numberPlateId ? (await storage.getNumberPlate(event.numberPlateId)) ?? null : null;
 
       const analysis = await analyzeEvidence(evidenceData, bayData, detections, plateData);
 
@@ -575,7 +590,7 @@ export async function registerRoutes(
         plateText = plate?.plateText || "UNKNOWN";
       }
 
-      const bayData = event.bayId ? await storage.getBay(event.bayId) : null;
+      const bayData = event.bayId ? (await storage.getBay(event.bayId)) ?? null : null;
       const bayType = bayData?.type || "standard";
 
       const pcnDetails = await generatePCN(event, plateText, bayType);
