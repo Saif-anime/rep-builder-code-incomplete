@@ -64,6 +64,7 @@ export default function ManualUploadPage() {
   const { data: evidence, isLoading } = useQuery<Evidence[]>({
     queryKey: ["/api/evidence"],
     select: (data) => data.filter(e => e.type === "manual"),
+    refetchInterval: 10000,
   });
 
   const { data: bays } = useQuery<Bay[]>({

@@ -21,6 +21,7 @@ import {
   validateUKNumberPlate 
 } from "./ai-analysis";
 import { checkSingleCamera } from "./camera-health";
+import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
 import { insertUserSchema, insertCameraSchema, insertBaySchema } from "@shared/schema";
 
 // Ensure uploads directory exists
@@ -488,6 +489,62 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Failed to upload evidence" });
+    }
+  });
+
+  app.post("/api/evidence/:id/analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const ev = await storage.getEvidence(id);
+      if (!ev) {
+        return res.status(404).json({ error: "Evidence not found" });
+      }
+
+      const success = await analyzeEvidenceById(id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "evidence",
+        entityId: id.toString(),
+        details: { action: "trigger_analysis" },
+      });
+
+      const updatedEvidence = await storage.getEvidence(id);
+      res.json({ success, evidence: updatedEvidence });
+    } catch (error) {
+      console.error("Analysis trigger error:", error);
+      res.status(500).json({ error: "Failed to trigger analysis" });
+    }
+  });
+
+  app.post("/api/evidence/:id/retry", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const ev = await storage.getEvidence(id);
+      if (!ev) {
+        return res.status(404).json({ error: "Evidence not found" });
+      }
+
+      if (ev.status !== "failed") {
+        return res.status(400).json({ error: "Can only retry failed analysis" });
+      }
+
+      const success = await retryFailedAnalysis(id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "evidence",
+        entityId: id.toString(),
+        details: { action: "retry_analysis" },
+      });
+
+      const updatedEvidence = await storage.getEvidence(id);
+      res.json({ success, evidence: updatedEvidence });
+    } catch (error) {
+      console.error("Retry analysis error:", error);
+      res.status(500).json({ error: "Failed to retry analysis" });
     }
   });
 

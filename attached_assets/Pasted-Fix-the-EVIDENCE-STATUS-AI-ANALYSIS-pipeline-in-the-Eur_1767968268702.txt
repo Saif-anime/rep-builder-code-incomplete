@@ -1,0 +1,148 @@
+Fix the EVIDENCE STATUS + AI ANALYSIS pipeline
+in the Euro Parking Services enforcement system.
+
+================================================
+PROBLEM
+================================================
+Manual evidence uploads are stored correctly,
+but evidence status remains "Pending"
+and AI analysis never completes.
+
+================================================
+ROOT CAUSES
+================================================
+1. AI analysis not triggered after upload
+2. Evidence status not updated in DB
+3. No background job for analysis
+4. Frontend not polling updated status
+
+================================================
+GOAL
+================================================
+Implement a COMPLETE evidence lifecycle:
+
+Pending → Analyzing → Completed / Failed
+
+================================================
+EVIDENCE STATUS RULES
+================================================
+- Pending: uploaded, not processed
+- Analyzing: AI pipeline running
+- Completed: AI results stored
+- Failed: AI error (recoverable)
+
+================================================
+DATABASE UPDATE
+================================================
+Modify evidence table:
+
+- status TEXT
+- analysis_started_at
+- analysis_completed_at
+- ai_result JSON
+- confidence_score FLOAT
+
+================================================
+BACKEND IMPLEMENTATION (MANDATORY)
+================================================
+
+1️⃣ AFTER UPLOAD CONTROLLER
+Immediately after saving files:
+- Insert evidence with status = "Pending"
+- Queue evidence ID for analysis
+
+2️⃣ AI ANALYSIS SERVICE
+Create:
+services/aiAnalysisService.js
+
+Function:
+analyzeEvidence(evidenceId)
+
+Steps:
+- Update status → "Analyzing"
+- Load image
+- Run YOLO detection
+- Run ANPR if vehicle detected
+- Apply UK bay rules
+- Call OpenAI for explanation
+- Save ai_result
+- Update status → "Completed"
+
+On error:
+- Update status → "Failed"
+- Save error reason
+
+3️⃣ BACKGROUND WORKER
+Use:
+- node-cron OR
+- in-process queue
+
+Process:
+- Every 10 seconds
+- Pick Pending evidence
+- Run analyzeEvidence()
+
+================================================
+API ENDPOINTS
+================================================
+
+GET /api/evidence
+- Return evidence with current status
+
+GET /api/evidence/:id
+- Return ai_result when completed
+
+================================================
+FRONTEND FIXES
+================================================
+1. Status Badge Logic
+- Pending → grey
+- Analyzing → yellow (spinner)
+- Completed → green
+- Failed → red
+
+2. Auto Refresh
+- Poll /api/evidence every 10 seconds
+- Update UI without reload
+
+3. Show AI Result
+When status = Completed:
+- Show violation summary
+- Show confidence %
+- Show ANPR result
+
+================================================
+RESPONSE FORMAT
+================================================
+AI result must include:
+
+{
+  violationDetected: true,
+  violationType: "Disabled Bay",
+  confidence: 0.92,
+  numberPlate: "CP24 BAV",
+  explanation: "Vehicle parked in disabled bay without blue badge"
+}
+
+================================================
+REPLIT RULES
+================================================
+- Node.js only
+- No Docker
+- SQLite compatible
+- One-click run
+- No TODOs
+- Fully wired
+
+================================================
+DELIVERABLE
+================================================
+- Evidence status updates correctly
+- AI analysis runs automatically
+- Pending no longer stuck
+- UI reflects real state
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.

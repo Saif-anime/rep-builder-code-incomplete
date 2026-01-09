@@ -103,9 +103,23 @@ export const evidence = pgTable("evidence", {
     fileSize?: number;
   }>(),
   notes: text("notes"),
-  status: text("status").notNull().default("pending"), // pending, reviewed, approved, rejected
+  status: text("status").notNull().default("pending"), // pending, analyzing, completed, failed, reviewed, approved, rejected
   reviewedBy: varchar("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
+  analysisStartedAt: timestamp("analysis_started_at"),
+  analysisCompletedAt: timestamp("analysis_completed_at"),
+  aiResult: jsonb("ai_result").$type<{
+    violationDetected: boolean;
+    violationType: string | null;
+    confidence: number;
+    numberPlate: string | null;
+    explanation: string;
+    factors?: string[];
+    uncertainties?: string[];
+    recommendation?: string;
+  }>(),
+  confidenceScore: real("confidence_score"),
+  analysisError: text("analysis_error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
