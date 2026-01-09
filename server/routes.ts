@@ -4,6 +4,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse");
 import { storage } from "./storage";
 import { 
   authenticateToken, 
@@ -57,6 +60,115 @@ const upload = multer({
     }
   },
 });
+
+const pdfUpload = multer({
+  storage: multerStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB for PDFs
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === ".pdf" || file.mimetype === "application/pdf") {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF files are allowed"));
+    }
+  },
+});
+
+function parsePdfToSignageData(text: string): Record<string, any> {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const data: Record<string, any> = {};
+  
+  const parseYesNo = (value: string): boolean | null => {
+    const lower = value.toLowerCase().trim();
+    if (lower === "yes" || lower === "y" || lower === "true" || lower === "1" || lower === "✓" || lower === "✔") return true;
+    if (lower === "no" || lower === "n" || lower === "false" || lower === "0" || lower === "✗" || lower === "✘" || lower === "x") return false;
+    return null;
+  };
+
+  const findValue = (patterns: string[]): string | null => {
+    for (const line of lines) {
+      for (const pattern of patterns) {
+        const regex = new RegExp(pattern + "[:\\s]+(.+)", "i");
+        const match = line.match(regex);
+        if (match) return match[1].trim();
+      }
+    }
+    return null;
+  };
+
+  const findBoolValue = (patterns: string[]): boolean | null => {
+    const val = findValue(patterns);
+    return val ? parseYesNo(val) : null;
+  };
+
+  data.inspectorName = findValue(["inspector name", "inspector", "surveyor", "auditor", "completed by"]);
+  data.siteCode = findValue(["site code", "site id", "location code", "site ref", "reference"]);
+  data.siteAddress = findValue(["site address", "address", "location", "site location"]);
+  
+  const dateVal = findValue(["inspection date", "date", "survey date", "audit date"]);
+  if (dateVal) {
+    const parsed = new Date(dateVal);
+    if (!isNaN(parsed.getTime())) {
+      data.inspectionDate = parsed.toISOString().split("T")[0];
+    }
+  }
+
+  data.entranceSignagePresent = findBoolValue(["entrance signage present", "entrance sign", "main entrance sign"]);
+  data.entranceClearlyVisible = findBoolValue(["entrance clearly visible", "entrance visibility", "sign visible"]);
+  data.entranceCorrectWording = findBoolValue(["entrance correct wording", "correct wording", "wording correct"]);
+  data.entranceHeightCompliant = findBoolValue(["entrance height compliant", "height compliant", "sign height"]);
+  data.entranceLightingDay = findBoolValue(["entrance lighting day", "daytime lighting", "day lighting", "visible in daylight"]);
+  data.entranceLightingNight = findBoolValue(["entrance lighting night", "night lighting", "nighttime lighting", "illuminated"]);
+  
+  const conditionVal = findValue(["entrance condition", "sign condition", "condition"]);
+  if (conditionVal) {
+    const lower = conditionVal.toLowerCase();
+    if (lower.includes("good") || lower.includes("excellent")) data.entranceCondition = "good";
+    else if (lower.includes("damaged") || lower.includes("poor") || lower.includes("worn")) data.entranceCondition = "damaged";
+    else if (lower.includes("missing") || lower.includes("none")) data.entranceCondition = "missing";
+  }
+
+  data.tcTariffVisible = findBoolValue(["tariff visible", "tariff sign", "t&c tariff", "pricing visible"]);
+  data.tcFontReadable = findBoolValue(["font readable", "text readable", "font size", "readable font"]);
+  data.tcLanguageCorrect = findBoolValue(["language correct", "correct language", "english"]);
+  data.tcLightingPresent = findBoolValue(["t&c lighting", "tc lighting", "terms lighting"]);
+  
+  const distanceVal = findValue(["readable distance", "reading distance", "visible from"]);
+  if (distanceVal) {
+    const numMatch = distanceVal.match(/(\d+(?:\.\d+)?)/);
+    if (numMatch) data.tcDistanceReadable = parseFloat(numMatch[1]);
+  }
+
+  data.disabledSignPresent = findBoolValue(["disabled sign present", "disabled bay sign", "blue badge sign"]);
+  data.disabledMarkingsVisible = findBoolValue(["disabled markings", "disabled bay markings", "blue badge markings"]);
+  data.disabledUprightSign = findBoolValue(["disabled upright", "disabled vertical sign"]);
+  data.disabledWordingCorrect = findBoolValue(["disabled wording", "disabled sign wording"]);
+
+  data.evSignPresent = findBoolValue(["ev sign present", "ev bay sign", "electric vehicle sign", "ev charging sign"]);
+  data.evMarkingsVisible = findBoolValue(["ev markings", "ev bay markings", "charging bay markings"]);
+  data.evUprightSign = findBoolValue(["ev upright", "ev vertical sign"]);
+  data.evWordingCorrect = findBoolValue(["ev wording", "ev sign wording"]);
+
+  data.parentChildSignPresent = findBoolValue(["parent child sign", "parent & child sign", "family bay sign"]);
+  data.parentChildMarkingsVisible = findBoolValue(["parent child markings", "family bay markings"]);
+  data.parentChildUprightSign = findBoolValue(["parent child upright", "family bay upright"]);
+  data.parentChildWordingCorrect = findBoolValue(["parent child wording", "family bay wording"]);
+
+  data.bpaIpcCompliant = findBoolValue(["bpa compliant", "ipc compliant", "bpa/ipc", "code of practice"]);
+  data.conflictingSignagePresent = findBoolValue(["conflicting signage", "conflicting signs", "contradictory"]);
+  data.obstructionsPresent = findBoolValue(["obstructions", "sign obstructed", "blocked"]);
+  data.weatherDamage = findBoolValue(["weather damage", "weather worn", "faded"]);
+  data.graffitiPresent = findBoolValue(["graffiti", "vandalism", "defaced"]);
+
+  const notesVal = findValue(["general notes", "notes", "comments", "observations", "additional notes"]);
+  if (notesVal) data.generalNotes = notesVal;
+
+  Object.keys(data).forEach(key => {
+    if (data[key] === null || data[key] === undefined) delete data[key];
+  });
+
+  return data;
+}
 
 function calculateFileHash(filePath: string): string {
   const fileBuffer = fs.readFileSync(filePath);
@@ -1766,6 +1878,69 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete signage photo" });
+    }
+  });
+
+  // PDF Upload for Signage Inspections
+  app.post("/api/sites/:id/signage-inspections/upload-pdf", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("pdf"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No PDF file provided" });
+      }
+      const pdfBuffer = fs.readFileSync(req.file.path);
+      const pdfData = await pdf(pdfBuffer);
+      const extractedData = parsePdfToSignageData(pdfData.text);
+      fs.unlinkSync(req.file.path);
+      const inspectionData = {
+        ...extractedData,
+        siteId,
+        inspectorId: req.user!.id,
+        inspectorName: extractedData.inspectorName || req.user!.fullName || req.user!.username,
+        inspectionDate: extractedData.inspectionDate ? new Date(extractedData.inspectionDate) : new Date(),
+        siteCode: extractedData.siteCode || site.locationCode,
+        siteAddress: extractedData.siteAddress || [site.addressLine1, site.city, site.postcode].filter(Boolean).join(", "),
+      };
+      const parsed = insertSignageInspectionSchema.safeParse(inspectionData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Failed to parse PDF data", details: parsed.error.errors, extractedData });
+      }
+      const inspection = await storage.createSignageInspection(parsed.data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "signage_inspection",
+        entityId: String(inspection.id),
+        details: { siteId, source: "pdf_upload", extractedFields: Object.keys(extractedData) },
+      });
+      res.status(201).json({ inspection, extractedData, rawText: pdfData.text.substring(0, 2000) });
+    } catch (error) {
+      console.error("PDF upload error:", error);
+      res.status(500).json({ error: "Failed to process PDF upload" });
+    }
+  });
+
+  // Parse PDF without creating inspection (preview mode)
+  app.post("/api/signage-inspections/parse-pdf", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("pdf"), async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No PDF file provided" });
+      }
+      const pdfBuffer = fs.readFileSync(req.file.path);
+      const pdfData = await pdf(pdfBuffer);
+      const extractedData = parsePdfToSignageData(pdfData.text);
+      fs.unlinkSync(req.file.path);
+      res.json({ extractedData, rawText: pdfData.text, pageCount: pdfData.numpages });
+    } catch (error) {
+      console.error("PDF parse error:", error);
+      res.status(500).json({ error: "Failed to parse PDF" });
     }
   });
 
