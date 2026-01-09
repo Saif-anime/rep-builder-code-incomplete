@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Upload, Edit, Trash2, MapPin, Loader2, FileJson, AlertTriangle, Search } from "lucide-react";
+import { Plus, Upload, Edit, Trash2, MapPin, Loader2, FileJson, AlertTriangle, Search, ClipboardCheck } from "lucide-react";
+import { Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -453,6 +454,11 @@ export default function AdminSitesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Link href={`/signage/${site.id}`}>
+                            <Button size="icon" variant="ghost" title="Signage Inspection" data-testid={`button-signage-site-${site.id}`}>
+                              <ClipboardCheck className="h-4 w-4" />
+                            </Button>
+                          </Link>
                           <Button size="icon" variant="ghost" onClick={() => handleEdit(site)} data-testid={`button-edit-site-${site.id}`}>
                             <Edit className="h-4 w-4" />
                           </Button>

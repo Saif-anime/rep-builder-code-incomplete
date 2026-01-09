@@ -16,6 +16,7 @@ import EvidencePage from "@/pages/evidence";
 import AnalysisPage from "@/pages/analysis";
 import UsersPage from "@/pages/users";
 import AdminSitesPage from "@/pages/admin-sites";
+import SignageInspectionPage from "@/pages/signage-inspection";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -29,6 +30,8 @@ function ProtectedRoutes() {
       <Route path="/analysis" component={AnalysisPage} />
       <Route path="/admin/users" component={UsersPage} />
       <Route path="/admin/sites" component={AdminSitesPage} />
+      <Route path="/signage/:siteId" component={SignageInspectionPage} />
+      <Route path="/signage/:siteId/:inspectionId" component={SignageInspectionPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
