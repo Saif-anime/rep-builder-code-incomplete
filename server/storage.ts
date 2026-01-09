@@ -1,6 +1,6 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags,
+  anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -11,7 +11,8 @@ import {
   type SiteSurroundings, type InsertSiteSurroundings,
   type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto,
   type EnrichmentRun, type InsertEnrichmentRun,
-  type SessionFlag, type InsertSessionFlag
+  type SessionFlag, type InsertSessionFlag,
+  type DriverProfile, type InsertDriverProfile
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -189,6 +190,15 @@ export interface IStorage {
   updateSessionFlag(id: number, flag: Partial<InsertSessionFlag>): Promise<SessionFlag | undefined>;
   resolveSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
   dismissSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
+
+  // Driver Profiles
+  getDriverProfile(siteId: number, vrm: string): Promise<DriverProfile | undefined>;
+  getDriverProfilesBySite(siteId: number): Promise<DriverProfile[]>;
+  createDriverProfile(profile: InsertDriverProfile): Promise<DriverProfile>;
+  updateDriverProfile(id: number, profile: Partial<InsertDriverProfile>): Promise<DriverProfile | undefined>;
+  upsertDriverProfile(profile: InsertDriverProfile): Promise<DriverProfile>;
+  deleteDriverProfile(id: number): Promise<void>;
+  getDriverSessionHistory(siteId: number, vrm: string, from?: Date, to?: Date): Promise<ParkingSession[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -963,6 +973,75 @@ export class DatabaseStorage implements IStorage {
       .where(eq(sessionFlags.id, id))
       .returning();
     return dismissed || undefined;
+  }
+
+  // Driver Profiles
+  async getDriverProfile(siteId: number, vrm: string): Promise<DriverProfile | undefined> {
+    const normalizedVrm = vrm.toUpperCase().replace(/\s+/g, "");
+    const [profile] = await db.select().from(driverProfiles)
+      .where(and(
+        eq(driverProfiles.siteId, siteId),
+        eq(driverProfiles.vrm, normalizedVrm)
+      ));
+    return profile || undefined;
+  }
+
+  async getDriverProfilesBySite(siteId: number): Promise<DriverProfile[]> {
+    return db.select().from(driverProfiles)
+      .where(eq(driverProfiles.siteId, siteId))
+      .orderBy(desc(driverProfiles.riskScore));
+  }
+
+  async createDriverProfile(profile: InsertDriverProfile): Promise<DriverProfile> {
+    const [created] = await db.insert(driverProfiles).values(profile).returning();
+    return created;
+  }
+
+  async updateDriverProfile(id: number, profile: Partial<InsertDriverProfile>): Promise<DriverProfile | undefined> {
+    const [updated] = await db.update(driverProfiles)
+      .set({ ...profile, updatedAt: new Date(), lastCalculatedAt: new Date() })
+      .where(eq(driverProfiles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async upsertDriverProfile(profile: InsertDriverProfile): Promise<DriverProfile> {
+    const normalizedVrm = profile.vrm.toUpperCase().replace(/\s+/g, "");
+    const existing = await this.getDriverProfile(profile.siteId, normalizedVrm);
+    
+    if (existing) {
+      const updated = await this.updateDriverProfile(existing.id, {
+        ...profile,
+        vrm: normalizedVrm,
+      });
+      return updated!;
+    } else {
+      return this.createDriverProfile({
+        ...profile,
+        vrm: normalizedVrm,
+      });
+    }
+  }
+
+  async deleteDriverProfile(id: number): Promise<void> {
+    await db.delete(driverProfiles).where(eq(driverProfiles.id, id));
+  }
+
+  async getDriverSessionHistory(siteId: number, vrm: string, from?: Date, to?: Date): Promise<ParkingSession[]> {
+    const normalizedVrm = vrm.toUpperCase().replace(/\s+/g, "");
+    const conditions = [
+      eq(parkingSessions.siteId, siteId),
+      eq(parkingSessions.vrm, normalizedVrm),
+    ];
+    if (from) {
+      conditions.push(gte(parkingSessions.entryAt, from));
+    }
+    if (to) {
+      conditions.push(lte(parkingSessions.entryAt, to));
+    }
+    return db.select().from(parkingSessions)
+      .where(and(...conditions))
+      .orderBy(desc(parkingSessions.entryAt));
   }
 }
 
