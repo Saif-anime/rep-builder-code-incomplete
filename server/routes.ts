@@ -45,13 +45,14 @@ const upload = multer({
   storage: multerStorage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|mp4|webm|mov/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    if (extname && mimetype) {
+    const allowedExtensions = /jpeg|jpg|png|gif|mp4|webm|mov|avi/;
+    const allowedMimetypes = /jpeg|jpg|png|gif|mp4|webm|mov|avi|x-msvideo|quicktime/;
+    const extname = allowedExtensions.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedMimetypes.test(file.mimetype);
+    if (extname || mimetype) {
       cb(null, true);
     } else {
-      cb(new Error("Only images and videos are allowed"));
+      cb(new Error("Only images (JPG, PNG) and videos (MP4, AVI) are allowed"));
     }
   },
 });

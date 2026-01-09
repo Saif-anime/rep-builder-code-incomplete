@@ -307,6 +307,22 @@ export default function EvidencePage() {
                   <span className="text-muted-foreground">Timestamp:</span>
                   <span className="ml-2">{new Date(selectedEvidence.timestamp).toLocaleString()}</span>
                 </div>
+                {selectedEvidence.siteId && (
+                  <div>
+                    <span className="text-muted-foreground">Site:</span>
+                    <span className="ml-2">
+                      {parkingSites.find(s => s.id === selectedEvidence.siteId)?.siteName || `Site #${selectedEvidence.siteId}`}
+                    </span>
+                  </div>
+                )}
+                {selectedEvidence.cameraId && (
+                  <div>
+                    <span className="text-muted-foreground">Camera:</span>
+                    <span className="ml-2">
+                      {allCameras.find(c => c.id === selectedEvidence.cameraId)?.name || `Camera #${selectedEvidence.cameraId}`}
+                    </span>
+                  </div>
+                )}
               </div>
               {selectedEvidence.notes && (
                 <div>
