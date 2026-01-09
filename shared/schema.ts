@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, serial, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, serial, real, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -885,5 +885,67 @@ export const sessionFlagsRelations = relations(sessionFlags, ({ one }) => ({
   resolver: one(users, {
     fields: [sessionFlags.resolvedBy],
     references: [users.id],
+  }),
+}));
+
+// ==================== DRIVER PROFILES ====================
+export type BehaviourClassification = 
+  | "COMMUTER_PATTERN"      // Frequent short stays at same time-of-day, low variance
+  | "OCCASIONAL_PATRON"     // Low frequency, moderate duration
+  | "FIRST_TIME_LATE"       // First visit with slight overstay
+  | "REGULAR_PATRON"        // Frequent visits with normal durations
+  | "UNKNOWN";              // Insufficient data
+
+export type DriverRiskFlag = 
+  | "POSSIBLE_COMMUTER_MISUSE"  // Using car park to go elsewhere
+  | "LIKELY_FAIR_USER"          // Genuine patron behaviour
+  | "FIRST_VISIT_GRACE"         // First-time visitor, give benefit of doubt
+  | "NONE";
+
+export const driverProfiles = pgTable("driver_profiles", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  vrm: varchar("vrm", { length: 20 }).notNull(),
+  firstSeen: timestamp("first_seen").notNull(),
+  lastSeen: timestamp("last_seen").notNull(),
+  visits30d: integer("visits_30d").notNull().default(0),
+  visits90d: integer("visits_90d").notNull().default(0),
+  totalVisits: integer("total_visits").notNull().default(0),
+  medianDurationMinutes: real("median_duration_minutes"),
+  meanDurationMinutes: real("mean_duration_minutes"),
+  durationStddev: real("duration_stddev"),
+  commonArrivalTimeBuckets: jsonb("common_arrival_time_buckets").$type<{
+    buckets: Array<{ hour: number; count: number; percentage: number }>;
+    mostCommonHour: number;
+    variance: number;
+  }>(),
+  behaviourClassification: text("behaviour_classification").$type<BehaviourClassification>().default("UNKNOWN"),
+  riskFlag: text("risk_flag").$type<DriverRiskFlag>().default("NONE"),
+  riskScore: real("risk_score").notNull().default(0), // 0-100 scale
+  riskFactors: jsonb("risk_factors").$type<{
+    factors: Array<{ name: string; weight: number; description: string }>;
+    totalWeight: number;
+  }>(),
+  lastCalculatedAt: timestamp("last_calculated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  siteVrmUnique: uniqueIndex("driver_profiles_site_vrm_unique").on(table.siteId, table.vrm),
+}));
+
+export const insertDriverProfileSchema = createInsertSchema(driverProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastCalculatedAt: true,
+});
+
+export type InsertDriverProfile = z.infer<typeof insertDriverProfileSchema>;
+export type DriverProfile = typeof driverProfiles.$inferSelect;
+
+export const driverProfilesRelations = relations(driverProfiles, ({ one }) => ({
+  site: one(parkingSites, {
+    fields: [driverProfiles.siteId],
+    references: [parkingSites.id],
   }),
 }));
