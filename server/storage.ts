@@ -464,14 +464,6 @@ export class DatabaseStorage implements IStorage {
   async getUnmatchedEntryForExit(vrm: string, siteId: number, exitTime: Date, windowHours: number): Promise<AnprEvent | undefined> {
     const windowStart = new Date(exitTime.getTime() - windowHours * 60 * 60 * 1000);
     
-    const matchedEntryIds = db
-      .select({ entryEventId: parkingSessions.entryEventId })
-      .from(parkingSessions)
-      .where(and(
-        eq(parkingSessions.vrm, vrm.toUpperCase()),
-        eq(parkingSessions.siteId, siteId),
-      ));
-    
     const [entry] = await db
       .select()
       .from(anprEvents)
@@ -481,7 +473,7 @@ export class DatabaseStorage implements IStorage {
         eq(anprEvents.eventType, "ENTRY"),
         gte(anprEvents.occurredAt, windowStart),
         lte(anprEvents.occurredAt, exitTime),
-        sql`${anprEvents.id} NOT IN (SELECT entry_event_id FROM parking_sessions WHERE entry_event_id IS NOT NULL AND vrm = ${vrm.toUpperCase()} AND site_id = ${siteId})`
+        sql`${anprEvents.id} NOT IN (SELECT entry_event_id FROM parking_sessions WHERE entry_event_id IS NOT NULL AND status = 'CLOSED' AND vrm = ${vrm.toUpperCase()} AND site_id = ${siteId})`
       ))
       .orderBy(desc(anprEvents.occurredAt))
       .limit(1);
