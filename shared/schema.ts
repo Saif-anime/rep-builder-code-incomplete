@@ -306,6 +306,12 @@ export const siteRules = pgTable("site_rules", {
     vrms?: string[];
     reasons?: string[];
   }>(),
+  // Enforcement override configuration for spike detection
+  spikeOverridePolicy: text("spike_override_policy").default("hold_on_disruption"), // hold_on_disruption, always_enforce, review_required
+  enforceOnWeather: boolean("enforce_on_weather").default(false), // If true, enforce even during weather disruptions
+  enforceOnEvents: boolean("enforce_on_events").default(false), // If true, enforce even during local events
+  spikeThresholdMultiplier: real("spike_threshold_multiplier").default(1.5), // Multiplier above baseline to trigger spike
+  baselineWindowDays: integer("baseline_window_days").default(28), // Days to look back for baseline calculation
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -800,6 +806,62 @@ export const enrichmentRunsRelations = relations(enrichmentRuns, ({ one }) => ({
   }),
   creator: one(users, {
     fields: [enrichmentRuns.createdBy],
+    references: [users.id],
+  }),
+}));
+
+// ==================== SESSION FLAGS ====================
+export const sessionFlags = pgTable("session_flags", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").references(() => parkingSessions.id).notNull(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  enrichmentRunId: integer("enrichment_run_id").references(() => enrichmentRuns.id),
+  flagType: text("flag_type").notNull(), // POSSIBLE_DISRUPTION, WEATHER_DISRUPTION, EVENT_DISRUPTION, ROAD_INCIDENT
+  severity: text("severity").notNull().default("medium"), // low, medium, high, critical
+  reason: text("reason").notNull(),
+  recommendation: text("recommendation"), // HOLD_PCN, REVIEW_REQUIRED, AUTO_DISMISS
+  evidence: jsonb("evidence").$type<{
+    weatherConditions?: string;
+    weatherAlerts?: string[];
+    localEvents?: Array<{ name: string; type: string; distance?: string }>;
+    overstayRate?: number;
+    baselineRate?: number;
+    spikeMultiplier?: number;
+    siteInventoryHits?: string[];
+  }>(),
+  status: text("status").notNull().default("OPEN"), // OPEN, RESOLVED, DISMISSED
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolutionNotes: text("resolution_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSessionFlagSchema = createInsertSchema(sessionFlags).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  resolvedAt: true,
+});
+
+export type InsertSessionFlag = z.infer<typeof insertSessionFlagSchema>;
+export type SessionFlag = typeof sessionFlags.$inferSelect;
+
+export const sessionFlagsRelations = relations(sessionFlags, ({ one }) => ({
+  session: one(parkingSessions, {
+    fields: [sessionFlags.sessionId],
+    references: [parkingSessions.id],
+  }),
+  site: one(parkingSites, {
+    fields: [sessionFlags.siteId],
+    references: [parkingSites.id],
+  }),
+  enrichmentRun: one(enrichmentRuns, {
+    fields: [sessionFlags.enrichmentRunId],
+    references: [enrichmentRuns.id],
+  }),
+  resolver: one(users, {
+    fields: [sessionFlags.resolvedBy],
     references: [users.id],
   }),
 }));
