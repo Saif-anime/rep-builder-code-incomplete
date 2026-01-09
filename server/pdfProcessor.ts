@@ -61,6 +61,14 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
   console.log("[PDF OCR] Starting OCR extraction...");
   
   try {
+    let canvas: any;
+    try {
+      canvas = createCanvas(100, 100);
+    } catch (canvasError: any) {
+      console.error("[PDF OCR] Canvas unavailable (native dependencies missing):", canvasError.message);
+      return { text: "", pages: 0 };
+    }
+    
     const uint8Array = new Uint8Array(buffer);
     const doc = await pdfjsLib.getDocument({ data: uint8Array, useSystemFonts: true }).promise;
     const numPages = doc.numPages;
@@ -76,7 +84,7 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
         const page = await doc.getPage(pageNum);
         const viewport = page.getViewport({ scale: 2.0 });
         
-        const canvas = createCanvas(viewport.width, viewport.height);
+        canvas = createCanvas(viewport.width, viewport.height);
         const context = canvas.getContext("2d");
         
         await (page.render({

@@ -198,11 +198,16 @@ export default function SignageInspectionPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        toast({ title: "PDF Error", description: data.message || "Failed to parse PDF", variant: "destructive" });
+        const errorMsg = data.message || "Failed to parse PDF";
+        const detailedMsg = data.source === "none" 
+          ? "Could not extract text from this PDF. Please try a different file."
+          : errorMsg;
+        toast({ title: "PDF Error", description: detailedMsg, variant: "destructive" });
         return;
       }
       setParsedData(data);
-      toast({ title: "PDF Parsed", description: `Extracted ${Object.keys(data.extractedData).length} sections` });
+      const sourceLabel = data.source === "ocr" ? " (via OCR)" : "";
+      toast({ title: "PDF Parsed", description: `Extracted ${Object.keys(data.extractedData).length} sections${sourceLabel}` });
     } catch {
       toast({ title: "Failed to parse PDF", description: "Network or server error", variant: "destructive" });
     } finally {
@@ -223,10 +228,15 @@ export default function SignageInspectionPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        toast({ title: "Upload Error", description: data.message || "Failed to upload PDF", variant: "destructive" });
+        const errorMsg = data.message || "Failed to upload PDF";
+        const detailedMsg = data.source === "none" 
+          ? "Could not extract text from this PDF. Please try a different file."
+          : errorMsg;
+        toast({ title: "Upload Error", description: detailedMsg, variant: "destructive" });
         return;
       }
-      toast({ title: "Inspection Created", description: "PDF data has been imported successfully" });
+      const sourceLabel = data.source === "ocr" ? " (extracted via OCR)" : "";
+      toast({ title: "Inspection Created", description: `PDF data has been imported successfully${sourceLabel}` });
       setPdfDialogOpen(false);
       setPdfFile(null);
       setParsedData(null);

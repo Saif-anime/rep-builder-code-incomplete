@@ -73,7 +73,9 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 
 8. **Signage Inspections**
    - Digital signage compliance checks
-   - PDF upload with automatic field extraction
+   - PDF upload with automatic field extraction (dual-mode: text + OCR fallback)
+   - Supports both text-based PDFs and scanned PDFs (via Tesseract.js OCR)
+   - Read-only display: PDF is single source of truth
    - Photo evidence for each section (entrance, T&C, bay-specific, general)
    - Compliance scoring with appeal risk assessment
    - Status workflow: draft → submitted → approved/rejected
