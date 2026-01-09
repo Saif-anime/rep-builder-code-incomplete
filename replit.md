@@ -79,6 +79,13 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
    - Status workflow: draft → submitted → approved/rejected
    - Canvas-based signature capture
 
+9. **Context Enrichment**
+   - Analyzes parking sessions with external context (weather, local events, site inventory)
+   - Provider interfaces for weather and events (mock implementations, can swap for real APIs)
+   - Site inventory analysis: aggregates rules, notes, and surroundings
+   - Anomaly detection: identifies overstay spikes (>1.5x baseline rate of 15%)
+   - Stores enrichment results in database for historical analysis
+
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
 - `GET /api/dashboard/stats` - Dashboard statistics
@@ -108,6 +115,9 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `POST /api/signage-inspections/parse-pdf` - Preview PDF extraction
 - `POST /api/signage-inspections/:id/photos` - Upload inspection photos
 - `DELETE /api/signage-photos/:id` - Delete inspection photo
+- `POST /api/sites/:id/enrichment/run` - Run context enrichment analysis
+- `GET /api/sites/:id/enrichment/runs` - Get enrichment run history for a site
+- `GET /api/enrichment/runs/:id` - Get specific enrichment run details
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)

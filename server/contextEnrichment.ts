@@ -191,7 +191,10 @@ async function getSiteInventoryHits(
   
   try {
     const notes = await storage.getSiteNotes(siteId);
-    const validNotes = notes.filter((n: SiteNote) => {
+    if (!notes || !Array.isArray(notes)) {
+      console.warn("[Enrichment] No notes returned or invalid format");
+    }
+    const validNotes = (notes || []).filter((n: SiteNote) => {
       if (!n.validFrom && !n.validTo) return true;
       if (n.validFrom && new Date(n.validFrom) > windowEnd) return false;
       if (n.validTo && new Date(n.validTo) < windowStart) return false;
@@ -229,7 +232,7 @@ async function getSiteInventoryHits(
       const tags: string[] = [];
       const descriptions: string[] = [];
       
-      if (surroundings.freeTextSummary) {
+      if (surroundings.freeTextSummary && typeof surroundings.freeTextSummary === "string") {
         descriptions.push(surroundings.freeTextSummary);
         const lowerSummary = surroundings.freeTextSummary.toLowerCase();
         if (lowerSummary.includes("school")) tags.push("school_nearby");
@@ -237,19 +240,31 @@ async function getSiteInventoryHits(
         if (lowerSummary.includes("station")) tags.push("transport_hub");
       }
       
-      if (surroundings.nearbyPlaces) {
-        const places = surroundings.nearbyPlaces;
-        if (places.shops && places.shops.length > 0) {
+      if (surroundings.nearbyPlaces && typeof surroundings.nearbyPlaces === "object") {
+        const places = surroundings.nearbyPlaces as Record<string, unknown>;
+        if (Array.isArray(places.shops) && places.shops.length > 0) {
           tags.push("shops_nearby");
-          places.shops.forEach(s => descriptions.push(`Shop: ${s.name}`));
+          for (const s of places.shops) {
+            if (s && typeof s === "object" && "name" in s && typeof s.name === "string") {
+              descriptions.push(`Shop: ${s.name}`);
+            }
+          }
         }
-        if (places.offices && places.offices.length > 0) {
+        if (Array.isArray(places.offices) && places.offices.length > 0) {
           tags.push("offices_nearby");
-          places.offices.forEach(o => descriptions.push(`Office: ${o.name}`));
+          for (const o of places.offices) {
+            if (o && typeof o === "object" && "name" in o && typeof o.name === "string") {
+              descriptions.push(`Office: ${o.name}`);
+            }
+          }
         }
-        if (places.venues && places.venues.length > 0) {
+        if (Array.isArray(places.venues) && places.venues.length > 0) {
           tags.push("venues_nearby");
-          places.venues.forEach(v => descriptions.push(`Venue: ${v.name}`));
+          for (const v of places.venues) {
+            if (v && typeof v === "object" && "name" in v && typeof v.name === "string") {
+              descriptions.push(`Venue: ${v.name}`);
+            }
+          }
         }
       }
       
@@ -277,6 +292,17 @@ async function getAnomalySummary(
   try {
     const sessions = await storage.getSessionsBySite(siteId, windowStart, windowEnd);
     
+    if (!sessions || !Array.isArray(sessions)) {
+      console.warn("[Enrichment] No sessions returned or invalid format");
+      return {
+        totalSessions: 0,
+        overstayCount: 0,
+        overstayRate: 0,
+        averageOverstayMinutes: 0,
+        isSpike: false,
+      };
+    }
+    
     const windowSessions = sessions.filter((s: ParkingSession) => {
       const entryTime = s.entryAt ? new Date(s.entryAt) : null;
       if (!entryTime) return false;
@@ -291,13 +317,21 @@ async function getAnomalySummary(
     const baselineOverstayRate = 0.15;
     
     for (const session of windowSessions) {
-      if (session.durationMinutes && session.durationMinutes > 120) {
+      const duration = typeof session.durationMinutes === "number" ? session.durationMinutes : 0;
+      if (duration > 120) {
         overstayCount++;
-        totalOverstayMinutes += session.durationMinutes - 120;
+        totalOverstayMinutes += duration - 120;
         
         if (session.entryAt) {
-          const hour = new Date(session.entryAt).getHours();
-          hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+          try {
+            const entryDate = new Date(session.entryAt);
+            if (!isNaN(entryDate.getTime())) {
+              const hour = entryDate.getHours();
+              hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+            }
+          } catch {
+            // Skip invalid entry timestamps
+          }
         }
       }
     }
@@ -339,11 +373,17 @@ async function getAnomalySummary(
   }
 }
 
+export interface EnrichmentOptions {
+  weatherProvider?: WeatherProvider;
+  eventsProvider?: EventsProvider;
+}
+
 export async function runEnrichment(
   siteId: number,
   windowStart: Date,
   windowEnd: Date,
-  userId?: string
+  userId?: string,
+  options?: EnrichmentOptions
 ): Promise<EnrichmentResults> {
   console.log(`[Enrichment] Starting enrichment for site ${siteId} from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
   
@@ -352,17 +392,20 @@ export async function runEnrichment(
     throw new Error(`Site ${siteId} not found`);
   }
   
+  const activeWeatherProvider = options?.weatherProvider || weatherProvider;
+  const activeEventsProvider = options?.eventsProvider || eventsProvider;
+  
   const lat = 52.4862;
   const lon = -1.8904;
   
   const midpoint = new Date((windowStart.getTime() + windowEnd.getTime()) / 2);
   
   const [weatherSummary, localEventsSummary, siteInventoryHits, anomalySummary] = await Promise.all([
-    weatherProvider.getWeather(lat, lon, midpoint).catch(e => {
+    activeWeatherProvider.getWeather(lat, lon, midpoint).catch(e => {
       console.error("[Enrichment] Weather provider error:", e);
       return null;
     }),
-    eventsProvider.getEvents(lat, lon, windowStart, windowEnd).catch(e => {
+    activeEventsProvider.getEvents(lat, lon, windowStart, windowEnd).catch(e => {
       console.error("[Enrichment] Events provider error:", e);
       return null;
     }),
