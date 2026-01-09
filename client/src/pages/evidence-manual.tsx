@@ -43,7 +43,7 @@ import { EvidenceCardSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Evidence } from "@shared/schema";
+import type { Evidence, Bay } from "@shared/schema";
 
 const uploadSchema = z.object({
   bayId: z.string().optional(),
@@ -62,7 +62,12 @@ export default function ManualUploadPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: evidence, isLoading } = useQuery<Evidence[]>({
-    queryKey: ["/api/evidence", { type: "manual", status: statusFilter }],
+    queryKey: ["/api/evidence"],
+    select: (data) => data.filter(e => e.type === "manual"),
+  });
+
+  const { data: bays } = useQuery<Bay[]>({
+    queryKey: ["/api/bays"],
   });
 
   const form = useForm<UploadFormValues>({
@@ -299,13 +304,16 @@ export default function ManualUploadPage() {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-bay">
-                            <SelectValue placeholder="Select bay" />
+                            <SelectValue placeholder="Select bay (optional)" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="1">Bay 1 - Disabled</SelectItem>
-                          <SelectItem value="2">Bay 2 - EV</SelectItem>
-                          <SelectItem value="3">Bay 3 - Parent & Child</SelectItem>
+                          <SelectItem value="">No bay selected</SelectItem>
+                          {bays?.map((bay) => (
+                            <SelectItem key={bay.id} value={bay.id.toString()}>
+                              {bay.name} - {bay.type}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />

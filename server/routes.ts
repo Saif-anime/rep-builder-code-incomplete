@@ -409,6 +409,8 @@ export async function registerRoutes(
       const parkingEventIds: number[] = [];
       let aiSummary: string | null = null;
       let violationsDetected = false;
+      
+      const parsedBayId = bayId && bayId !== "" ? parseInt(bayId) : null;
 
       for (const file of files) {
         const hash = calculateFileHash(file.path);
@@ -417,7 +419,7 @@ export async function registerRoutes(
         const ev = await storage.createEvidence({
           type: "manual",
           uploadedBy: req.user!.id,
-          bayId: bayId ? parseInt(bayId) : null,
+          bayId: parsedBayId,
           imagePath: isImage ? `/uploads/${file.filename}` : null,
           videoPath: !isImage ? `/uploads/${file.filename}` : null,
           thumbnailPath: isImage ? `/uploads/${file.filename}` : null,
@@ -444,7 +446,7 @@ export async function registerRoutes(
         if (violationType) {
           const parkingEvent = await storage.createParkingEvent({
             evidenceId: ev.id,
-            bayId: bayId ? parseInt(bayId) : null,
+            bayId: parsedBayId,
             violationType,
             isViolation: true,
             status: "pending",
@@ -453,7 +455,7 @@ export async function registerRoutes(
 
           if (isImage) {
             try {
-              const fetchedBay = bayId ? await storage.getBay(parseInt(bayId)) : null;
+              const fetchedBay = parsedBayId ? await storage.getBay(parsedBayId) : null;
               const bayData = fetchedBay ?? null;
               const analysisResult = await analyzeEvidence(ev, bayData, [], violationType);
               
