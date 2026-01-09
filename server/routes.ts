@@ -1970,6 +1970,84 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== PCN RECOMMENDATIONS ====================
+  app.post("/api/flags/:id/override", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const flagId = parseInt(req.params.id);
+      if (isNaN(flagId)) {
+        return res.status(400).json({ error: "Invalid flag ID" });
+      }
+
+      const flag = await storage.getSessionFlag(flagId);
+      if (!flag) {
+        return res.status(404).json({ error: "Flag not found" });
+      }
+
+      const { action, reason } = req.body;
+      if (!action || !["HOLD_PCN", "PROCEED_PCN", "REVIEW_REQUIRED", "AUTO_DISMISS"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Must be HOLD_PCN, PROCEED_PCN, REVIEW_REQUIRED, or AUTO_DISMISS" });
+      }
+      if (!reason || reason.trim().length === 0) {
+        return res.status(400).json({ error: "Override reason is required" });
+      }
+
+      const session = await storage.getParkingSession(flag.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const recommendation = await storage.createPcnRecommendation({
+        sessionId: flag.sessionId,
+        flagId: flag.id,
+        siteId: flag.siteId,
+        vrm: session.vrm || "UNKNOWN",
+        action,
+        previousAction: (flag.recommendation as "HOLD_PCN" | "PROCEED_PCN" | "REVIEW_REQUIRED" | "AUTO_DISMISS" | null) || undefined,
+        source: "USER",
+        createdBy: req.user!.id,
+        reason: reason.trim(),
+        reasonPlain: `Manual override by ${req.user!.fullName || req.user!.username}: ${reason.trim()}`,
+        evidenceJson: {
+          ...flag.evidence,
+          overrideReason: reason.trim(),
+          sessionDetails: {
+            entryAt: session.entryAt?.toISOString() || "",
+            exitAt: session.exitAt?.toISOString(),
+            durationMinutes: session.durationMinutes || undefined,
+          },
+        },
+        confidence: 1.0,
+        isOverride: true,
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "override",
+        entityType: "pcn_recommendation",
+        entityId: String(recommendation.id),
+        details: { flagId, previousAction: flag.recommendation, newAction: action, reason },
+      });
+
+      res.status(201).json(recommendation);
+    } catch (error) {
+      console.error("[API] Error creating override:", error);
+      res.status(500).json({ error: "Failed to create override" });
+    }
+  });
+
+  app.get("/api/sessions/:id/recommendations", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      if (isNaN(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID" });
+      }
+      const recommendations = await storage.getPcnRecommendationsBySession(sessionId);
+      res.json(recommendations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch recommendations" });
+    }
+  });
+
   // ==================== SIGNAGE INSPECTIONS ====================
   app.get("/api/sites/:id/signage-inspections", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
