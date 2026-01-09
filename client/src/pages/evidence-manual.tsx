@@ -84,7 +84,7 @@ export default function ManualUploadPage() {
       const formData = new FormData();
       selectedFiles.forEach((file) => formData.append("files", file));
       formData.append("violationType", data.violationType);
-      if (data.bayId) formData.append("bayId", data.bayId);
+      if (data.bayId && data.bayId !== "none") formData.append("bayId", data.bayId);
       if (data.notes) formData.append("notes", data.notes);
 
       const token = localStorage.getItem("auth_token");
@@ -308,7 +308,7 @@ export default function ManualUploadPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">No bay selected</SelectItem>
+                          <SelectItem value="none">No bay selected</SelectItem>
                           {bays?.map((bay) => (
                             <SelectItem key={bay.id} value={bay.id.toString()}>
                               {bay.name} - {bay.type}
