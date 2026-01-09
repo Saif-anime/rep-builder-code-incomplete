@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -220,7 +220,7 @@ function PhotoUploadSection({
           {sectionPhotos.map((photo) => (
             <div key={photo.id} className="relative group">
               <img
-                src={photo.photoPath}
+                src={photo.photoPath.startsWith("/") ? photo.photoPath : `/uploads/${photo.photoPath}`}
                 alt={`${section} signage`}
                 className="w-full h-24 object-cover rounded border"
               />
@@ -255,6 +255,7 @@ export default function SignageInspectionPage() {
   const [activeTab, setActiveTab] = useState("site");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [initializedFromDb, setInitializedFromDb] = useState<number | null>(null);
 
   const { data: site, isLoading: siteLoading } = useQuery<ParkingSite>({
     queryKey: ["/api/parking-sites", siteId],
@@ -314,14 +315,64 @@ export default function SignageInspectionPage() {
     },
   });
 
-  const isReadOnly = inspection?.status !== "draft";
+  const isReadOnly = inspectionId ? inspection?.status !== "draft" : false;
   const photos = inspection?.photos || [];
 
-  const handleSave = () => {
+  useEffect(() => {
+    if (inspection && initializedFromDb !== inspection.id) {
+      setFormData({
+        inspectorName: inspection.inspectorName || "",
+        inspectionDate: inspection.inspectionDate ? new Date(inspection.inspectionDate).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        siteCode: inspection.siteCode || "",
+        siteAddress: inspection.siteAddress || "",
+        entranceSignagePresent: inspection.entranceSignagePresent,
+        entranceClearlyVisible: inspection.entranceClearlyVisible,
+        entranceCorrectWording: inspection.entranceCorrectWording,
+        entranceHeightCompliant: inspection.entranceHeightCompliant,
+        entranceLightingDay: inspection.entranceLightingDay,
+        entranceLightingNight: inspection.entranceLightingNight,
+        entranceCondition: inspection.entranceCondition || "",
+        tcTariffVisible: inspection.tcTariffVisible,
+        tcFontReadable: inspection.tcFontReadable,
+        tcDistanceReadable: inspection.tcDistanceReadable,
+        tcLanguageCorrect: inspection.tcLanguageCorrect,
+        tcLightingPresent: inspection.tcLightingPresent,
+        disabledSignPresent: inspection.disabledSignPresent,
+        disabledMarkingsVisible: inspection.disabledMarkingsVisible,
+        disabledUprightSign: inspection.disabledUprightSign,
+        disabledWordingCorrect: inspection.disabledWordingCorrect,
+        evSignPresent: inspection.evSignPresent,
+        evMarkingsVisible: inspection.evMarkingsVisible,
+        evUprightSign: inspection.evUprightSign,
+        evWordingCorrect: inspection.evWordingCorrect,
+        parentChildSignPresent: inspection.parentChildSignPresent,
+        parentChildMarkingsVisible: inspection.parentChildMarkingsVisible,
+        parentChildUprightSign: inspection.parentChildUprightSign,
+        parentChildWordingCorrect: inspection.parentChildWordingCorrect,
+        bpaIpcCompliant: inspection.bpaIpcCompliant,
+        conflictingSignagePresent: inspection.conflictingSignagePresent,
+        obstructionsPresent: inspection.obstructionsPresent,
+        weatherDamage: inspection.weatherDamage,
+        graffitiPresent: inspection.graffitiPresent,
+        generalNotes: inspection.generalNotes || "",
+        signatureData: inspection.signatureData || "",
+      });
+      setInitializedFromDb(inspection.id);
+    } else if (site && !inspectionId && initializedFromDb === null) {
+      setFormData(prev => ({
+        ...prev,
+        siteCode: site.locationCode || "",
+        siteAddress: [site.addressLine1, site.city, site.postcode].filter(Boolean).join(", "),
+      }));
+      setInitializedFromDb(-1);
+    }
+  }, [inspection, site, inspectionId, initializedFromDb]);
+
+  const handleSave = async (): Promise<void> => {
     if (inspectionId) {
-      updateMutation.mutate(formData);
+      await updateMutation.mutateAsync(formData);
     } else {
-      createMutation.mutate({
+      await createMutation.mutateAsync({
         ...formData,
         siteCode: site?.locationCode || "",
         siteAddress: [site?.addressLine1, site?.city, site?.postcode].filter(Boolean).join(", "),
@@ -329,10 +380,14 @@ export default function SignageInspectionPage() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!inspectionId) return;
-    handleSave();
-    setTimeout(() => submitMutation.mutate(), 500);
+    try {
+      await updateMutation.mutateAsync(formData);
+      await submitMutation.mutateAsync();
+    } catch (error) {
+      console.error("Submit failed:", error);
+    }
   };
 
   const updateField = <K extends keyof InspectionFormData>(field: K, value: InspectionFormData[K]) => {
