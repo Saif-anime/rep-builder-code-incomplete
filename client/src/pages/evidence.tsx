@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,10 +45,6 @@ export default function EvidencePage() {
     queryKey: ["/api/cameras"],
   });
 
-  const filteredCameras = useMemo(() => {
-    if (!selectedSiteId) return [];
-    return allCameras.filter(c => String(c.siteId) === selectedSiteId);
-  }, [allCameras, selectedSiteId]);
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
@@ -89,17 +85,13 @@ export default function EvidencePage() {
     const formData = new FormData();
     uploadFiles.forEach((file) => formData.append("files", file));
     if (notes) formData.append("notes", notes);
-    if (selectedBayId) formData.append("bayId", selectedBayId);
-    if (selectedSiteId) formData.append("siteId", selectedSiteId);
-    if (selectedCameraId) formData.append("cameraId", selectedCameraId);
+    if (selectedBayId && selectedBayId !== "none") formData.append("bayId", selectedBayId);
+    if (selectedSiteId && selectedSiteId !== "none") formData.append("siteId", selectedSiteId);
+    if (selectedCameraId && selectedCameraId !== "none") formData.append("cameraId", selectedCameraId);
 
     uploadMutation.mutate(formData);
   };
 
-  const handleSiteChange = (value: string) => {
-    setSelectedSiteId(value);
-    setSelectedCameraId("");
-  };
 
   const filteredEvidence = evidenceList.filter((ev) => {
     if (sourceFilter === "all") return true;
@@ -147,12 +139,13 @@ export default function EvidencePage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Parking Site</Label>
-                  <Select value={selectedSiteId} onValueChange={handleSiteChange}>
+                  <Label>Parking Site (Optional)</Label>
+                  <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
                     <SelectTrigger data-testid="select-site">
-                      <SelectValue placeholder="Select a parking site" />
+                      <SelectValue placeholder="No site selected" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="none">No site selected</SelectItem>
                       {parkingSites.map((site) => (
                         <SelectItem key={site.id} value={site.id.toString()}>
                           {site.siteName} {site.city && `- ${site.city}`}
@@ -166,20 +159,17 @@ export default function EvidencePage() {
                   <Select 
                     value={selectedCameraId} 
                     onValueChange={setSelectedCameraId}
-                    disabled={!selectedSiteId}
                   >
                     <SelectTrigger data-testid="select-camera">
-                      <SelectValue placeholder={selectedSiteId ? "Select a camera" : "Select a site first"} />
+                      <SelectValue placeholder="None - Manual upload" />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredCameras.map((camera) => (
+                      <SelectItem value="none">None - Manual upload</SelectItem>
+                      {allCameras.map((camera) => (
                         <SelectItem key={camera.id} value={camera.id.toString()}>
-                          {camera.name}
+                          {camera.name} {parkingSites.find(s => s.id.toString() === String(camera.siteId))?.siteName && `(${parkingSites.find(s => s.id.toString() === String(camera.siteId))?.siteName})`}
                         </SelectItem>
                       ))}
-                      {filteredCameras.length === 0 && (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No cameras at this site</div>
-                      )}
                     </SelectContent>
                   </Select>
                 </div>
