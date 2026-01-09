@@ -926,22 +926,49 @@ export async function registerRoutes(
   app.post("/api/anpr/events", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const { anprService } = await import("./anpr-service");
-      const { insertAnprEventSchema } = await import("@shared/schema");
       const { z } = await import("zod");
 
-      const eventSchema = insertAnprEventSchema.extend({
+      const anprEventInputSchema = z.object({
+        siteId: z.number().int().positive("Site ID must be a positive integer"),
+        cameraId: z.number().int().positive("Camera ID must be a positive integer"),
+        vrm: z.string().min(2, "VRM must be at least 2 characters").max(20, "VRM too long"),
         eventType: z.enum(["ENTRY", "EXIT"]),
+        confidence: z.number().min(0).max(100).optional().default(95),
+        occurredAt: z.string().or(z.date()).transform(val => new Date(val)),
       });
 
+      const validateAndParse = async (data: unknown) => {
+        const parsed = anprEventInputSchema.parse(data);
+        
+        const site = await storage.getParkingSite(parsed.siteId);
+        if (!site) {
+          throw new Error(`Site with ID ${parsed.siteId} not found`);
+        }
+        
+        const camera = await storage.getCamera(parsed.cameraId);
+        if (!camera) {
+          throw new Error(`Camera with ID ${parsed.cameraId} not found`);
+        }
+
+        return {
+          ...parsed,
+          vrm: parsed.vrm.toUpperCase().replace(/\s+/g, ""),
+        };
+      };
+
       if (Array.isArray(req.body)) {
-        const events = req.body.map((e: any) => {
-          const parsed = eventSchema.parse({
-            ...e,
-            occurredAt: new Date(e.occurredAt),
-            vrm: e.vrm?.toUpperCase().replace(/\s+/g, ""),
-          });
-          return parsed;
-        });
+        if (req.body.length === 0) {
+          return res.status(400).json({ error: "Empty event array" });
+        }
+        if (req.body.length > 1000) {
+          return res.status(400).json({ error: "Maximum 1000 events per batch" });
+        }
+
+        const events = [];
+        for (const e of req.body) {
+          const parsed = await validateAndParse(e);
+          events.push(parsed);
+        }
         
         const results = await anprService.processBatchEvents(events);
         
@@ -964,11 +991,7 @@ export async function registerRoutes(
           })),
         });
       } else {
-        const parsed = eventSchema.parse({
-          ...req.body,
-          occurredAt: new Date(req.body.occurredAt),
-          vrm: req.body.vrm?.toUpperCase().replace(/\s+/g, ""),
-        });
+        const parsed = await validateAndParse(req.body);
 
         const result = await anprService.processEvent(parsed);
         
@@ -997,6 +1020,9 @@ export async function registerRoutes(
       if (error.name === "ZodError") {
         return res.status(400).json({ error: "Invalid event data", details: error.errors });
       }
+      if (error.message?.includes("not found")) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: "Failed to process ANPR event" });
     }
   });
@@ -1013,12 +1039,27 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Site not found" });
       }
 
-      const { from, to } = req.query;
+      const { from, to, limit = "100", offset = "0", status } = req.query;
       const fromDate = from ? new Date(from as string) : undefined;
       const toDate = to ? new Date(to as string) : undefined;
+      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 100), 1000);
+      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      const statusFilter = status as string | undefined;
 
       const sessions = await storage.getSessionsBySite(siteId, fromDate, toDate);
-      res.json(sessions);
+      
+      const filteredSessions = statusFilter 
+        ? sessions.filter(s => s.status === statusFilter.toUpperCase())
+        : sessions;
+      
+      const paginatedSessions = filteredSessions.slice(offsetNum, offsetNum + limitNum);
+
+      res.json({
+        sessions: paginatedSessions,
+        total: filteredSessions.length,
+        limit: limitNum,
+        offset: offsetNum,
+      });
     } catch (error) {
       console.error("Get sessions error:", error);
       res.status(500).json({ error: "Failed to fetch sessions" });

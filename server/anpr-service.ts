@@ -116,10 +116,11 @@ export class AnprService {
     const openSession = await storage.getOpenSessionByVrmAndSite(event.vrm, event.siteId);
 
     if (openSession && openSession.entryEventId === matchingEntry.id) {
-      const entryTime = openSession.entryAt!;
+      const entryTime = openSession.entryAt || matchingEntry.occurredAt;
       const exitTime = event.occurredAt;
-      const durationMs = exitTime.getTime() - entryTime.getTime();
-      const durationMinutes = Math.round(durationMs / (1000 * 60));
+      const durationMinutes = entryTime && exitTime 
+        ? Math.max(0, Math.round((exitTime.getTime() - entryTime.getTime()) / (1000 * 60)))
+        : null;
 
       const closedSession = await storage.updateParkingSession(openSession.id, {
         exitEventId: event.id,
@@ -127,9 +128,9 @@ export class AnprService {
         durationMinutes,
         status: "CLOSED",
         derivedFrom: {
-          ...openSession.derivedFrom,
+          ...((openSession.derivedFrom as Record<string, unknown>) || {}),
           pairedAt: new Date().toISOString(),
-          notes: `Session closed after ${durationMinutes} minutes`,
+          notes: durationMinutes !== null ? `Session closed after ${durationMinutes} minutes` : "Session closed",
         },
       });
 
