@@ -1,7 +1,25 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+function getAuthToken(): string | null {
+  return localStorage.getItem("auth_token");
+}
+
+function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("auth_user");
+      window.location.href = "/";
+    }
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -12,9 +30,17 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: HeadersInit = {
+    ...getAuthHeaders(),
+  };
+  
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -31,6 +57,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: getAuthHeaders(),
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -47,7 +74,7 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      staleTime: 60000,
       retry: false,
     },
     mutations: {
