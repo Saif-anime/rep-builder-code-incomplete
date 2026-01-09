@@ -414,3 +414,88 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// ==================== ANPR EVENTS ====================
+export const anprEventTypeEnum = ["ENTRY", "EXIT"] as const;
+export type AnprEventType = typeof anprEventTypeEnum[number];
+
+export const anprEvents = pgTable("anpr_events", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  vrm: text("vrm").notNull(), // Vehicle Registration Mark (number plate)
+  eventType: text("event_type").notNull(), // ENTRY | EXIT
+  occurredAt: timestamp("occurred_at").notNull(),
+  cameraId: integer("camera_id").references(() => cameras.id),
+  rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>(),
+  confidence: real("confidence"),
+  source: text("source"), // e.g. "hikvision", "manual", "third_party"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAnprEventSchema = createInsertSchema(anprEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAnprEvent = z.infer<typeof insertAnprEventSchema>;
+export type AnprEvent = typeof anprEvents.$inferSelect;
+
+// ==================== PARKING SESSIONS ====================
+export const parkingSessionStatusEnum = ["OPEN", "CLOSED", "ORPHAN"] as const;
+export type ParkingSessionStatus = typeof parkingSessionStatusEnum[number];
+
+export const parkingSessions = pgTable("parking_sessions", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  vrm: text("vrm").notNull(),
+  entryEventId: integer("entry_event_id").references(() => anprEvents.id),
+  exitEventId: integer("exit_event_id").references(() => anprEvents.id),
+  entryAt: timestamp("entry_at"),
+  exitAt: timestamp("exit_at"),
+  durationMinutes: integer("duration_minutes"),
+  status: text("status").notNull().default("OPEN"), // OPEN | CLOSED | ORPHAN
+  derivedFrom: jsonb("derived_from").$type<{
+    orphanReason?: string;
+    matchingWindowHours?: number;
+    pairedAt?: string;
+    notes?: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertParkingSessionSchema = createInsertSchema(parkingSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertParkingSession = z.infer<typeof insertParkingSessionSchema>;
+export type ParkingSession = typeof parkingSessions.$inferSelect;
+
+// ==================== ANPR RELATIONS ====================
+export const anprEventsRelations = relations(anprEvents, ({ one }) => ({
+  site: one(parkingSites, {
+    fields: [anprEvents.siteId],
+    references: [parkingSites.id],
+  }),
+  camera: one(cameras, {
+    fields: [anprEvents.cameraId],
+    references: [cameras.id],
+  }),
+}));
+
+export const parkingSessionsRelations = relations(parkingSessions, ({ one }) => ({
+  site: one(parkingSites, {
+    fields: [parkingSessions.siteId],
+    references: [parkingSites.id],
+  }),
+  entryEvent: one(anprEvents, {
+    fields: [parkingSessions.entryEventId],
+    references: [anprEvents.id],
+  }),
+  exitEvent: one(anprEvents, {
+    fields: [parkingSessions.exitEventId],
+    references: [anprEvents.id],
+  }),
+}));

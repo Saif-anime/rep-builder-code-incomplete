@@ -1,13 +1,15 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
+  anprEvents, parkingSessions,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
   type AuditLog, type InsertAuditLog, type Site, type InsertSite, type AiSetting, type InsertAiSetting,
-  type ParkingSite, type InsertParkingSite
+  type ParkingSite, type InsertParkingSite,
+  type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -74,6 +76,19 @@ export interface IStorage {
   // AI Settings
   getAiSettings(): Promise<Record<string, unknown>>;
   updateAiSettings(settings: Record<string, unknown>): Promise<void>;
+
+  // ANPR Events
+  createAnprEvent(event: InsertAnprEvent): Promise<AnprEvent>;
+  getAnprEvent(id: number): Promise<AnprEvent | undefined>;
+  getAnprEventsByVrmAndSite(vrm: string, siteId: number, from?: Date, to?: Date): Promise<AnprEvent[]>;
+  getUnmatchedEntryForExit(vrm: string, siteId: number, exitTime: Date, windowHours: number): Promise<AnprEvent | undefined>;
+
+  // Parking Sessions
+  createParkingSession(session: InsertParkingSession): Promise<ParkingSession>;
+  updateParkingSession(id: number, session: Partial<InsertParkingSession>): Promise<ParkingSession | undefined>;
+  getParkingSession(id: number): Promise<ParkingSession | undefined>;
+  getSessionsBySite(siteId: number, from?: Date, to?: Date): Promise<ParkingSession[]>;
+  getOpenSessionByVrmAndSite(vrm: string, siteId: number): Promise<ParkingSession | undefined>;
 
   // Dashboard Stats
   getDashboardStats(): Promise<{
@@ -422,6 +437,102 @@ export class DatabaseStorage implements IStorage {
       recentEvents: eventsWithPlates,
       recentActivity,
     };
+  }
+
+  // ANPR Events
+  async createAnprEvent(event: InsertAnprEvent): Promise<AnprEvent> {
+    const [created] = await db.insert(anprEvents).values(event).returning();
+    return created;
+  }
+
+  async getAnprEvent(id: number): Promise<AnprEvent | undefined> {
+    const [event] = await db.select().from(anprEvents).where(eq(anprEvents.id, id));
+    return event || undefined;
+  }
+
+  async getAnprEventsByVrmAndSite(vrm: string, siteId: number, from?: Date, to?: Date): Promise<AnprEvent[]> {
+    const conditions = [
+      eq(anprEvents.vrm, vrm.toUpperCase()),
+      eq(anprEvents.siteId, siteId),
+    ];
+    if (from) conditions.push(gte(anprEvents.occurredAt, from));
+    if (to) conditions.push(lte(anprEvents.occurredAt, to));
+    
+    return db.select().from(anprEvents).where(and(...conditions)).orderBy(desc(anprEvents.occurredAt));
+  }
+
+  async getUnmatchedEntryForExit(vrm: string, siteId: number, exitTime: Date, windowHours: number): Promise<AnprEvent | undefined> {
+    const windowStart = new Date(exitTime.getTime() - windowHours * 60 * 60 * 1000);
+    
+    const matchedEntryIds = db
+      .select({ entryEventId: parkingSessions.entryEventId })
+      .from(parkingSessions)
+      .where(and(
+        eq(parkingSessions.vrm, vrm.toUpperCase()),
+        eq(parkingSessions.siteId, siteId),
+      ));
+    
+    const [entry] = await db
+      .select()
+      .from(anprEvents)
+      .where(and(
+        eq(anprEvents.vrm, vrm.toUpperCase()),
+        eq(anprEvents.siteId, siteId),
+        eq(anprEvents.eventType, "ENTRY"),
+        gte(anprEvents.occurredAt, windowStart),
+        lte(anprEvents.occurredAt, exitTime),
+        sql`${anprEvents.id} NOT IN (SELECT entry_event_id FROM parking_sessions WHERE entry_event_id IS NOT NULL AND vrm = ${vrm.toUpperCase()} AND site_id = ${siteId})`
+      ))
+      .orderBy(desc(anprEvents.occurredAt))
+      .limit(1);
+    
+    return entry || undefined;
+  }
+
+  // Parking Sessions
+  async createParkingSession(session: InsertParkingSession): Promise<ParkingSession> {
+    const [created] = await db.insert(parkingSessions).values(session).returning();
+    return created;
+  }
+
+  async updateParkingSession(id: number, session: Partial<InsertParkingSession>): Promise<ParkingSession | undefined> {
+    const [updated] = await db
+      .update(parkingSessions)
+      .set({ ...session, updatedAt: new Date() })
+      .where(eq(parkingSessions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getParkingSession(id: number): Promise<ParkingSession | undefined> {
+    const [session] = await db.select().from(parkingSessions).where(eq(parkingSessions.id, id));
+    return session || undefined;
+  }
+
+  async getSessionsBySite(siteId: number, from?: Date, to?: Date): Promise<ParkingSession[]> {
+    const conditions = [eq(parkingSessions.siteId, siteId)];
+    if (from) {
+      conditions.push(sql`(${parkingSessions.entryAt} >= ${from} OR ${parkingSessions.exitAt} >= ${from})`);
+    }
+    if (to) {
+      conditions.push(sql`(${parkingSessions.entryAt} <= ${to} OR ${parkingSessions.exitAt} <= ${to})`);
+    }
+    
+    return db.select().from(parkingSessions).where(and(...conditions)).orderBy(desc(parkingSessions.createdAt));
+  }
+
+  async getOpenSessionByVrmAndSite(vrm: string, siteId: number): Promise<ParkingSession | undefined> {
+    const [session] = await db
+      .select()
+      .from(parkingSessions)
+      .where(and(
+        eq(parkingSessions.vrm, vrm.toUpperCase()),
+        eq(parkingSessions.siteId, siteId),
+        eq(parkingSessions.status, "OPEN")
+      ))
+      .orderBy(desc(parkingSessions.entryAt))
+      .limit(1);
+    return session || undefined;
   }
 }
 
