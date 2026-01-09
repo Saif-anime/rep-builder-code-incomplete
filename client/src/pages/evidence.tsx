@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { EvidenceCard } from "@/components/evidence-card";
-import { Upload, FileImage, Camera, Filter, Loader2, RefreshCw } from "lucide-react";
+import { Upload, FileImage, Camera, Filter, Loader2, RefreshCw, MapPin } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Evidence, Bay } from "@shared/schema";
+import type { Evidence, Bay, ParkingSite, Camera as CameraType } from "@shared/schema";
 
 type SourceFilter = "all" | "camera" | "manual";
 
@@ -25,6 +25,8 @@ export default function EvidencePage() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
   const [selectedBayId, setSelectedBayId] = useState<string>("");
+  const [selectedSiteId, setSelectedSiteId] = useState<string>("");
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
 
   const { data: evidenceList = [], isLoading, refetch } = useQuery<Evidence[]>({
     queryKey: ["/api/evidence"],
@@ -34,6 +36,19 @@ export default function EvidencePage() {
   const { data: bays = [] } = useQuery<Bay[]>({
     queryKey: ["/api/bays"],
   });
+
+  const { data: parkingSites = [] } = useQuery<ParkingSite[]>({
+    queryKey: ["/api/parking-sites"],
+  });
+
+  const { data: allCameras = [] } = useQuery<CameraType[]>({
+    queryKey: ["/api/cameras"],
+  });
+
+  const filteredCameras = useMemo(() => {
+    if (!selectedSiteId) return [];
+    return allCameras.filter(c => c.siteId === selectedSiteId);
+  }, [allCameras, selectedSiteId]);
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
@@ -56,6 +71,8 @@ export default function EvidencePage() {
       setUploadFiles([]);
       setNotes("");
       setSelectedBayId("");
+      setSelectedSiteId("");
+      setSelectedCameraId("");
       queryClient.invalidateQueries({ queryKey: ["/api/evidence"] });
     },
     onError: (error: Error) => {
@@ -73,8 +90,15 @@ export default function EvidencePage() {
     uploadFiles.forEach((file) => formData.append("files", file));
     if (notes) formData.append("notes", notes);
     if (selectedBayId) formData.append("bayId", selectedBayId);
+    if (selectedSiteId) formData.append("siteId", selectedSiteId);
+    if (selectedCameraId) formData.append("cameraId", selectedCameraId);
 
     uploadMutation.mutate(formData);
+  };
+
+  const handleSiteChange = (value: string) => {
+    setSelectedSiteId(value);
+    setSelectedCameraId("");
   };
 
   const filteredEvidence = evidenceList.filter((ev) => {
@@ -109,18 +133,56 @@ export default function EvidencePage() {
               </DialogHeader>
               <div className="flex flex-col gap-4 py-4">
                 <div className="flex flex-col gap-2">
-                  <Label>Files</Label>
+                  <Label>Files (JPG, PNG, MP4, AVI)</Label>
                   <Input
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*,video/*"
+                    accept="image/jpeg,image/png,video/mp4,video/x-msvideo,video/avi,.jpg,.jpeg,.png,.mp4,.avi"
                     onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
                     data-testid="input-upload-files"
                   />
                   {uploadFiles.length > 0 && (
                     <p className="text-xs text-muted-foreground">{uploadFiles.length} file(s) selected</p>
                   )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Parking Site</Label>
+                  <Select value={selectedSiteId} onValueChange={handleSiteChange}>
+                    <SelectTrigger data-testid="select-site">
+                      <SelectValue placeholder="Select a parking site" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {parkingSites.map((site) => (
+                        <SelectItem key={site.id} value={site.id.toString()}>
+                          {site.siteName} {site.city && `- ${site.city}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Camera (Optional)</Label>
+                  <Select 
+                    value={selectedCameraId} 
+                    onValueChange={setSelectedCameraId}
+                    disabled={!selectedSiteId}
+                  >
+                    <SelectTrigger data-testid="select-camera">
+                      <SelectValue placeholder={selectedSiteId ? "Select a camera" : "Select a site first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredCameras.length === 0 ? (
+                        <SelectItem value="_none" disabled>No cameras at this site</SelectItem>
+                      ) : (
+                        filteredCameras.map((camera) => (
+                          <SelectItem key={camera.id} value={camera.id.toString()}>
+                            {camera.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Parking Bay (Optional)</Label>
