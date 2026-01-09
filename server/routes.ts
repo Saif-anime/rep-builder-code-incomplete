@@ -22,7 +22,7 @@ import {
 } from "./ai-analysis";
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
-import { insertUserSchema, insertCameraSchema, insertBaySchema } from "@shared/schema";
+import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSiteNoteSchema, insertSiteSurroundingsSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -1094,7 +1094,11 @@ export async function registerRoutes(
       if (existing) {
         return res.status(409).json({ error: "Rules already exist for this site. Use PATCH to update." });
       }
-      const rules = await storage.createSiteRules({ ...req.body, siteId });
+      const parsed = insertSiteRuleSchema.safeParse({ ...req.body, siteId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const rules = await storage.createSiteRules(parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "create",
@@ -1118,7 +1122,11 @@ export async function registerRoutes(
       if (!existing) {
         return res.status(404).json({ error: "Rules not found for this site" });
       }
-      const rules = await storage.updateSiteRules(existing.id, req.body);
+      const parsed = insertSiteRuleSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const rules = await storage.updateSiteRules(existing.id, parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "update",
@@ -1186,7 +1194,11 @@ export async function registerRoutes(
         validFrom: req.body.validFrom ? new Date(req.body.validFrom) : new Date(),
         validTo: req.body.validTo ? new Date(req.body.validTo) : null,
       };
-      const note = await storage.createSiteNote(noteData);
+      const parsed = insertSiteNoteSchema.safeParse(noteData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const note = await storage.createSiteNote(parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "create",
@@ -1213,7 +1225,11 @@ export async function registerRoutes(
       const updateData = { ...req.body };
       if (updateData.validFrom) updateData.validFrom = new Date(updateData.validFrom);
       if (updateData.validTo) updateData.validTo = new Date(updateData.validTo);
-      const note = await storage.updateSiteNote(noteId, updateData);
+      const parsed = insertSiteNoteSchema.partial().safeParse(updateData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const note = await storage.updateSiteNote(noteId, parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "update",
@@ -1278,7 +1294,11 @@ export async function registerRoutes(
       if (existing) {
         return res.status(409).json({ error: "Surroundings already exist for this site. Use PATCH to update." });
       }
-      const surroundings = await storage.createSiteSurroundings({ ...req.body, siteId });
+      const parsed = insertSiteSurroundingsSchema.safeParse({ ...req.body, siteId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const surroundings = await storage.createSiteSurroundings(parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "create",
@@ -1302,7 +1322,11 @@ export async function registerRoutes(
       if (!existing) {
         return res.status(404).json({ error: "Surroundings not found for this site" });
       }
-      const surroundings = await storage.updateSiteSurroundings(existing.id, req.body);
+      const parsed = insertSiteSurroundingsSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const surroundings = await storage.updateSiteSurroundings(existing.id, parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "update",
