@@ -92,11 +92,20 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
     - Automatic session flagging when spike detected
     - Flag types: POSSIBLE_DISRUPTION, WEATHER_DISRUPTION, EVENT_DISRUPTION, ROAD_INCIDENT
     - Flag severity levels: low, medium, high, critical
-    - Recommendations: HOLD_PCN (suspend enforcement), REVIEW_REQUIRED (manual review)
+    - Recommendations: HOLD_PCN (suspend enforcement), PROCEED_PCN (continue enforcement), REVIEW_REQUIRED (manual review)
     - Evidence capture: weather conditions, local events, site inventory hits
     - Site-level override policies: hold_on_disruption, always_enforce, review_required
     - Per-site enforcement overrides: enforceOnWeather, enforceOnEvents
     - Flag workflow: OPEN → RESOLVED/DISMISSED
+
+11. **Policy-Based Event Categorization**
+    - Event categories: SPORTS_MATCH, CONCERT, FESTIVAL, ROAD_CLOSURE, CONSTRUCTION, EMERGENCY, MARKET, COMMUNITY, OTHER
+    - Per-site policy configuration for enforcement vs grace categories
+    - Predictable demand events (SPORTS_MATCH) → PROCEED_PCN (enforcement continues)
+    - Legitimate disruptions (ROAD_CLOSURE, WEATHER) → HOLD_PCN (suspend enforcement)
+    - Decision explanation stored with flags for complete audit trail
+    - Configurable weatherPolicy: hold (default), enforce, review
+    - Configurable defaultEventPolicy: hold (default), enforce, review
 
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
@@ -113,6 +122,7 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `POST /api/anpr/events` - Submit ANPR events (single or batch)
 - `GET /api/sites/:id/sessions` - Get parking sessions for a site (with pagination/filtering)
 - `GET/POST/PATCH/DELETE /api/sites/:id/rules` - Site rules management
+- `GET/POST/PATCH/DELETE /api/sites/:id/policy` - Site enforcement policy management (event categories, weather policy)
 - `GET/POST /api/sites/:id/notes` - Site notes management
 - `PATCH/DELETE /api/notes/:id` - Update/delete individual notes
 - `GET/POST/PATCH/DELETE /api/sites/:id/surroundings` - Site surroundings management

@@ -27,7 +27,7 @@ import {
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
 import { runEnrichment } from "./contextEnrichment";
-import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
+import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -1363,6 +1363,108 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete site rules" });
+    }
+  });
+
+  // ==================== SITE POLICIES ====================
+  app.get("/api/sites/:id/policy", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const policy = await storage.getSitePolicy(siteId);
+      res.json(policy || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site policy" });
+    }
+  });
+
+  app.post("/api/sites/:id/policy", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const existing = await storage.getSitePolicy(siteId);
+      if (existing) {
+        return res.status(409).json({ error: "Policy already exists for this site. Use PATCH to update." });
+      }
+      const policyData = {
+        ...req.body,
+        siteId,
+      };
+      const parsed = insertSitePolicySchema.safeParse(policyData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const policy = await storage.createSitePolicy(parsed.data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "site_policy",
+        entityId: String(policy.id),
+        details: req.body,
+      });
+      res.status(201).json(policy);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create site policy" });
+    }
+  });
+
+  app.patch("/api/sites/:id/policy", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSitePolicy(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Policy not found for this site" });
+      }
+      const partialSchema = insertSitePolicySchema.partial();
+      const parsed = partialSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const policy = await storage.updateSitePolicy(existing.id, parsed.data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_policy",
+        entityId: String(existing.id),
+        details: req.body,
+      });
+      res.json(policy);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update site policy" });
+    }
+  });
+
+  app.delete("/api/sites/:id/policy", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const existing = await storage.getSitePolicy(siteId);
+      if (!existing) {
+        return res.status(404).json({ error: "Policy not found for this site" });
+      }
+      await storage.deleteSitePolicy(existing.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "site_policy",
+        entityId: String(existing.id),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete site policy" });
     }
   });
 
