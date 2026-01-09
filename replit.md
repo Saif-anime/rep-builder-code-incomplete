@@ -85,6 +85,11 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET /api/number-plates` - ANPR results
 - `POST /api/anpr/events` - Submit ANPR events (single or batch)
 - `GET /api/sites/:id/sessions` - Get parking sessions for a site (with pagination/filtering)
+- `GET/POST/PATCH/DELETE /api/sites/:id/rules` - Site rules management
+- `GET/POST /api/sites/:id/notes` - Site notes management
+- `PATCH/DELETE /api/notes/:id` - Update/delete individual notes
+- `GET/POST/PATCH/DELETE /api/sites/:id/surroundings` - Site surroundings management
+- `GET /api/sites/:id/context?at=<ISO_DATE>` - Compiled site context (rules + valid notes + surroundings)
 - `GET/PATCH /api/settings/ai` - AI threshold settings
 
 ## Design Guidelines
