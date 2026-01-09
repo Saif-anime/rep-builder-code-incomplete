@@ -4,10 +4,6 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
 import { storage } from "./storage";
 import { 
   authenticateToken, 
@@ -28,6 +24,7 @@ import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
 import { runEnrichment } from "./contextEnrichment";
 import { getDriverProfileWithFreshCalculation, recomputeDriverProfiles } from "./driverProfiling";
+import { processPdf, parsePdfToSignageData } from "./pdfProcessor";
 import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
@@ -76,170 +73,6 @@ const pdfUpload = multer({
     }
   },
 });
-
-interface ExtractedSections {
-  siteInformation?: Record<string, any>;
-  entranceSignage?: Record<string, any>;
-  termsAndConditions?: Record<string, any>;
-  baySignage?: Record<string, any>;
-  generalSignage?: Record<string, any>;
-  declaration?: Record<string, any>;
-}
-
-function parsePdfToSignageData(text: string): { extractedData: ExtractedSections; flatData: Record<string, any> } {
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  const flatData: Record<string, any> = {};
-  
-  const parseYesNo = (value: string): boolean | null => {
-    const lower = value.toLowerCase().trim();
-    if (lower === "yes" || lower === "y" || lower === "true" || lower === "1" || lower === "✓" || lower === "✔") return true;
-    if (lower === "no" || lower === "n" || lower === "false" || lower === "0" || lower === "✗" || lower === "✘" || lower === "x") return false;
-    return null;
-  };
-
-  const findValue = (patterns: string[]): string | null => {
-    for (const line of lines) {
-      for (const pattern of patterns) {
-        const regex = new RegExp(pattern + "[:\\s]+(.+)", "i");
-        const match = line.match(regex);
-        if (match) return match[1].trim();
-      }
-    }
-    return null;
-  };
-
-  const findBoolValue = (patterns: string[]): boolean | null => {
-    const val = findValue(patterns);
-    return val ? parseYesNo(val) : null;
-  };
-
-  flatData.inspectorName = findValue(["inspector name", "inspector", "surveyor", "auditor", "completed by"]);
-  flatData.siteCode = findValue(["site code", "site id", "location code", "site ref", "reference"]);
-  flatData.siteAddress = findValue(["site address", "address", "location", "site location"]);
-  
-  const dateVal = findValue(["inspection date", "date", "survey date", "audit date"]);
-  if (dateVal) {
-    const parsed = new Date(dateVal);
-    if (!isNaN(parsed.getTime())) {
-      flatData.inspectionDate = parsed.toISOString().split("T")[0];
-    }
-  }
-
-  flatData.entranceSignagePresent = findBoolValue(["entrance signage present", "entrance sign", "main entrance sign"]);
-  flatData.entranceClearlyVisible = findBoolValue(["entrance clearly visible", "entrance visibility", "sign visible"]);
-  flatData.entranceCorrectWording = findBoolValue(["entrance correct wording", "correct wording", "wording correct"]);
-  flatData.entranceHeightCompliant = findBoolValue(["entrance height compliant", "height compliant", "sign height"]);
-  flatData.entranceLightingDay = findBoolValue(["entrance lighting day", "daytime lighting", "day lighting", "visible in daylight"]);
-  flatData.entranceLightingNight = findBoolValue(["entrance lighting night", "night lighting", "nighttime lighting", "illuminated"]);
-  
-  const conditionVal = findValue(["entrance condition", "sign condition", "condition"]);
-  if (conditionVal) {
-    const lower = conditionVal.toLowerCase();
-    if (lower.includes("good") || lower.includes("excellent")) flatData.entranceCondition = "good";
-    else if (lower.includes("damaged") || lower.includes("poor") || lower.includes("worn")) flatData.entranceCondition = "damaged";
-    else if (lower.includes("missing") || lower.includes("none")) flatData.entranceCondition = "missing";
-  }
-
-  flatData.tcTariffVisible = findBoolValue(["tariff visible", "tariff sign", "t&c tariff", "pricing visible"]);
-  flatData.tcFontReadable = findBoolValue(["font readable", "text readable", "font size", "readable font"]);
-  flatData.tcLanguageCorrect = findBoolValue(["language correct", "correct language", "english"]);
-  flatData.tcLightingPresent = findBoolValue(["t&c lighting", "tc lighting", "terms lighting"]);
-  
-  const distanceVal = findValue(["readable distance", "reading distance", "visible from"]);
-  if (distanceVal) {
-    const numMatch = distanceVal.match(/(\d+(?:\.\d+)?)/);
-    if (numMatch) flatData.tcDistanceReadable = parseFloat(numMatch[1]);
-  }
-
-  flatData.disabledSignPresent = findBoolValue(["disabled sign present", "disabled bay sign", "blue badge sign"]);
-  flatData.disabledMarkingsVisible = findBoolValue(["disabled markings", "disabled bay markings", "blue badge markings"]);
-  flatData.disabledUprightSign = findBoolValue(["disabled upright", "disabled vertical sign"]);
-  flatData.disabledWordingCorrect = findBoolValue(["disabled wording", "disabled sign wording"]);
-
-  flatData.evSignPresent = findBoolValue(["ev sign present", "ev bay sign", "electric vehicle sign", "ev charging sign"]);
-  flatData.evMarkingsVisible = findBoolValue(["ev markings", "ev bay markings", "charging bay markings"]);
-  flatData.evUprightSign = findBoolValue(["ev upright", "ev vertical sign"]);
-  flatData.evWordingCorrect = findBoolValue(["ev wording", "ev sign wording"]);
-
-  flatData.parentChildSignPresent = findBoolValue(["parent child sign", "parent & child sign", "family bay sign"]);
-  flatData.parentChildMarkingsVisible = findBoolValue(["parent child markings", "family bay markings"]);
-  flatData.parentChildUprightSign = findBoolValue(["parent child upright", "family bay upright"]);
-  flatData.parentChildWordingCorrect = findBoolValue(["parent child wording", "family bay wording"]);
-
-  flatData.bpaIpcCompliant = findBoolValue(["bpa compliant", "ipc compliant", "bpa/ipc", "code of practice"]);
-  flatData.conflictingSignagePresent = findBoolValue(["conflicting signage", "conflicting signs", "contradictory"]);
-  flatData.obstructionsPresent = findBoolValue(["obstructions", "sign obstructed", "blocked"]);
-  flatData.weatherDamage = findBoolValue(["weather damage", "weather worn", "faded"]);
-  flatData.graffitiPresent = findBoolValue(["graffiti", "vandalism", "defaced"]);
-
-  const notesVal = findValue(["general notes", "notes", "comments", "observations", "additional notes"]);
-  if (notesVal) flatData.generalNotes = notesVal;
-
-  const signatureName = findValue(["signature", "signed by", "authorised by"]);
-  if (signatureName) flatData.signatureName = signatureName;
-
-  Object.keys(flatData).forEach(key => {
-    if (flatData[key] === null || flatData[key] === undefined) delete flatData[key];
-  });
-
-  const extractedData: ExtractedSections = {};
-
-  const siteInfo: Record<string, any> = {};
-  if (flatData.inspectorName) siteInfo.inspectorName = flatData.inspectorName;
-  if (flatData.siteCode) siteInfo.siteCode = flatData.siteCode;
-  if (flatData.siteAddress) siteInfo.siteAddress = flatData.siteAddress;
-  if (flatData.inspectionDate) siteInfo.inspectionDate = flatData.inspectionDate;
-  if (Object.keys(siteInfo).length > 0) extractedData.siteInformation = siteInfo;
-
-  const entrance: Record<string, any> = {};
-  if (flatData.entranceSignagePresent !== undefined) entrance.signagePresent = flatData.entranceSignagePresent;
-  if (flatData.entranceClearlyVisible !== undefined) entrance.clearlyVisible = flatData.entranceClearlyVisible;
-  if (flatData.entranceCorrectWording !== undefined) entrance.correctWording = flatData.entranceCorrectWording;
-  if (flatData.entranceHeightCompliant !== undefined) entrance.heightCompliant = flatData.entranceHeightCompliant;
-  if (flatData.entranceLightingDay !== undefined) entrance.lightingDay = flatData.entranceLightingDay;
-  if (flatData.entranceLightingNight !== undefined) entrance.lightingNight = flatData.entranceLightingNight;
-  if (flatData.entranceCondition) entrance.condition = flatData.entranceCondition;
-  if (Object.keys(entrance).length > 0) extractedData.entranceSignage = entrance;
-
-  const tc: Record<string, any> = {};
-  if (flatData.tcTariffVisible !== undefined) tc.tariffVisible = flatData.tcTariffVisible;
-  if (flatData.tcFontReadable !== undefined) tc.fontReadable = flatData.tcFontReadable;
-  if (flatData.tcLanguageCorrect !== undefined) tc.languageCorrect = flatData.tcLanguageCorrect;
-  if (flatData.tcLightingPresent !== undefined) tc.lightingPresent = flatData.tcLightingPresent;
-  if (flatData.tcDistanceReadable !== undefined) tc.readableDistance = flatData.tcDistanceReadable;
-  if (Object.keys(tc).length > 0) extractedData.termsAndConditions = tc;
-
-  const bay: Record<string, any> = {};
-  if (flatData.disabledSignPresent !== undefined) bay.disabledSignPresent = flatData.disabledSignPresent;
-  if (flatData.disabledMarkingsVisible !== undefined) bay.disabledMarkingsVisible = flatData.disabledMarkingsVisible;
-  if (flatData.disabledUprightSign !== undefined) bay.disabledUprightSign = flatData.disabledUprightSign;
-  if (flatData.disabledWordingCorrect !== undefined) bay.disabledWordingCorrect = flatData.disabledWordingCorrect;
-  if (flatData.evSignPresent !== undefined) bay.evSignPresent = flatData.evSignPresent;
-  if (flatData.evMarkingsVisible !== undefined) bay.evMarkingsVisible = flatData.evMarkingsVisible;
-  if (flatData.evUprightSign !== undefined) bay.evUprightSign = flatData.evUprightSign;
-  if (flatData.evWordingCorrect !== undefined) bay.evWordingCorrect = flatData.evWordingCorrect;
-  if (flatData.parentChildSignPresent !== undefined) bay.parentChildSignPresent = flatData.parentChildSignPresent;
-  if (flatData.parentChildMarkingsVisible !== undefined) bay.parentChildMarkingsVisible = flatData.parentChildMarkingsVisible;
-  if (flatData.parentChildUprightSign !== undefined) bay.parentChildUprightSign = flatData.parentChildUprightSign;
-  if (flatData.parentChildWordingCorrect !== undefined) bay.parentChildWordingCorrect = flatData.parentChildWordingCorrect;
-  if (Object.keys(bay).length > 0) extractedData.baySignage = bay;
-
-  const general: Record<string, any> = {};
-  if (flatData.bpaIpcCompliant !== undefined) general.bpaIpcCompliant = flatData.bpaIpcCompliant;
-  if (flatData.conflictingSignagePresent !== undefined) general.conflictingSignagePresent = flatData.conflictingSignagePresent;
-  if (flatData.obstructionsPresent !== undefined) general.obstructionsPresent = flatData.obstructionsPresent;
-  if (flatData.weatherDamage !== undefined) general.weatherDamage = flatData.weatherDamage;
-  if (flatData.graffitiPresent !== undefined) general.graffitiPresent = flatData.graffitiPresent;
-  if (flatData.generalNotes) general.notes = flatData.generalNotes;
-  if (Object.keys(general).length > 0) extractedData.generalSignage = general;
-
-  const declaration: Record<string, any> = {};
-  if (flatData.signatureName) declaration.signedBy = flatData.signatureName;
-  if (flatData.inspectionDate) declaration.date = flatData.inspectionDate;
-  if (Object.keys(declaration).length > 0) extractedData.declaration = declaration;
-
-  return { extractedData, flatData };
-}
 
 function calculateFileHash(filePath: string): string {
   const fileBuffer = fs.readFileSync(filePath);
@@ -2443,22 +2276,19 @@ export async function registerRoutes(
       }
       
       console.log("[PDF Upload] File received:", req.file.originalname, "size:", req.file.size, "mimetype:", req.file.mimetype);
-      console.log("[PDF Upload] Starting PDF parse...");
       
-      let pdfData;
-      try {
-        pdfData = await pdfParse(req.file.buffer);
-        console.log("[PDF Upload] Parse success, pages:", pdfData.numpages, "text length:", pdfData.text?.length || 0);
-      } catch (parseError: any) {
-        console.error("[PDF Upload] Parse failed:", parseError.message);
-        return res.status(422).json({ success: false, message: "Invalid or unreadable PDF format" });
+      const pdfResult = await processPdf(req.file.buffer, req.file.originalname);
+      console.log("[PDF Upload] Process result - success:", pdfResult.success, "source:", pdfResult.source, "text length:", pdfResult.extractedText.length);
+      
+      if (!pdfResult.success) {
+        return res.status(422).json({ 
+          success: false, 
+          message: pdfResult.error || "Failed to process PDF",
+          source: pdfResult.source
+        });
       }
       
-      if (!pdfData.text || pdfData.text.trim().length === 0) {
-        return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
-      }
-      
-      const { extractedData, flatData } = parsePdfToSignageData(pdfData.text);
+      const { extractedData, flatData } = parsePdfToSignageData(pdfResult.extractedText);
       const inspectionData = {
         ...flatData,
         siteId,
@@ -2478,10 +2308,19 @@ export async function registerRoutes(
         action: "create",
         entityType: "signage_inspection",
         entityId: String(inspection.id),
-        details: { siteId, source: "pdf_upload", extractedFields: Object.keys(flatData) },
+        details: { siteId, source: pdfResult.source === "ocr" ? "pdf_ocr" : "pdf_text", extractedFields: Object.keys(flatData) },
       });
-      console.log("[PDF Upload] Inspection created:", inspection.id);
-      res.status(201).json({ success: true, inspection, extractedData, flatData, rawText: pdfData.text.substring(0, 2000), pdfFileName: req.file.originalname });
+      console.log("[PDF Upload] Inspection created:", inspection.id, "source:", pdfResult.source);
+      res.status(201).json({ 
+        success: true, 
+        source: pdfResult.source,
+        inspection, 
+        extractedData, 
+        flatData, 
+        rawText: pdfResult.extractedText.substring(0, 2000), 
+        pdfFileName: req.file.originalname,
+        pageCount: pdfResult.pageCount
+      });
     } catch (error: any) {
       console.error("[PDF Upload] Unexpected error:", error.message, error.stack);
       res.status(500).json({ success: false, message: "Server error processing PDF" });
@@ -2496,29 +2335,27 @@ export async function registerRoutes(
       }
       
       console.log("[PDF Parse] File received:", req.file.originalname, "size:", req.file.size, "mimetype:", req.file.mimetype);
-      console.log("[PDF Parse] Starting PDF parse...");
       
-      let pdfData;
-      try {
-        pdfData = await pdfParse(req.file.buffer);
-        console.log("[PDF Parse] Parse success, pages:", pdfData.numpages, "text length:", pdfData.text?.length || 0);
-      } catch (parseError: any) {
-        console.error("[PDF Parse] Parse failed:", parseError.message);
-        return res.status(422).json({ success: false, message: "Invalid or unreadable PDF format" });
+      const pdfResult = await processPdf(req.file.buffer, req.file.originalname);
+      console.log("[PDF Parse] Process result - success:", pdfResult.success, "source:", pdfResult.source, "text length:", pdfResult.extractedText.length);
+      
+      if (!pdfResult.success) {
+        return res.status(422).json({ 
+          success: false, 
+          message: pdfResult.error || "Failed to process PDF",
+          source: pdfResult.source
+        });
       }
       
-      if (!pdfData.text || pdfData.text.trim().length === 0) {
-        return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
-      }
-      
-      const { extractedData, flatData } = parsePdfToSignageData(pdfData.text);
+      const { extractedData, flatData } = parsePdfToSignageData(pdfResult.extractedText);
       res.json({ 
-        success: true, 
+        success: true,
+        source: pdfResult.source,
         pdfFileName: req.file.originalname,
         extractedData,
         flatData,
-        extractedText: pdfData.text, 
-        pageCount: pdfData.numpages 
+        extractedText: pdfResult.extractedText, 
+        pageCount: pdfResult.pageCount 
       });
     } catch (error: any) {
       console.error("[PDF Parse] Unexpected error:", error.message, error.stack);

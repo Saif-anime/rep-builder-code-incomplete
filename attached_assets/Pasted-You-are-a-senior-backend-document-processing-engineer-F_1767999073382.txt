@@ -1,0 +1,140 @@
+You are a senior backend + document-processing engineer.
+
+Fix the PDF upload & parsing failure in the
+Euro Parking Services – Signage Inspection module.
+
+====================================================
+CURRENT ERROR
+====================================================
+POST /api/signage-inspections/parse-pdf
+→ 422 Unprocessable Entity
+→ "Invalid or unreadable PDF format"
+
+PDF is VALID and opens normally.
+
+====================================================
+ROOT CAUSE (INVESTIGATE & FIX)
+====================================================
+
+One or more of the following is happening:
+
+1. Backend expects JSON but receives multipart/form-data
+2. PDF file buffer is not being read correctly
+3. Multer / file middleware misconfigured
+4. PDF parser failing silently
+5. Text-based PDF vs scanned PDF not handled
+6. Missing OCR fallback
+
+====================================================
+MANDATORY BACKEND FIXES
+====================================================
+
+1️⃣ FILE UPLOAD HANDLING
+Use multer with:
+- memoryStorage()
+- correct field name
+- proper MIME validation
+
+Accept ONLY:
+- application/pdf
+
+Reject everything else with 400.
+
+====================================================
+2️⃣ PDF PARSING STRATEGY (CRITICAL)
+Implement **DUAL MODE PARSING**:
+
+A) Try TEXT extraction first
+   - pdf-parse OR pdfjs-dist
+
+B) If extracted text is EMPTY or < 50 chars
+   → Treat as SCANNED PDF
+   → Automatically trigger OCR
+
+====================================================
+3️⃣ OCR FALLBACK (MANDATORY)
+Use:
+- Tesseract.js (Node compatible)
+
+Steps:
+- Convert PDF pages to images
+- Run OCR per page
+- Combine extracted text
+
+====================================================
+4️⃣ NEVER THROW 422 FOR VALID PDF
+422 should ONLY be returned if:
+- File missing
+- File corrupted
+- File not PDF
+
+If OCR succeeds → return success
+
+====================================================
+RESPONSE FORMAT (STRICT)
+====================================================
+
+Always return:
+
+200 OK if any text extracted
+
+{
+  success: true,
+  source: "text" | "ocr",
+  pdfName: string,
+  extractedText: string,
+  extractedData: {
+    siteInformation?: {},
+    entranceSignage?: {},
+    termsAndConditions?: {},
+    baySignage?: {},
+    general?: {},
+    declaration?: {}
+  }
+}
+
+====================================================
+FRONTEND FIXES (MANDATORY)
+====================================================
+
+1️⃣ Send PDF using FormData
+2️⃣ Field name MUST match multer config
+3️⃣ DO NOT stringify file
+4️⃣ Show precise error messages:
+
+- "Unsupported file type"
+- "Corrupted PDF"
+- "OCR in progress..."
+
+====================================================
+LOGGING (IMPORTANT)
+====================================================
+
+Add server-side logs:
+- File size
+- MIME type
+- Extracted text length
+- OCR fallback triggered or not
+
+====================================================
+NON-NEGOTIABLE RULES
+====================================================
+
+❌ DO NOT assume PDF has text
+❌ DO NOT fail if OCR is needed
+❌ DO NOT return fake data
+✅ ALWAYS attempt OCR fallback
+
+====================================================
+FINAL GOAL
+====================================================
+
+- ANY valid signage PDF uploads successfully
+- Text-based PDFs parse instantly
+- Scanned PDFs parse via OCR
+- UI renders extracted data
+- No 422 error for valid PDFs
+
+Implement fully.
+Do not skip OCR.
+Do not simplify.
