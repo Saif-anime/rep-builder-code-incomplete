@@ -1,0 +1,131 @@
+You are a senior CCTV systems engineer specializing in Hikvision ISAPI.
+
+Fix the camera ONLINE / OFFLINE status logic in the existing
+Euro Parking Services enforcement system.
+
+================================================
+PROBLEM
+================================================
+The UI shows cameras as OFFLINE even though:
+- Camera is powered ON
+- Camera IP is reachable
+- RTSP and ISAPI are working
+
+Current status check is unreliable or incorrect.
+
+================================================
+GOAL
+================================================
+Determine camera ONLINE status using REAL Hikvision checks,
+not browser ping or frontend assumptions.
+
+================================================
+CORRECT ONLINE CHECK METHODS (MANDATORY)
+================================================
+A camera is ONLINE if ANY of the following succeed:
+
+1️⃣ ISAPI System Status Check (PRIMARY)
+GET /ISAPI/System/status
+
+- Uses HTTP Digest Auth
+- Returns XML
+- StatusCode = OK means ONLINE
+
+2️⃣ ISAPI Snapshot Check (SECONDARY)
+GET /ISAPI/Streaming/channels/101/picture
+
+- If image/jpeg returned → ONLINE
+
+3️⃣ RTSP Socket Test (OPTIONAL FALLBACK)
+- Open RTSP connection
+- If socket opens → ONLINE
+
+================================================
+IMPLEMENTATION REQUIREMENTS
+================================================
+Backend must:
+
+- Add a camera health service
+- Perform ISAPI check every 30 seconds
+- Update camera status in database
+- NEVER rely on frontend ping
+- Handle Digest Authentication correctly
+
+================================================
+BACKEND CHANGES
+================================================
+1. Create service:
+   services/cameraHealthService.js
+
+2. Implement function:
+   async checkCameraOnline(camera)
+
+- Use digest-fetch
+- Call /ISAPI/System/status
+- Parse XML
+- Return true if status OK
+
+3. Fallback:
+- If System/status fails, try snapshot endpoint
+- Only mark OFFLINE if ALL checks fail
+
+================================================
+DATABASE UPDATE
+================================================
+Update camera table:
+
+- status: "online" | "offline"
+- last_checked_at
+- last_online_at
+
+================================================
+CRON JOB
+================================================
+- Run health check every 30 seconds
+- Auto update camera status
+- Log failures (do not crash)
+
+================================================
+API
+================================================
+GET /api/cameras
+→ Must return REAL status from backend
+
+================================================
+FRONTEND FIX
+================================================
+- Do NOT calculate status in React
+- Read status directly from API
+- Show:
+  🟢 Online
+  🔴 Offline
+  🟡 Checking
+
+================================================
+ERROR HANDLING
+================================================
+- 401 → wrong credentials (show auth error)
+- Timeout → network issue
+- XML parse error → log and retry
+
+================================================
+REPLIT RULES
+================================================
+- No Docker
+- Use Node.js
+- Use relative paths
+- Must run in Replit
+- No TODOs
+- Clean production code
+
+================================================
+DELIVERABLE
+================================================
+- Accurate camera online/offline detection
+- Hikvision-compliant ISAPI checks
+- UI shows correct live status
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.

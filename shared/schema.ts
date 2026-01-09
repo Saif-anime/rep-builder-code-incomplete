@@ -36,16 +36,22 @@ export const cameras = pgTable("cameras", {
   rtspUrl: text("rtsp_url"),
   isapiUrl: text("isapi_url"),
   isActive: boolean("is_active").notNull().default(true),
-  status: text("status").notNull().default("offline"), // online, offline, recording
+  status: text("status").notNull().default("offline"), // online, offline, checking
+  statusMessage: text("status_message"),
   siteId: text("site_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastSnapshot: timestamp("last_snapshot"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastOnlineAt: timestamp("last_online_at"),
 });
 
 export const insertCameraSchema = createInsertSchema(cameras).omit({
   id: true,
   createdAt: true,
   lastSnapshot: true,
+  lastCheckedAt: true,
+  lastOnlineAt: true,
+  statusMessage: true,
 });
 
 export type InsertCamera = z.infer<typeof insertCameraSchema>;

@@ -20,6 +20,7 @@ import {
   generateAppealSummary, 
   validateUKNumberPlate 
 } from "./ai-analysis";
+import { checkSingleCamera } from "./camera-health";
 import { insertUserSchema, insertCameraSchema, insertBaySchema } from "@shared/schema";
 
 // Ensure uploads directory exists
@@ -264,6 +265,29 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete camera" });
+    }
+  });
+
+  app.post("/api/cameras/:id/check", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const result = await checkSingleCamera(id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "view",
+        entityType: "camera",
+        entityId: id.toString(),
+        details: { action: "health_check", result: result.online ? "online" : "offline" },
+      });
+
+      res.json({
+        online: result.online,
+        message: result.message,
+        method: result.method,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to check camera health" });
     }
   });
 

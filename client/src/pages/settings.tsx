@@ -183,6 +183,29 @@ export default function SettingsPage() {
     },
   });
 
+  const [checkingCameraId, setCheckingCameraId] = useState<number | null>(null);
+
+  const checkCameraMutation = useMutation({
+    mutationFn: async (id: number) => {
+      setCheckingCameraId(id);
+      const response = await apiRequest("POST", `/api/cameras/${id}/check`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setCheckingCameraId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/cameras"] });
+      toast({
+        title: data.online ? "Camera Online" : "Camera Offline",
+        description: data.message,
+        variant: data.online ? "default" : "destructive",
+      });
+    },
+    onError: () => {
+      setCheckingCameraId(null);
+      toast({ title: "Error", description: "Failed to check camera status.", variant: "destructive" });
+    },
+  });
+
   const [localAiSettings, setLocalAiSettings] = useState({
     detectionThreshold: 0.7,
     anprThreshold: 0.8,
@@ -334,43 +357,71 @@ export default function SettingsPage() {
             </div>
           ) : cameras && cameras.length > 0 ? (
             <div className="space-y-4">
-              {cameras.map((camera) => (
-                <Card key={camera.id} data-testid={`camera-card-${camera.id}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-muted">
-                          <Camera className="h-6 w-6 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{camera.name}</p>
-                            <Badge variant={camera.status === "online" ? "default" : "secondary"} className="gap-1">
-                              {camera.status === "online" ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                              {camera.status}
-                            </Badge>
+              {cameras.map((camera) => {
+                const isChecking = checkingCameraId === camera.id || camera.status === "checking";
+                const statusVariant = camera.status === "online" ? "default" : 
+                                     camera.status === "checking" ? "outline" : "secondary";
+                return (
+                  <Card key={camera.id} data-testid={`camera-card-${camera.id}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className={`flex h-12 w-12 items-center justify-center rounded-md ${
+                            camera.status === "online" ? "bg-green-100 dark:bg-green-900/30" : 
+                            camera.status === "checking" ? "bg-yellow-100 dark:bg-yellow-900/30" : 
+                            "bg-muted"
+                          }`}>
+                            <Camera className={`h-6 w-6 ${
+                              camera.status === "online" ? "text-green-600 dark:text-green-400" : 
+                              camera.status === "checking" ? "text-yellow-600 dark:text-yellow-400" : 
+                              "text-muted-foreground"
+                            }`} />
                           </div>
-                          <p className="text-sm text-muted-foreground">{camera.location}</p>
-                          <p className="font-mono text-xs text-muted-foreground">{camera.ipAddress}</p>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">{camera.name}</p>
+                              <Badge variant={statusVariant} className="gap-1">
+                                {isChecking ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : camera.status === "online" ? (
+                                  <Wifi className="h-3 w-3" />
+                                ) : (
+                                  <WifiOff className="h-3 w-3" />
+                                )}
+                                {isChecking ? "Checking..." : camera.status}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{camera.location}</p>
+                            <p className="font-mono text-xs text-muted-foreground">{camera.ipAddress}</p>
+                            {camera.statusMessage && (
+                              <p className="text-xs text-muted-foreground mt-1">{camera.statusMessage}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => checkCameraMutation.mutate(camera.id)}
+                            disabled={isChecking}
+                            data-testid={`button-refresh-camera-${camera.id}`}
+                          >
+                            <RefreshCw className={`h-4 w-4 ${isChecking ? "animate-spin" : ""}`} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteCameraMutation.mutate(camera.id)}
+                            data-testid={`button-delete-camera-${camera.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" data-testid={`button-refresh-camera-${camera.id}`}>
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteCameraMutation.mutate(camera.id)}
-                          data-testid={`button-delete-camera-${camera.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           ) : (
             <Card>
