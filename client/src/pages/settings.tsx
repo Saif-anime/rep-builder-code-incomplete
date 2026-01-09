@@ -55,15 +55,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Camera as CameraType, Bay } from "@shared/schema";
+import type { Camera as CameraType, Bay, ParkingSite } from "@shared/schema";
 
 const cameraSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  location: z.string().min(1, "Location is required"),
+  siteId: z.string().min(1, "Parking site is required"),
   ipAddress: z.string().min(1, "IP address is required"),
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
-  siteId: z.string().optional(),
 });
 
 const baySchema = z.object({
@@ -98,15 +97,18 @@ export default function SettingsPage() {
     queryKey: ["/api/settings/ai"],
   });
 
+  const { data: parkingSites = [] } = useQuery<ParkingSite[]>({
+    queryKey: ["/api/parking-sites"],
+  });
+
   const cameraForm = useForm<CameraFormValues>({
     resolver: zodResolver(cameraSchema),
     defaultValues: {
       name: "",
-      location: "",
+      siteId: "",
       ipAddress: "",
       username: "",
       password: "",
-      siteId: "",
     },
   });
 
@@ -274,13 +276,24 @@ export default function SettingsPage() {
                     />
                     <FormField
                       control={cameraForm.control}
-                      name="location"
+                      name="siteId"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Location</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Main Entrance" data-testid="input-camera-location" {...field} />
-                          </FormControl>
+                          <FormLabel>Parking Site</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-camera-site">
+                                <SelectValue placeholder="Select a parking site" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {parkingSites.map((site) => (
+                                <SelectItem key={site.id} value={site.id.toString()}>
+                                  {site.siteName} {site.city && `- ${site.city}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -391,7 +404,9 @@ export default function SettingsPage() {
                                 {isChecking ? "Checking..." : camera.status}
                               </Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground">{camera.location}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {parkingSites.find(s => s.id.toString() === String(camera.siteId))?.siteName || "No site assigned"}
+                            </p>
                             <p className="font-mono text-xs text-muted-foreground">{camera.ipAddress}</p>
                             {camera.statusMessage && (
                               <p className="text-xs text-muted-foreground mt-1">{camera.statusMessage}</p>
