@@ -1231,6 +1231,22 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/parking-sessions/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid session ID" });
+      }
+      const session = await storage.getParkingSession(id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch session" });
+    }
+  });
+
   app.get("/api/sites/:id/sessions", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const siteId = parseInt(req.params.id);

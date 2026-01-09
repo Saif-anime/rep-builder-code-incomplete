@@ -8,6 +8,7 @@ import {
   LogOut,
   Shield,
   MapPin,
+  Flag,
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,6 +32,11 @@ const mainNavItems = [
     title: "Dashboard",
     url: "/",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Flagged Sessions",
+    url: "/flagged-sessions",
+    icon: Flag,
   },
   {
     title: "Evidence",
