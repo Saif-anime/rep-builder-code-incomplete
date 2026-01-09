@@ -14,7 +14,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Save, Send, Camera, Trash2, Loader2, CheckCircle, XCircle, AlertTriangle, Upload, Eye } from "lucide-react";
+import { ArrowLeft, Save, Send, Camera, Trash2, Loader2, CheckCircle, XCircle, AlertTriangle, Upload, Eye, FileUp, FileText } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ParkingSite, SignageInspection, SignagePhoto } from "@shared/schema";
@@ -315,6 +316,63 @@ export default function SignageInspectionPage() {
     },
   });
 
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfPreviewData, setPdfPreviewData] = useState<{ extractedData: Record<string, any>; rawText: string; pageCount: number } | null>(null);
+  const [isPdfParsing, setIsPdfParsing] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  const pdfUploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("pdf", file);
+      const res = await fetch(`/api/sites/${siteId}/signage-inspections/upload-pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to upload PDF");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Inspection created from PDF", description: `Extracted ${Object.keys(data.extractedData).length} fields` });
+      setPdfDialogOpen(false);
+      setPdfFile(null);
+      setPdfPreviewData(null);
+      setLocation(`/signage/${siteId}/${data.inspection.id}`);
+    },
+    onError: () => {
+      toast({ title: "Failed to process PDF", variant: "destructive" });
+    },
+  });
+
+  const handlePdfPreview = async () => {
+    if (!pdfFile) return;
+    setIsPdfParsing(true);
+    try {
+      const formData = new FormData();
+      formData.append("pdf", pdfFile);
+      const res = await fetch(`/api/signage-inspections/parse-pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to parse PDF");
+      const data = await res.json();
+      setPdfPreviewData(data);
+    } catch {
+      toast({ title: "Failed to parse PDF", variant: "destructive" });
+    } finally {
+      setIsPdfParsing(false);
+    }
+  };
+
+  const handlePdfUpload = () => {
+    if (pdfFile) {
+      pdfUploadMutation.mutate(pdfFile);
+    }
+  };
+
   const isReadOnly = inspectionId ? inspection?.status !== "draft" : false;
   const photos = inspection?.photos || [];
 
@@ -474,6 +532,100 @@ export default function SignageInspectionPage() {
             }>
               {inspection.status.toUpperCase()}
             </Badge>
+          )}
+          {!inspectionId && (
+            <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" data-testid="button-upload-pdf">
+                  <FileUp className="h-4 w-4 mr-2" />
+                  Import from PDF
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Import Signage Inspection from PDF</DialogTitle>
+                  <DialogDescription>
+                    Upload a PDF document and we'll extract the signage inspection data automatically.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                    <input
+                      ref={pdfInputRef}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setPdfFile(file);
+                          setPdfPreviewData(null);
+                        }
+                      }}
+                      data-testid="input-pdf-file"
+                    />
+                    {pdfFile ? (
+                      <div className="space-y-2">
+                        <FileText className="h-12 w-12 mx-auto text-primary" />
+                        <p className="font-medium">{pdfFile.name}</p>
+                        <p className="text-sm text-muted-foreground">{(pdfFile.size / 1024).toFixed(1)} KB</p>
+                        <Button variant="outline" size="sm" onClick={() => { setPdfFile(null); setPdfPreviewData(null); }}>
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <FileUp className="h-12 w-12 mx-auto text-muted-foreground" />
+                        <p className="text-muted-foreground">Click to select a PDF file</p>
+                        <Button variant="outline" onClick={() => pdfInputRef.current?.click()}>
+                          Select PDF
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {pdfFile && !pdfPreviewData && (
+                    <Button onClick={handlePdfPreview} disabled={isPdfParsing} className="w-full" data-testid="button-preview-pdf">
+                      {isPdfParsing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+                      Preview Extracted Data
+                    </Button>
+                  )}
+                  {pdfPreviewData && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Extracted Data ({pdfPreviewData.pageCount} pages)</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {Object.entries(pdfPreviewData.extractedData).length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No structured data could be extracted. The PDF will still be processed but fields may need manual entry.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            {Object.entries(pdfPreviewData.extractedData).map(([key, value]) => (
+                              <div key={key} className="flex justify-between gap-2 p-2 bg-muted/50 rounded">
+                                <span className="text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1").trim()}:</span>
+                                <span className="font-medium">{typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">View raw text</summary>
+                          <pre className="mt-2 p-2 bg-muted rounded max-h-40 overflow-auto whitespace-pre-wrap">{pdfPreviewData.rawText.substring(0, 1500)}{pdfPreviewData.rawText.length > 1500 ? "..." : ""}</pre>
+                        </details>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setPdfDialogOpen(false); setPdfFile(null); setPdfPreviewData(null); }}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handlePdfUpload} disabled={!pdfFile || pdfUploadMutation.isPending} data-testid="button-create-from-pdf">
+                    {pdfUploadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileUp className="h-4 w-4 mr-2" />}
+                    Create Inspection
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
           {!isReadOnly && (
             <>

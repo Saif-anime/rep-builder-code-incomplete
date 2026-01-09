@@ -71,6 +71,14 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
    - Complete chain of custody
    - All user actions logged
 
+8. **Signage Inspections**
+   - Digital signage compliance checks
+   - PDF upload with automatic field extraction
+   - Photo evidence for each section (entrance, T&C, bay-specific, general)
+   - Compliance scoring with appeal risk assessment
+   - Status workflow: draft → submitted → approved/rejected
+   - Canvas-based signature capture
+
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
 - `GET /api/dashboard/stats` - Dashboard statistics
@@ -91,6 +99,15 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET/POST/PATCH/DELETE /api/sites/:id/surroundings` - Site surroundings management
 - `GET /api/sites/:id/context?at=<ISO_DATE>` - Compiled site context (rules + valid notes + surroundings)
 - `GET/PATCH /api/settings/ai` - AI threshold settings
+- `GET/POST /api/sites/:id/signage-inspections` - Signage inspections management
+- `GET/PATCH/DELETE /api/signage-inspections/:id` - Individual inspection CRUD
+- `POST /api/signage-inspections/:id/submit` - Submit inspection for review
+- `POST /api/signage-inspections/:id/approve` - Approve inspection (Admin)
+- `POST /api/signage-inspections/:id/reject` - Reject inspection (Admin)
+- `POST /api/sites/:id/signage-inspections/upload-pdf` - Create inspection from PDF
+- `POST /api/signage-inspections/parse-pdf` - Preview PDF extraction
+- `POST /api/signage-inspections/:id/photos` - Upload inspection photos
+- `DELETE /api/signage-photos/:id` - Delete inspection photo
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)

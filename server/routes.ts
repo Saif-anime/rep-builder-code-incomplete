@@ -61,8 +61,18 @@ const upload = multer({
   },
 });
 
+const pdfMulterStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
+});
+
 const pdfUpload = multer({
-  storage: multerStorage,
+  storage: pdfMulterStorage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB for PDFs
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
