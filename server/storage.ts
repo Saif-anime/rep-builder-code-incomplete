@@ -1,6 +1,6 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns,
+  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -10,7 +10,8 @@ import {
   type SiteRule, type InsertSiteRule, type SiteNote, type InsertSiteNote,
   type SiteSurroundings, type InsertSiteSurroundings,
   type SignageInspection, type InsertSignageInspection, type SignagePhoto, type InsertSignagePhoto,
-  type EnrichmentRun, type InsertEnrichmentRun
+  type EnrichmentRun, type InsertEnrichmentRun,
+  type SessionFlag, type InsertSessionFlag
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -172,6 +173,16 @@ export interface IStorage {
   getEnrichmentRun(id: number): Promise<EnrichmentRun | undefined>;
   getEnrichmentRunsBySite(siteId: number): Promise<EnrichmentRun[]>;
   updateEnrichmentRun(id: number, run: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined>;
+
+  // Session Flags
+  createSessionFlag(flag: InsertSessionFlag): Promise<SessionFlag>;
+  createSessionFlags(flags: InsertSessionFlag[]): Promise<SessionFlag[]>;
+  getSessionFlag(id: number): Promise<SessionFlag | undefined>;
+  getSessionFlagsBySite(siteId: number, from?: Date, to?: Date): Promise<SessionFlag[]>;
+  getSessionFlagsBySession(sessionId: number): Promise<SessionFlag[]>;
+  updateSessionFlag(id: number, flag: Partial<InsertSessionFlag>): Promise<SessionFlag | undefined>;
+  resolveSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
+  dismissSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -847,6 +858,78 @@ export class DatabaseStorage implements IStorage {
       .where(eq(enrichmentRuns.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Session Flags
+  async createSessionFlag(flag: InsertSessionFlag): Promise<SessionFlag> {
+    const [created] = await db.insert(sessionFlags).values(flag).returning();
+    return created;
+  }
+
+  async createSessionFlags(flags: InsertSessionFlag[]): Promise<SessionFlag[]> {
+    if (flags.length === 0) return [];
+    const created = await db.insert(sessionFlags).values(flags).returning();
+    return created;
+  }
+
+  async getSessionFlag(id: number): Promise<SessionFlag | undefined> {
+    const [flag] = await db.select().from(sessionFlags).where(eq(sessionFlags.id, id));
+    return flag || undefined;
+  }
+
+  async getSessionFlagsBySite(siteId: number, from?: Date, to?: Date): Promise<SessionFlag[]> {
+    const conditions = [eq(sessionFlags.siteId, siteId)];
+    if (from) {
+      conditions.push(gte(sessionFlags.createdAt, from));
+    }
+    if (to) {
+      conditions.push(lte(sessionFlags.createdAt, to));
+    }
+    return db.select().from(sessionFlags)
+      .where(and(...conditions))
+      .orderBy(desc(sessionFlags.createdAt));
+  }
+
+  async getSessionFlagsBySession(sessionId: number): Promise<SessionFlag[]> {
+    return db.select().from(sessionFlags)
+      .where(eq(sessionFlags.sessionId, sessionId))
+      .orderBy(desc(sessionFlags.createdAt));
+  }
+
+  async updateSessionFlag(id: number, flag: Partial<InsertSessionFlag>): Promise<SessionFlag | undefined> {
+    const [updated] = await db.update(sessionFlags)
+      .set({ ...flag, updatedAt: new Date() })
+      .where(eq(sessionFlags.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async resolveSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined> {
+    const [resolved] = await db.update(sessionFlags)
+      .set({
+        status: "RESOLVED",
+        resolvedAt: new Date(),
+        resolvedBy: userId,
+        resolutionNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessionFlags.id, id))
+      .returning();
+    return resolved || undefined;
+  }
+
+  async dismissSessionFlag(id: number, userId: string, notes?: string): Promise<SessionFlag | undefined> {
+    const [dismissed] = await db.update(sessionFlags)
+      .set({
+        status: "DISMISSED",
+        resolvedAt: new Date(),
+        resolvedBy: userId,
+        resolutionNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessionFlags.id, id))
+      .returning();
+    return dismissed || undefined;
   }
 }
 
