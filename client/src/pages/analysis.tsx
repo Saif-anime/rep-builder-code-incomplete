@@ -37,13 +37,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import type { ParkingEvent } from "@shared/schema";
 
-interface AnalysisEvent extends ParkingEvent {
+interface AnalysisEvent extends Omit<ParkingEvent, 'aiReasoning'> {
   plateText?: string;
   aiReasoning?: {
     factors: string[];
     uncertainties: string[];
     recommendation: string;
-  };
+  } | null;
 }
 
 export default function AnalysisPage() {
