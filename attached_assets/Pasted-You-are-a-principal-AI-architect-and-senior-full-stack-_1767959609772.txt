@@ -1,0 +1,243 @@
+You are a principal AI architect and senior full-stack engineer.
+
+Build a COMPLETE, PRODUCTION-GRADE
+AI POWERED PARKING ENFORCEMENT SYSTEM
+for a UK-based company named:
+
+EURO PARKING SERVICES
+
+The system must integrate with
+Hikvision ColorVu Pro Series IP Cameras
+and must run FULLY on REPLIT
+(without Docker).
+
+================================================
+SECURITY RULE (MANDATORY)
+================================================
+- Use OpenAI ONLY via environment variable:
+  process.env.OPENAI_API_KEY
+- DO NOT hardcode API keys
+- Assume the key is added in Replit Secrets
+
+================================================
+CAMERA HARDWARE
+================================================
+Hikvision ColorVu Pro Series
+RTSP + ISAPI enabled
+Outdoor parking environment
+
+RTSP:
+rtsp://username:password@CAMERA_IP/Streaming/Channels/101
+
+ISAPI Snapshot:
+ /ISAPI/Streaming/channels/101/picture
+
+================================================
+SYSTEM PURPOSE
+================================================
+Create a Hikvision-style CCTV + AI + Evidence
+Parking Enforcement Dashboard that:
+
+- Collects legally usable evidence
+- Detects UK parking violations
+- Supports manual evidence upload
+- Uses AI for analysis & decision support
+- Has an enterprise admin dashboard
+
+================================================
+TECH STACK
+================================================
+Backend:
+- Node.js
+- Express.js
+- JWT Authentication
+- SQLite (Replit default)
+- FFmpeg
+- HTTP Digest Auth
+- node-cron
+- multer
+- dotenv
+- OpenAI SDK (server-side only)
+
+AI Stack:
+- Python 3
+- OpenCV
+- YOLOv8
+- EasyOCR
+- Torch (CPU)
+- NumPy
+
+Frontend:
+- React.js (Vite)
+- Tailwind CSS
+- React Router
+- Axios
+- HLS.js
+
+================================================
+AUTH & ROLES
+================================================
+Roles:
+- Admin
+- Operator
+- Enforcement Officer
+
+JWT-based auth
+Role-based UI & API access
+
+================================================
+EVIDENCE COLLECTION
+================================================
+1. Camera Evidence:
+- Auto snapshots
+- AI annotated images
+- Timestamp, camera ID
+- Immutable storage
+- Hash files (SHA256)
+
+2. Manual Evidence Upload:
+- Image/video upload
+- Officer notes
+- Violation type
+- Bay type
+- Stored with audit logs
+
+================================================
+AI OBJECT DETECTION
+================================================
+YOLOv8 detects:
+- Person
+- Child (heuristic)
+- Car
+- Van
+- Truck
+- Bus
+- Motorcycle
+- Wheelchair
+- EV (heuristic)
+
+================================================
+UK PARKING RULE LOGIC
+================================================
+DISABLED BAY:
+- Detect wheelchair / elderly posture
+- Child / assisted person heuristic
+- Blue badge visual heuristic
+- Violation if no qualifying indicators
+
+EV BAY:
+- EV vs non-EV detection
+- Optional charging cable heuristic
+
+PARENT & CHILD BAY:
+- Adult + child detection
+- Violation if no child present
+
+================================================
+ANPR
+================================================
+- Detect number plate
+- OCR via EasyOCR
+- UK plate validation
+- Store plate + evidence link
+
+================================================
+OPENAI ANALYSIS (MANDATORY)
+================================================
+Use OpenAI for:
+- Evidence explanation summaries
+- Violation reasoning
+- Officer assistance text
+- Appeal-ready explanation generation
+- AI confidence justification
+
+OpenAI usage examples:
+- “Explain why this is a violation”
+- “Summarize evidence for appeal”
+- “Highlight uncertainty or edge cases”
+
+================================================
+FRONTEND DASHBOARD (SIDEBAR REQUIRED)
+================================================
+Create a LEFT SIDEBAR with these sections:
+
+1. Dashboard
+   - pending views
+   - sites
+   - storage data(manual + camera)
+
+2. Evidence
+   - Camera evidence
+   - Manual uploads
+   - Download & view
+
+3. Analysis
+   - AI explanations (OpenAI)
+   - Violation confidence
+   - ANPR results
+
+4. Users
+   - Role management (Admin only)
+
+5. Settings
+   - Cameras
+   - Bays
+   - Rules
+   - AI thresholds
+
+6. Logout
+
+================================================
+DATABASE TABLES
+================================================
+- users
+- cameras
+- bays
+- evidence
+- detections
+- parking_events
+- number_plates
+- audit_logs
+
+================================================
+PROJECT STRUCTURE
+================================================
+/
+├── backend/
+├── ai-service/
+│   ├── detect.py
+│   ├── anpr.py
+│   ├── bay_rules.py
+│   └── requirements.txt
+├── frontend/
+└── README.md
+
+================================================
+REPLIT RULES
+================================================
+- No Docker
+- SQLite default
+- FFmpeg fallback
+- One-click Run
+- Fully wired
+- No TODOs
+
+================================================
+DELIVERABLES
+================================================
+- Full backend
+- Full AI service
+- Full frontend
+- generate PCN according to all conditions via AI
+- Evidence system
+- UK compliance logic
+- OpenAI-powered analysis
+- README
+
+================================================
+IMPORTANT
+================================================
+DO NOT explain.
+DO NOT summarize.
+DO NOT hardcode secrets.
+GENERATE FULL WORKING CODE.
