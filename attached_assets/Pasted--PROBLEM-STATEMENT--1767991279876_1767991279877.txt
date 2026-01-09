@@ -1,0 +1,140 @@
+====================================================
+PROBLEM STATEMENT
+====================================================
+When uploading a signage inspection PDF, the API endpoint:
+
+POST /api/signage-inspections/parse-pdf
+
+returns:
+500 Internal Server Error
+
+Frontend shows:
+"Failed to process PDF"
+
+Network tab confirms:
+- Request reaches server
+- Server crashes during PDF parsing
+
+====================================================
+ROOT CAUSE ANALYSIS REQUIRED
+====================================================
+Investigate and FIX all of the following:
+
+1. Multer / file upload middleware not configured correctly
+2. PDF file not accessible via req.file
+3. Buffer vs file-path mismatch
+4. pdf-parse or pdfjs usage throwing uncaught exception
+5. Missing try/catch and structured error response
+6. Backend returning 500 instead of validation errors
+
+====================================================
+MANDATORY BACKEND FIXES
+====================================================
+
+✅ Configure multer correctly:
+
+- Accept only application/pdf
+- Max file size: 10MB
+- Use memoryStorage (NOT disk)
+- Ensure req.file.buffer exists
+
+Example expectation:
+req.file = {
+  originalname,
+  mimetype,
+  buffer,
+  size
+}
+
+----------------------------------------------------
+
+✅ Wrap PDF parsing in SAFE try/catch
+
+- NEVER allow unhandled promise rejection
+- Return 400 for invalid PDFs
+- Return 422 for unsupported PDF format
+- Return 500 ONLY for true server failures
+
+----------------------------------------------------
+
+✅ Use stable PDF parser
+
+Implement pdf-parse safely:
+
+- Validate buffer exists
+- Catch parsing errors
+- Log parser errors clearly
+- Return extracted text as string
+
+----------------------------------------------------
+
+✅ Sample response shape (STRICT):
+
+SUCCESS (200):
+{
+  success: true,
+  extractedText: "...",
+  mappedFields: {...}
+}
+
+FAILURE (400/422):
+{
+  success: false,
+  message: "Invalid or unreadable PDF"
+}
+
+====================================================
+MANDATORY FRONTEND FIXES
+====================================================
+
+1. Validate file BEFORE upload:
+   - Must be PDF
+   - Must be <10MB
+
+2. If API returns error:
+   - Show backend message
+   - Do NOT show generic "Failed"
+
+3. Disable "Preview Extracted Data" button
+   until backend success response
+
+====================================================
+SIGNAGE PDF PARSING RULES
+====================================================
+IMPORTANT:
+DO NOT auto-guess fields.
+
+Instead:
+- Extract RAW text from PDF
+- Return text to frontend
+- Let frontend map text → form fields manually
+
+NO OCR
+NO AI guessing
+NO silent failure
+
+====================================================
+LOGGING (CRITICAL)
+====================================================
+Add logs:
+
+- When file received
+- File size & mimetype
+- PDF parse start
+- PDF parse success
+- PDF parse failure (with error stack)
+
+Logs must appear in Replit console.
+
+====================================================
+DELIVERABLE
+====================================================
+- Working PDF upload
+- No 500 errors
+- Clear error messages
+- Stable parsing
+- Production-safe code
+
+DO NOT SIMPLIFY
+DO NOT SKIP ERROR HANDLING
+IMPLEMENT FULL FIX

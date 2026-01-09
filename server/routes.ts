@@ -6,7 +6,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdf = require("pdf-parse");
+const pdfParseModule = require("pdf-parse");
+const pdfParse = pdfParseModule.default || pdfParseModule;
 import { storage } from "./storage";
 import { 
   authenticateToken, 
@@ -61,19 +62,9 @@ const upload = multer({
   },
 });
 
-const pdfMulterStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
-    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
 const pdfUpload = multer({
-  storage: pdfMulterStorage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB for PDFs
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for PDFs
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (ext === ".pdf" || file.mimetype === "application/pdf") {
@@ -1896,19 +1887,33 @@ export async function registerRoutes(
     try {
       const siteId = parseInt(req.params.id);
       if (isNaN(siteId)) {
-        return res.status(400).json({ error: "Invalid site ID" });
+        return res.status(400).json({ success: false, message: "Invalid site ID" });
       }
       const site = await storage.getParkingSite(siteId);
       if (!site) {
-        return res.status(404).json({ error: "Site not found" });
+        return res.status(404).json({ success: false, message: "Site not found" });
       }
-      if (!req.file) {
-        return res.status(400).json({ error: "No PDF file provided" });
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ success: false, message: "No PDF file provided" });
       }
-      const pdfBuffer = fs.readFileSync(req.file.path);
-      const pdfData = await pdf(pdfBuffer);
+      
+      console.log("[PDF Upload] File received:", req.file.originalname, "size:", req.file.size, "mimetype:", req.file.mimetype);
+      console.log("[PDF Upload] Starting PDF parse...");
+      
+      let pdfData;
+      try {
+        pdfData = await pdfParse(req.file.buffer);
+        console.log("[PDF Upload] Parse success, pages:", pdfData.numpages, "text length:", pdfData.text?.length || 0);
+      } catch (parseError: any) {
+        console.error("[PDF Upload] Parse failed:", parseError.message);
+        return res.status(422).json({ success: false, message: "Invalid or unreadable PDF format" });
+      }
+      
+      if (!pdfData.text || pdfData.text.trim().length === 0) {
+        return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
+      }
+      
       const extractedData = parsePdfToSignageData(pdfData.text);
-      fs.unlinkSync(req.file.path);
       const inspectionData = {
         ...extractedData,
         siteId,
@@ -1920,7 +1925,7 @@ export async function registerRoutes(
       };
       const parsed = insertSignageInspectionSchema.safeParse(inspectionData);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Failed to parse PDF data", details: parsed.error.errors, extractedData });
+        return res.status(400).json({ success: false, message: "Failed to parse PDF data", details: parsed.error.errors, extractedData });
       }
       const inspection = await storage.createSignageInspection(parsed.data);
       await storage.createAuditLog({
@@ -1930,27 +1935,42 @@ export async function registerRoutes(
         entityId: String(inspection.id),
         details: { siteId, source: "pdf_upload", extractedFields: Object.keys(extractedData) },
       });
-      res.status(201).json({ inspection, extractedData, rawText: pdfData.text.substring(0, 2000) });
-    } catch (error) {
-      console.error("PDF upload error:", error);
-      res.status(500).json({ error: "Failed to process PDF upload" });
+      console.log("[PDF Upload] Inspection created:", inspection.id);
+      res.status(201).json({ success: true, inspection, extractedData, rawText: pdfData.text.substring(0, 2000) });
+    } catch (error: any) {
+      console.error("[PDF Upload] Unexpected error:", error.message, error.stack);
+      res.status(500).json({ success: false, message: "Server error processing PDF" });
     }
   });
 
   // Parse PDF without creating inspection (preview mode)
   app.post("/api/signage-inspections/parse-pdf", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("pdf"), async (req: AuthRequest, res: Response) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No PDF file provided" });
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ success: false, message: "No PDF file provided" });
       }
-      const pdfBuffer = fs.readFileSync(req.file.path);
-      const pdfData = await pdf(pdfBuffer);
+      
+      console.log("[PDF Parse] File received:", req.file.originalname, "size:", req.file.size, "mimetype:", req.file.mimetype);
+      console.log("[PDF Parse] Starting PDF parse...");
+      
+      let pdfData;
+      try {
+        pdfData = await pdfParse(req.file.buffer);
+        console.log("[PDF Parse] Parse success, pages:", pdfData.numpages, "text length:", pdfData.text?.length || 0);
+      } catch (parseError: any) {
+        console.error("[PDF Parse] Parse failed:", parseError.message);
+        return res.status(422).json({ success: false, message: "Invalid or unreadable PDF format" });
+      }
+      
+      if (!pdfData.text || pdfData.text.trim().length === 0) {
+        return res.status(400).json({ success: false, message: "PDF contains no extractable text" });
+      }
+      
       const extractedData = parsePdfToSignageData(pdfData.text);
-      fs.unlinkSync(req.file.path);
-      res.json({ extractedData, rawText: pdfData.text, pageCount: pdfData.numpages });
-    } catch (error) {
-      console.error("PDF parse error:", error);
-      res.status(500).json({ error: "Failed to parse PDF" });
+      res.json({ success: true, extractedText: pdfData.text, mappedFields: extractedData, pageCount: pdfData.numpages });
+    } catch (error: any) {
+      console.error("[PDF Parse] Unexpected error:", error.message, error.stack);
+      res.status(500).json({ success: false, message: "Server error processing PDF" });
     }
   });
 

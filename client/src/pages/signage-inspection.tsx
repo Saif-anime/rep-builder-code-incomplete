@@ -331,8 +331,11 @@ export default function SignageInspectionPage() {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to upload PDF");
-      return res.json();
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to upload PDF");
+      }
+      return data;
     },
     onSuccess: (data) => {
       toast({ title: "Inspection created from PDF", description: `Extracted ${Object.keys(data.extractedData).length} fields` });
@@ -341,8 +344,8 @@ export default function SignageInspectionPage() {
       setPdfPreviewData(null);
       setLocation(`/signage/${siteId}/${data.inspection.id}`);
     },
-    onError: () => {
-      toast({ title: "Failed to process PDF", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "PDF Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -357,11 +360,14 @@ export default function SignageInspectionPage() {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to parse PDF");
       const data = await res.json();
-      setPdfPreviewData(data);
+      if (!res.ok || !data.success) {
+        toast({ title: "PDF Error", description: data.message || "Failed to parse PDF", variant: "destructive" });
+        return;
+      }
+      setPdfPreviewData({ extractedData: data.mappedFields, rawText: data.extractedText, pageCount: data.pageCount });
     } catch {
-      toast({ title: "Failed to parse PDF", variant: "destructive" });
+      toast({ title: "Failed to parse PDF", description: "Network or server error", variant: "destructive" });
     } finally {
       setIsPdfParsing(false);
     }
@@ -558,6 +564,14 @@ export default function SignageInspectionPage() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+                            toast({ title: "Invalid file type", description: "Please select a PDF file", variant: "destructive" });
+                            return;
+                          }
+                          if (file.size > 10 * 1024 * 1024) {
+                            toast({ title: "File too large", description: "PDF must be under 10MB", variant: "destructive" });
+                            return;
+                          }
                           setPdfFile(file);
                           setPdfPreviewData(null);
                         }
