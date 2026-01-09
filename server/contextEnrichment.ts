@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import type { ParkingSession, SiteNote } from "@shared/schema";
+import type { ParkingSession, SiteNote, InsertSessionFlag, SiteRule } from "@shared/schema";
 
 export interface WeatherSummary {
   provider: string;
@@ -287,7 +287,8 @@ async function getSiteInventoryHits(
 async function getAnomalySummary(
   siteId: number,
   windowStart: Date,
-  windowEnd: Date
+  windowEnd: Date,
+  rules: SiteRule | null
 ): Promise<AnomalySummary> {
   try {
     const sessions = await storage.getSessionsBySite(siteId, windowStart, windowEnd);
@@ -314,7 +315,13 @@ async function getAnomalySummary(
     let totalOverstayMinutes = 0;
     const hourCounts: Record<number, number> = {};
     
-    const baselineOverstayRate = 0.15;
+    const baselineWindowDays = rules?.baselineWindowDays || 28;
+    const spikeThresholdMultiplier = rules?.spikeThresholdMultiplier || 1.5;
+    
+    const baseline = await calculateBaselineOverstayRate(siteId, windowStart, baselineWindowDays);
+    const baselineOverstayRate = baseline.rate;
+    
+    console.log(`[Enrichment] Baseline overstay rate: ${(baselineOverstayRate * 100).toFixed(1)}% (from ${baseline.sampleSize} sessions)`);
     
     for (const session of windowSessions) {
       const duration = typeof session.durationMinutes === "number" ? session.durationMinutes : 0;
@@ -348,7 +355,7 @@ async function getAnomalySummary(
       }
     }
     
-    const isSpike = overstayRate > baselineOverstayRate * 1.5;
+    const isSpike = overstayRate > baselineOverstayRate * spikeThresholdMultiplier;
     const spikeMultiplier = baselineOverstayRate > 0 ? overstayRate / baselineOverstayRate : 1;
     
     return {
@@ -376,6 +383,225 @@ async function getAnomalySummary(
 export interface EnrichmentOptions {
   weatherProvider?: WeatherProvider;
   eventsProvider?: EventsProvider;
+  skipFlagging?: boolean;
+}
+
+export interface FlaggingResult {
+  flagsCreated: number;
+  sessionsAffected: number;
+  flagType: string;
+  recommendation: string;
+}
+
+async function calculateBaselineOverstayRate(
+  siteId: number,
+  referenceDate: Date,
+  windowDays: number = 28
+): Promise<{ rate: number; sampleSize: number }> {
+  const dayOfWeek = referenceDate.getDay();
+  const hour = referenceDate.getHours();
+  
+  const comparableRates: number[] = [];
+  let totalSampleSize = 0;
+  
+  for (let weeksBack = 1; weeksBack <= Math.ceil(windowDays / 7); weeksBack++) {
+    const targetDate = new Date(referenceDate);
+    targetDate.setDate(targetDate.getDate() - (weeksBack * 7));
+    
+    const windowStart = new Date(targetDate);
+    windowStart.setHours(hour, 0, 0, 0);
+    const windowEnd = new Date(targetDate);
+    windowEnd.setHours(hour + 2, 0, 0, 0);
+    
+    try {
+      const sessions = await storage.getSessionsBySite(siteId, windowStart, windowEnd);
+      if (sessions && sessions.length >= 5) {
+        const overstays = sessions.filter(s => {
+          const duration = typeof s.durationMinutes === "number" ? s.durationMinutes : 0;
+          return duration > 120;
+        });
+        const rate = overstays.length / sessions.length;
+        comparableRates.push(rate);
+        totalSampleSize += sessions.length;
+      }
+    } catch (e) {
+      console.warn(`[Baseline] Could not fetch data for ${targetDate.toISOString()}:`, e);
+    }
+  }
+  
+  if (comparableRates.length === 0) {
+    return { rate: 0.15, sampleSize: 0 };
+  }
+  
+  const avgRate = comparableRates.reduce((a, b) => a + b, 0) / comparableRates.length;
+  return { rate: avgRate, sampleSize: totalSampleSize };
+}
+
+function determineFlagType(
+  weather: WeatherSummary | null,
+  events: LocalEventsSummary | null,
+  inventoryHits: SiteInventoryHit[]
+): { flagType: string; severity: string; reasons: string[] } {
+  const reasons: string[] = [];
+  let severity = "medium";
+  let flagType = "POSSIBLE_DISRUPTION";
+  
+  const hasBadWeather = weather && 
+    ["Rain", "Snow", "Storm", "Fog"].some(c => weather.conditions.includes(c));
+  const hasWeatherAlerts = weather?.alerts && weather.alerts.length > 0;
+  
+  if (hasBadWeather || hasWeatherAlerts) {
+    flagType = "WEATHER_DISRUPTION";
+    severity = hasWeatherAlerts ? "high" : "medium";
+    reasons.push(`Weather: ${weather?.conditions}`);
+    if (hasWeatherAlerts) {
+      reasons.push(...weather!.alerts!.map(a => `Alert: ${a}`));
+    }
+  }
+  
+  const hasEvents = events?.events && events.events.length > 0;
+  if (hasEvents) {
+    const largeEvent = events!.events.find(e => (e.expectedAttendance || 0) > 1000);
+    if (largeEvent) {
+      flagType = "EVENT_DISRUPTION";
+      severity = "high";
+      reasons.push(`Large event: ${largeEvent.name} (${largeEvent.expectedAttendance} expected)`);
+    } else {
+      if (flagType === "POSSIBLE_DISRUPTION") flagType = "EVENT_DISRUPTION";
+      reasons.push(...events!.events.map(e => `Event: ${e.name}`));
+    }
+  }
+  
+  const hasConstructionNote = inventoryHits.some(h =>
+    h.matchedTags.includes("construction") || h.relevantNotes.some(n => n.toLowerCase().includes("construction"))
+  );
+  if (hasConstructionNote) {
+    reasons.push("Construction activity noted");
+  }
+  
+  const hasClosureNote = inventoryHits.some(h =>
+    h.matchedTags.includes("closure") || h.relevantNotes.some(n => n.toLowerCase().includes("closed"))
+  );
+  if (hasClosureNote) {
+    reasons.push("Partial closure noted");
+  }
+  
+  if (reasons.length === 0) {
+    reasons.push("Unexplained overstay spike detected");
+  }
+  
+  return { flagType, severity, reasons };
+}
+
+function determineRecommendation(
+  rules: SiteRule | null,
+  flagType: string,
+  weather: WeatherSummary | null,
+  events: LocalEventsSummary | null
+): string {
+  if (!rules) {
+    return "REVIEW_REQUIRED";
+  }
+  
+  const policy = rules.spikeOverridePolicy || "hold_on_disruption";
+  
+  if (policy === "always_enforce") {
+    return "REVIEW_REQUIRED";
+  }
+  
+  if (policy === "review_required") {
+    return "REVIEW_REQUIRED";
+  }
+  
+  if (flagType === "WEATHER_DISRUPTION" && rules.enforceOnWeather) {
+    return "REVIEW_REQUIRED";
+  }
+  
+  if (flagType === "EVENT_DISRUPTION" && rules.enforceOnEvents) {
+    return "REVIEW_REQUIRED";
+  }
+  
+  return "HOLD_PCN";
+}
+
+async function createSessionFlags(
+  siteId: number,
+  windowStart: Date,
+  windowEnd: Date,
+  enrichmentRunId: number,
+  results: EnrichmentResults,
+  rules: SiteRule | null
+): Promise<FlaggingResult> {
+  if (!results.anomalySummary.isSpike) {
+    return { flagsCreated: 0, sessionsAffected: 0, flagType: "NONE", recommendation: "N/A" };
+  }
+  
+  const { flagType, severity, reasons } = determineFlagType(
+    results.weatherSummary,
+    results.localEventsSummary,
+    results.siteInventoryHits
+  );
+  
+  const recommendation = determineRecommendation(
+    rules,
+    flagType,
+    results.weatherSummary,
+    results.localEventsSummary
+  );
+  
+  try {
+    const sessions = await storage.getSessionsBySite(siteId, windowStart, windowEnd);
+    const overstaySessions = sessions.filter(s => {
+      const duration = typeof s.durationMinutes === "number" ? s.durationMinutes : 0;
+      return duration > 120;
+    });
+    
+    if (overstaySessions.length === 0) {
+      return { flagsCreated: 0, sessionsAffected: 0, flagType, recommendation };
+    }
+    
+    const flags: InsertSessionFlag[] = overstaySessions.map(session => ({
+      sessionId: session.id,
+      siteId,
+      enrichmentRunId,
+      flagType,
+      severity,
+      reason: reasons.join("; "),
+      recommendation,
+      evidence: {
+        weatherConditions: results.weatherSummary?.conditions,
+        weatherAlerts: results.weatherSummary?.alerts,
+        localEvents: results.localEventsSummary?.events.map(e => ({
+          name: e.name,
+          type: e.type,
+          distance: e.distance,
+        })),
+        overstayRate: results.anomalySummary.overstayRate,
+        baselineRate: results.anomalySummary.baselineOverstayRate,
+        spikeMultiplier: results.anomalySummary.spikeMultiplier,
+        siteInventoryHits: results.siteInventoryHits.flatMap(h => h.matchedTags),
+      },
+      status: "OPEN",
+    }));
+    
+    const createdFlags = await storage.createSessionFlags(flags);
+    
+    console.log(`[Flagging] Created ${createdFlags.length} flags for site ${siteId}, recommendation: ${recommendation}`);
+    
+    return {
+      flagsCreated: createdFlags.length,
+      sessionsAffected: overstaySessions.length,
+      flagType,
+      recommendation,
+    };
+  } catch (e) {
+    console.error("[Flagging] Error creating session flags:", e);
+    return { flagsCreated: 0, sessionsAffected: 0, flagType, recommendation };
+  }
+}
+
+export interface EnrichmentResultsWithFlagging extends EnrichmentResults {
+  flaggingResult?: FlaggingResult;
 }
 
 export async function runEnrichment(
@@ -383,14 +609,17 @@ export async function runEnrichment(
   windowStart: Date,
   windowEnd: Date,
   userId?: string,
-  options?: EnrichmentOptions
-): Promise<EnrichmentResults> {
+  options?: EnrichmentOptions,
+  enrichmentRunId?: number
+): Promise<EnrichmentResultsWithFlagging> {
   console.log(`[Enrichment] Starting enrichment for site ${siteId} from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
   
   const site = await storage.getParkingSite(siteId);
   if (!site) {
     throw new Error(`Site ${siteId} not found`);
   }
+  
+  const rules = await storage.getSiteRules(siteId);
   
   const activeWeatherProvider = options?.weatherProvider || weatherProvider;
   const activeEventsProvider = options?.eventsProvider || eventsProvider;
@@ -400,7 +629,7 @@ export async function runEnrichment(
   
   const midpoint = new Date((windowStart.getTime() + windowEnd.getTime()) / 2);
   
-  const [weatherSummary, localEventsSummary, siteInventoryHits, anomalySummary] = await Promise.all([
+  const [weatherSummary, localEventsSummary, siteInventoryHits] = await Promise.all([
     activeWeatherProvider.getWeather(lat, lon, midpoint).catch(e => {
       console.error("[Enrichment] Weather provider error:", e);
       return null;
@@ -410,19 +639,40 @@ export async function runEnrichment(
       return null;
     }),
     getSiteInventoryHits(siteId, windowStart, windowEnd),
-    getAnomalySummary(siteId, windowStart, windowEnd),
   ]);
+  
+  const anomalySummary = await getAnomalySummary(siteId, windowStart, windowEnd, rules);
   
   console.log(`[Enrichment] Completed enrichment for site ${siteId}`);
   console.log(`  - Weather: ${weatherSummary?.conditions || "N/A"}`);
   console.log(`  - Events: ${localEventsSummary?.events.length || 0} events found`);
   console.log(`  - Inventory hits: ${siteInventoryHits.length} sources`);
   console.log(`  - Anomaly: ${anomalySummary.overstayCount}/${anomalySummary.totalSessions} overstays (${(anomalySummary.overstayRate * 100).toFixed(1)}%)`);
+  console.log(`  - Spike detected: ${anomalySummary.isSpike}`);
   
-  return {
+  const results: EnrichmentResults = {
     weatherSummary,
     localEventsSummary,
     siteInventoryHits,
     anomalySummary,
+  };
+  
+  let flaggingResult: FlaggingResult | undefined;
+  
+  if (!options?.skipFlagging && enrichmentRunId && anomalySummary.isSpike) {
+    flaggingResult = await createSessionFlags(
+      siteId,
+      windowStart,
+      windowEnd,
+      enrichmentRunId,
+      results,
+      rules
+    );
+    console.log(`[Enrichment] Flagging result: ${flaggingResult.flagsCreated} flags created, recommendation: ${flaggingResult.recommendation}`);
+  }
+  
+  return {
+    ...results,
+    flaggingResult,
   };
 }
