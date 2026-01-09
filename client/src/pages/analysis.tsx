@@ -53,7 +53,7 @@ export default function AnalysisPage() {
   const [selectedEvent, setSelectedEvent] = useState<AnalysisEvent | null>(null);
 
   const { data: events, isLoading } = useQuery<AnalysisEvent[]>({
-    queryKey: ["/api/parking-events", { status: statusFilter }],
+    queryKey: ["/api/parking-events"],
   });
 
   const confirmMutation = useMutation({
@@ -98,6 +98,9 @@ export default function AnalysisPage() {
   });
 
   const filteredEvents = events?.filter((e) => {
+    if (statusFilter !== "all" && e.status !== statusFilter) {
+      return false;
+    }
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (

@@ -27,7 +27,7 @@ export default function EvidencePage() {
   const [selectedBayId, setSelectedBayId] = useState<string>("");
 
   const { data: evidenceList = [], isLoading, refetch } = useQuery<Evidence[]>({
-    queryKey: ["/api/evidence", sourceFilter],
+    queryKey: ["/api/evidence"],
     refetchInterval: 10000,
   });
 
@@ -40,7 +40,7 @@ export default function EvidencePage() {
       const response = await fetch("/api/evidence/upload", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
         },
         body: formData,
       });
