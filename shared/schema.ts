@@ -733,3 +733,73 @@ export const signagePhotosRelations = relations(signagePhotos, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+// ==================== ENRICHMENT RUNS ====================
+export const enrichmentRuns = pgTable("enrichment_runs", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  windowEnd: timestamp("window_end").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  status: text("status").notNull().default("completed"), // pending, running, completed, failed
+  results: jsonb("results").$type<{
+    weatherSummary: {
+      provider: string;
+      conditions: string;
+      temperature?: number;
+      precipitation?: string;
+      windSpeed?: string;
+      alerts?: string[];
+      rawData?: any;
+    } | null;
+    localEventsSummary: {
+      provider: string;
+      events: Array<{
+        name: string;
+        type: string;
+        startTime?: string;
+        endTime?: string;
+        expectedAttendance?: number;
+        distance?: string;
+      }>;
+      rawData?: any;
+    } | null;
+    siteInventoryHits: Array<{
+      source: string;
+      matchedTags: string[];
+      relevantNotes: string[];
+      ruleMatches: string[];
+    }>;
+    anomalySummary: {
+      totalSessions: number;
+      overstayCount: number;
+      overstayRate: number;
+      averageOverstayMinutes: number;
+      peakOverstayHour?: number;
+      isSpike: boolean;
+      spikeMultiplier?: number;
+      baselineOverstayRate?: number;
+    };
+  }>(),
+  errorMessage: text("error_message"),
+});
+
+export const insertEnrichmentRunSchema = createInsertSchema(enrichmentRuns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEnrichmentRun = z.infer<typeof insertEnrichmentRunSchema>;
+export type EnrichmentRun = typeof enrichmentRuns.$inferSelect;
+
+export const enrichmentRunsRelations = relations(enrichmentRuns, ({ one }) => ({
+  site: one(parkingSites, {
+    fields: [enrichmentRuns.siteId],
+    references: [parkingSites.id],
+  }),
+  creator: one(users, {
+    fields: [enrichmentRuns.createdBy],
+    references: [users.id],
+  }),
+}));
