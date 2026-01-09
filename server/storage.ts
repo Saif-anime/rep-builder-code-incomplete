@@ -1,12 +1,14 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
-  anprEvents, parkingSessions,
+  anprEvents, parkingSessions, siteRules, siteNotes, siteSurroundings,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
   type AuditLog, type InsertAuditLog, type Site, type InsertSite, type AiSetting, type InsertAiSetting,
   type ParkingSite, type InsertParkingSite,
-  type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession
+  type AnprEvent, type InsertAnprEvent, type ParkingSession, type InsertParkingSession,
+  type SiteRule, type InsertSiteRule, type SiteNote, type InsertSiteNote,
+  type SiteSurroundings, type InsertSiteSurroundings
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -115,6 +117,34 @@ export interface IStorage {
       timestamp: string;
       details?: string;
     }>;
+  }>;
+
+  // Site Rules
+  getSiteRules(siteId: number): Promise<SiteRule | undefined>;
+  createSiteRules(rules: InsertSiteRule): Promise<SiteRule>;
+  updateSiteRules(id: number, rules: Partial<InsertSiteRule>): Promise<SiteRule | undefined>;
+  deleteSiteRules(id: number): Promise<void>;
+
+  // Site Notes
+  getSiteNote(id: number): Promise<SiteNote | undefined>;
+  getSiteNotes(siteId: number): Promise<SiteNote[]>;
+  getSiteNotesValidAt(siteId: number, atTime: Date): Promise<SiteNote[]>;
+  createSiteNote(note: InsertSiteNote): Promise<SiteNote>;
+  updateSiteNote(id: number, note: Partial<InsertSiteNote>): Promise<SiteNote | undefined>;
+  deleteSiteNote(id: number): Promise<void>;
+
+  // Site Surroundings
+  getSiteSurroundings(siteId: number): Promise<SiteSurroundings | undefined>;
+  createSiteSurroundings(surroundings: InsertSiteSurroundings): Promise<SiteSurroundings>;
+  updateSiteSurroundings(id: number, surroundings: Partial<InsertSiteSurroundings>): Promise<SiteSurroundings | undefined>;
+  deleteSiteSurroundings(id: number): Promise<void>;
+
+  // Compiled Site Context
+  getSiteContext(siteId: number, atTime: Date): Promise<{
+    site: ParkingSite | undefined;
+    rules: SiteRule | undefined;
+    notes: SiteNote[];
+    surroundings: SiteSurroundings | undefined;
   }>;
 }
 
@@ -532,6 +562,122 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(parkingSessions.entryAt))
       .limit(1);
     return session || undefined;
+  }
+
+  // Site Rules
+  async getSiteRules(siteId: number): Promise<SiteRule | undefined> {
+    const [rules] = await db
+      .select()
+      .from(siteRules)
+      .where(and(eq(siteRules.siteId, siteId), eq(siteRules.isActive, true)));
+    return rules || undefined;
+  }
+
+  async createSiteRules(rules: InsertSiteRule): Promise<SiteRule> {
+    const [created] = await db.insert(siteRules).values(rules).returning();
+    return created;
+  }
+
+  async updateSiteRules(id: number, rules: Partial<InsertSiteRule>): Promise<SiteRule | undefined> {
+    const [updated] = await db
+      .update(siteRules)
+      .set({ ...rules, updatedAt: new Date() })
+      .where(eq(siteRules.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSiteRules(id: number): Promise<void> {
+    await db.delete(siteRules).where(eq(siteRules.id, id));
+  }
+
+  // Site Notes
+  async getSiteNote(id: number): Promise<SiteNote | undefined> {
+    const [note] = await db.select().from(siteNotes).where(eq(siteNotes.id, id));
+    return note || undefined;
+  }
+
+  async getSiteNotes(siteId: number): Promise<SiteNote[]> {
+    return db
+      .select()
+      .from(siteNotes)
+      .where(and(eq(siteNotes.siteId, siteId), eq(siteNotes.isActive, true)))
+      .orderBy(desc(siteNotes.createdAt));
+  }
+
+  async getSiteNotesValidAt(siteId: number, atTime: Date): Promise<SiteNote[]> {
+    return db
+      .select()
+      .from(siteNotes)
+      .where(and(
+        eq(siteNotes.siteId, siteId),
+        eq(siteNotes.isActive, true),
+        lte(siteNotes.validFrom, atTime),
+        sql`(${siteNotes.validTo} IS NULL OR ${siteNotes.validTo} >= ${atTime})`
+      ))
+      .orderBy(desc(siteNotes.createdAt));
+  }
+
+  async createSiteNote(note: InsertSiteNote): Promise<SiteNote> {
+    const [created] = await db.insert(siteNotes).values(note).returning();
+    return created;
+  }
+
+  async updateSiteNote(id: number, note: Partial<InsertSiteNote>): Promise<SiteNote | undefined> {
+    const [updated] = await db
+      .update(siteNotes)
+      .set({ ...note, updatedAt: new Date() })
+      .where(eq(siteNotes.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSiteNote(id: number): Promise<void> {
+    await db.delete(siteNotes).where(eq(siteNotes.id, id));
+  }
+
+  // Site Surroundings
+  async getSiteSurroundings(siteId: number): Promise<SiteSurroundings | undefined> {
+    const [surroundings] = await db
+      .select()
+      .from(siteSurroundings)
+      .where(eq(siteSurroundings.siteId, siteId));
+    return surroundings || undefined;
+  }
+
+  async createSiteSurroundings(surroundings: InsertSiteSurroundings): Promise<SiteSurroundings> {
+    const [created] = await db.insert(siteSurroundings).values(surroundings).returning();
+    return created;
+  }
+
+  async updateSiteSurroundings(id: number, surroundings: Partial<InsertSiteSurroundings>): Promise<SiteSurroundings | undefined> {
+    const [updated] = await db
+      .update(siteSurroundings)
+      .set({ ...surroundings, updatedAt: new Date() })
+      .where(eq(siteSurroundings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSiteSurroundings(id: number): Promise<void> {
+    await db.delete(siteSurroundings).where(eq(siteSurroundings.id, id));
+  }
+
+  // Compiled Site Context
+  async getSiteContext(siteId: number, atTime: Date): Promise<{
+    site: ParkingSite | undefined;
+    rules: SiteRule | undefined;
+    notes: SiteNote[];
+    surroundings: SiteSurroundings | undefined;
+  }> {
+    const [site, rules, notes, surroundings] = await Promise.all([
+      this.getParkingSite(siteId),
+      this.getSiteRules(siteId),
+      this.getSiteNotesValidAt(siteId, atTime),
+      this.getSiteSurroundings(siteId),
+    ]);
+
+    return { site, rules, notes, surroundings };
   }
 }
 
