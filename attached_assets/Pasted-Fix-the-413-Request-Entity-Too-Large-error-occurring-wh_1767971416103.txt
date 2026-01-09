@@ -1,0 +1,146 @@
+Fix the "413 Request Entity Too Large" error occurring
+when importing Parking Sites via JSON in the
+Euro Parking Services Enforcement System.
+
+================================================
+PROBLEM
+================================================
+POST /api/parking-sites/import-json fails with:
+HTTP 413 – Request Entity Too Large
+
+Even though:
+- JSON file is valid
+- Frontend upload works
+- Endpoint exists
+
+================================================
+ROOT CAUSE
+================================================
+Express default body limits are too small for:
+- Large JSON files
+- Bulk parking site imports
+
+================================================
+GOAL
+================================================
+Allow LARGE JSON files (up to 20MB) to be uploaded
+and processed safely without crashing the server.
+
+================================================
+BACKEND FIXES (MANDATORY)
+================================================
+
+1️⃣ INCREASE BODY SIZE LIMITS
+In server initialization:
+
+- express.json()
+- express.urlencoded()
+
+Set limits to at least:
+- 20mb for JSON
+- 20mb for urlencoded
+
+================================================
+EXAMPLE REQUIREMENT
+================================================
+Use:
+
+express.json({ limit: "20mb" })
+express.urlencoded({ limit: "20mb", extended: true })
+
+================================================
+IMPORT JSON CONTROLLER FIX
+================================================
+Update /api/parking-sites/import-json to:
+
+- Accept JSON body OR multipart upload
+- Validate JSON structure
+- Reject malformed entries
+- Insert records in BULK
+- Use transactions
+
+================================================
+PERFORMANCE SAFETY
+================================================
+- Parse JSON once
+- Batch insert records
+- Fail gracefully on invalid rows
+- Return summary:
+
+{
+  imported: 42,
+  skipped: 3,
+  errors: []
+}
+
+================================================
+FRONTEND FIX (MANDATORY)
+================================================
+- DO NOT stringify JSON twice
+- Send file as raw JSON or FormData
+- Show user-friendly error messages
+
+================================================
+ERROR HANDLING
+================================================
+- 413 → "File too large"
+- 400 → "Invalid JSON format"
+- 500 → "Import failed"
+
+================================================
+REPLIT COMPATIBILITY
+================================================
+- Node.js
+- Express
+- No Docker
+- SQLite compatible
+- One-click run
+
+================================================
+DELIVERABLE
+================================================
+- JSON import works for large files
+- No 413 error
+- Parking sites saved correctly
+- UI shows import success summary
+
+IMPORTANT:
+DO NOT explain.
+DO NOT summarize.
+GENERATE FULL WORKING CODE.
+🧠 WHY THIS ERROR HAPPENED (IN SIMPLE TERMS)
+Replit + Express defaults:
+
+JSON limit ≈ 100KB
+
+Your parking JSON ≈ several MB
+
+➡ Express rejects request before your route runs
+➡ That’s why you see 413 immediately
+
+This prompt fixes it at the server level.
+
+✅ AFTER APPLYING THIS PROMPT
+✔ Import large parking site JSON
+✔ No more 413 error
+✔ Fast bulk inserts
+✔ Clean UI feedback
+
+🚀 NEXT OPTIONAL IMPROVEMENTS
+If you want next, I can give prompts for:
+
+CSV import
+
+Duplicate site detection
+
+Site ↔ Camera mapping
+
+Geo-fencing & bay polygons
+
+Just tell me the next step.
+
+
+
+
+
+

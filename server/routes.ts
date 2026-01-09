@@ -839,28 +839,51 @@ export async function registerRoutes(
 
   app.post("/api/parking-sites/import-json", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
     try {
-      const { sites: importedSites } = req.body;
+      let importedSites = req.body.sites || req.body;
       
       if (!Array.isArray(importedSites)) {
-        return res.status(400).json({ error: "Invalid JSON format. Expected an array of sites." });
+        return res.status(400).json({ error: "Invalid JSON format. Expected an array of sites or { sites: [...] }." });
       }
 
-      const parsedSites = importedSites.map((site: any) => ({
-        siteName: site.Name || site.siteName || "Unknown",
-        locationCode: site["Location Code"] || site.locationCode || null,
-        addressLine1: site["Address Line 1"] || site.addressLine1 || null,
-        addressLine2: site["Address Line 2"] || site.addressLine2 || null,
-        addressLine3: site["Address Line 3"] || site.addressLine3 || null,
-        addressLine4: site["Address Line 4"] || site.addressLine4 || null,
-        city: site["Town/City"] || site.city || null,
-        postcode: site.Postcode || site.postcode || null,
-        regulations: site.Regulations || site.regulations || null,
-        enforcer: site.Enforcer || site.enforcer || null,
-        totalBays: site.bays?.total || site.totalBays || 0,
-        disabledBays: site.bays?.disabled || site.disabledBays || 0,
-        evBays: site.bays?.ev || site.evBays || 0,
-        parentChildBays: site.bays?.parentChild || site.parentChildBays || 0,
-      }));
+      const errors: string[] = [];
+      const parsedSites: any[] = [];
+      let skipped = 0;
+
+      for (let i = 0; i < importedSites.length; i++) {
+        const site = importedSites[i];
+        const siteName = site.Name || site.siteName;
+        
+        if (!siteName || typeof siteName !== "string" || siteName.trim() === "") {
+          errors.push(`Row ${i + 1}: Missing or invalid site name`);
+          skipped++;
+          continue;
+        }
+
+        parsedSites.push({
+          siteName: siteName.trim(),
+          locationCode: site["Location Code"] || site.locationCode || null,
+          addressLine1: site["Address Line 1"] || site.addressLine1 || null,
+          addressLine2: site["Address Line 2"] || site.addressLine2 || null,
+          addressLine3: site["Address Line 3"] || site.addressLine3 || null,
+          addressLine4: site["Address Line 4"] || site.addressLine4 || null,
+          city: site["Town/City"] || site.city || null,
+          postcode: site.Postcode || site.postcode || null,
+          regulations: site.Regulations || site.regulations || null,
+          enforcer: site.Enforcer || site.enforcer || null,
+          totalBays: parseInt(site.bays?.total || site.totalBays) || 0,
+          disabledBays: parseInt(site.bays?.disabled || site.disabledBays) || 0,
+          evBays: parseInt(site.bays?.ev || site.evBays) || 0,
+          parentChildBays: parseInt(site.bays?.parentChild || site.parentChildBays) || 0,
+        });
+      }
+
+      if (parsedSites.length === 0) {
+        return res.status(400).json({ 
+          error: "No valid sites to import", 
+          skipped, 
+          errors: errors.slice(0, 10) 
+        });
+      }
 
       const created = await storage.importParkingSites(parsedSites);
 
@@ -869,17 +892,21 @@ export async function registerRoutes(
         action: "create",
         entityType: "parking_site",
         entityId: "bulk_import",
-        details: { count: created.length },
+        details: { count: created.length, skipped },
       });
 
       res.status(201).json({ 
         success: true, 
         imported: created.length,
-        sites: created 
+        skipped,
+        errors: errors.slice(0, 10),
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Import parking sites error:", error);
-      res.status(500).json({ error: "Failed to import parking sites" });
+      if (error.message?.includes("Entity Too Large")) {
+        return res.status(413).json({ error: "File too large. Maximum size is 20MB." });
+      }
+      res.status(500).json({ error: "Import failed. Please check your JSON format." });
     }
   });
 

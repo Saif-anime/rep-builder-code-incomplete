@@ -107,18 +107,27 @@ export default function AdminSitesPage() {
 
   const importMutation = useMutation({
     mutationFn: async (sites: any[]) => {
-      const res = await apiRequest("POST", "/api/parking-sites/import-json", { sites });
+      const res = await apiRequest("POST", "/api/parking-sites/import-json", sites);
       return res.json();
     },
     onSuccess: (data: any) => {
-      toast({ title: `Imported ${data.imported} parking sites successfully` });
+      let message = `Imported ${data.imported} parking sites successfully`;
+      if (data.skipped > 0) {
+        message += ` (${data.skipped} skipped)`;
+      }
+      toast({ title: message });
       setImportDialogOpen(false);
       setImportFile(null);
       setImportPreview(null);
       queryClient.invalidateQueries({ queryKey: ["/api/parking-sites"] });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to import sites", description: error.message, variant: "destructive" });
+      const message = error.message.includes("413") 
+        ? "File too large. Maximum size is 20MB." 
+        : error.message.includes("400")
+        ? "Invalid JSON format"
+        : error.message;
+      toast({ title: "Failed to import sites", description: message, variant: "destructive" });
     },
   });
 
