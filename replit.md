@@ -130,6 +130,19 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
     - VRM normalization: uppercase + whitespace removal for consistency
     - Nightly batch recomputation with configurable date range filtering
 
+13. **Flagged Sessions Review Dashboard**
+    - Operator-facing UI for reviewing AI-generated flags and recommendations
+    - Filterable by site, date range, flag type, recommendation type, and status
+    - Real-time flag counts and status indicators
+    - Detail drawer showing full explanation text and structured evidence JSON
+    - Override workflow: operators can override AI recommendations with manual decisions
+    - Override actions: HOLD_PCN, PROCEED_PCN, REVIEW_REQUIRED, AUTO_DISMISS
+    - All overrides require user-provided reason for audit trail
+    - PCN recommendations stored in database with user attribution
+    - Recommendation sources: SYSTEM (AI-generated) or USER (manual override)
+    - Full audit trail: created_by, reason, evidenceJson, timestamps
+    - Philosophy: AI provides recommendations only, humans make final enforcement decisions
+
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
 - `GET /api/dashboard/stats` - Dashboard statistics
@@ -171,6 +184,9 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET /api/sites/:id/drivers/:vrm/profile` - Get or calculate driver profile for VRM at site
 - `GET /api/sites/:id/drivers` - List all driver profiles for a site
 - `POST /api/sites/:id/drivers/recompute` - Batch recompute all driver profiles (query params: from, to)
+- `GET /api/parking-sessions/:id` - Get specific parking session by ID
+- `GET /api/sessions/:id/recommendations` - Get PCN recommendations for a session
+- `POST /api/flags/:id/override` - Override AI recommendation with manual decision
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)
