@@ -27,6 +27,7 @@ import {
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
 import { runEnrichment } from "./contextEnrichment";
+import { getDriverProfileWithFreshCalculation, recomputeDriverProfiles } from "./driverProfiling";
 import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
@@ -1465,6 +1466,92 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete site policy" });
+    }
+  });
+
+  // ==================== DRIVER PROFILES ====================
+  app.get("/api/sites/:id/drivers/:vrm/profile", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      const vrm = req.params.vrm;
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      if (!vrm || vrm.trim().length === 0) {
+        return res.status(400).json({ error: "VRM is required" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const profile = await getDriverProfileWithFreshCalculation(siteId, vrm);
+      if (!profile) {
+        return res.status(404).json({ error: "No visit history found for this vehicle at this site" });
+      }
+      res.json(profile);
+    } catch (error) {
+      console.error("[API] Error fetching driver profile:", error);
+      res.status(500).json({ error: "Failed to fetch driver profile" });
+    }
+  });
+
+  app.get("/api/sites/:id/drivers", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const profiles = await storage.getDriverProfilesBySite(siteId);
+      res.json(profiles);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch driver profiles" });
+    }
+  });
+
+  app.post("/api/sites/:id/drivers/recompute", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+
+      const fromParam = req.query.from as string | undefined;
+      const toParam = req.query.to as string | undefined;
+      
+      const from = fromParam ? new Date(fromParam) : undefined;
+      const to = toParam ? new Date(toParam) : undefined;
+
+      if (fromParam && isNaN(from!.getTime())) {
+        return res.status(400).json({ error: "Invalid 'from' date format" });
+      }
+      if (toParam && isNaN(to!.getTime())) {
+        return res.status(400).json({ error: "Invalid 'to' date format" });
+      }
+
+      const result = await recomputeDriverProfiles(siteId, from, to);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "recompute",
+        entityType: "driver_profiles",
+        entityId: String(siteId),
+        details: { processed: result.processed, from: from?.toISOString(), to: to?.toISOString() },
+      });
+
+      res.json({
+        message: `Recomputed ${result.processed} driver profiles`,
+        processed: result.processed,
+        siteId,
+        from: from?.toISOString(),
+        to: to?.toISOString(),
+      });
+    } catch (error) {
+      console.error("[API] Error recomputing driver profiles:", error);
+      res.status(500).json({ error: "Failed to recompute driver profiles" });
     }
   });
 

@@ -340,10 +340,11 @@ export async function recomputeDriverProfiles(
     }
   }
 
-  console.log(`[DriverProfiling] Found ${uniqueVrms.size} unique VRMs to profile for site ${siteId}`);
+  const vrmArray = Array.from(uniqueVrms);
+  console.log(`[DriverProfiling] Found ${vrmArray.length} unique VRMs to profile for site ${siteId}`);
 
   const profiles: DriverProfile[] = [];
-  for (const vrm of uniqueVrms) {
+  for (const vrm of vrmArray) {
     try {
       const profileData = await calculateDriverProfile(siteId, vrm, to);
       const profile = await storage.upsertDriverProfile(profileData);
