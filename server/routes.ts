@@ -22,7 +22,7 @@ import {
 } from "./ai-analysis";
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
-import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSiteNoteSchema, insertSiteSurroundingsSchema } from "@shared/schema";
+import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -61,6 +61,95 @@ const upload = multer({
 function calculateFileHash(filePath: string): string {
   const fileBuffer = fs.readFileSync(filePath);
   return crypto.createHash("sha256").update(fileBuffer).digest("hex");
+}
+
+function calculateComplianceScores(inspection: any): {
+  overallComplianceScore: number;
+  entranceScore: number;
+  tcScore: number;
+  baySignageScore: number;
+  generalScore: number;
+  appealRiskScore: number;
+  nightVisibilityRisk: number;
+} {
+  const boolToScore = (val: boolean | null | undefined): number => val === true ? 100 : val === false ? 0 : 50;
+  const conditionToScore = (val: string | null | undefined): number => {
+    if (val === "good") return 100;
+    if (val === "damaged") return 50;
+    if (val === "missing") return 0;
+    return 50;
+  };
+
+  const entranceFields = [
+    boolToScore(inspection.entranceSignagePresent),
+    boolToScore(inspection.entranceClearlyVisible),
+    boolToScore(inspection.entranceCorrectWording),
+    boolToScore(inspection.entranceHeightCompliant),
+    conditionToScore(inspection.entranceCondition),
+  ];
+  const entranceScore = entranceFields.reduce((a, b) => a + b, 0) / entranceFields.length;
+
+  const tcFields = [
+    boolToScore(inspection.tcTariffVisible),
+    boolToScore(inspection.tcFontReadable),
+    boolToScore(inspection.tcLanguageCorrect),
+    boolToScore(inspection.tcLightingPresent),
+  ];
+  const tcScore = tcFields.reduce((a, b) => a + b, 0) / tcFields.length;
+
+  const bayFields = [
+    boolToScore(inspection.disabledSignPresent),
+    boolToScore(inspection.disabledMarkingsVisible),
+    boolToScore(inspection.disabledUprightSign),
+    boolToScore(inspection.disabledWordingCorrect),
+    boolToScore(inspection.evSignPresent),
+    boolToScore(inspection.evMarkingsVisible),
+    boolToScore(inspection.evUprightSign),
+    boolToScore(inspection.evWordingCorrect),
+    boolToScore(inspection.parentChildSignPresent),
+    boolToScore(inspection.parentChildMarkingsVisible),
+    boolToScore(inspection.parentChildUprightSign),
+    boolToScore(inspection.parentChildWordingCorrect),
+  ];
+  const baySignageScore = bayFields.reduce((a, b) => a + b, 0) / bayFields.length;
+
+  const generalFields = [
+    boolToScore(inspection.bpaIpcCompliant),
+    boolToScore(!inspection.conflictingSignagePresent),
+    boolToScore(!inspection.obstructionsPresent),
+    boolToScore(!inspection.weatherDamage),
+    boolToScore(!inspection.graffitiPresent),
+  ];
+  const generalScore = generalFields.reduce((a, b) => a + b, 0) / generalFields.length;
+
+  const overallComplianceScore = (entranceScore * 0.3 + tcScore * 0.25 + baySignageScore * 0.25 + generalScore * 0.2);
+
+  const appealRiskFactors = [
+    !inspection.entranceSignagePresent ? 30 : 0,
+    !inspection.entranceClearlyVisible ? 20 : 0,
+    !inspection.tcTariffVisible ? 25 : 0,
+    !inspection.bpaIpcCompliant ? 30 : 0,
+    inspection.conflictingSignagePresent ? 25 : 0,
+    inspection.entranceCondition === "missing" ? 30 : inspection.entranceCondition === "damaged" ? 15 : 0,
+  ];
+  const appealRiskScore = Math.min(100, appealRiskFactors.reduce((a, b) => a + b, 0));
+
+  const nightVisibilityFactors = [
+    !inspection.entranceLightingNight ? 40 : 0,
+    !inspection.tcLightingPresent ? 30 : 0,
+    !inspection.entranceLightingDay ? 10 : 0,
+  ];
+  const nightVisibilityRisk = Math.min(100, nightVisibilityFactors.reduce((a, b) => a + b, 0));
+
+  return {
+    overallComplianceScore: Math.round(overallComplianceScore * 10) / 10,
+    entranceScore: Math.round(entranceScore * 10) / 10,
+    tcScore: Math.round(tcScore * 10) / 10,
+    baySignageScore: Math.round(baySignageScore * 10) / 10,
+    generalScore: Math.round(generalScore * 10) / 10,
+    appealRiskScore: Math.round(appealRiskScore * 10) / 10,
+    nightVisibilityRisk: Math.round(nightVisibilityRisk * 10) / 10,
+  };
 }
 
 export async function registerRoutes(
@@ -1382,6 +1471,301 @@ export async function registerRoutes(
       res.json(context);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch site context" });
+    }
+  });
+
+  // ==================== SIGNAGE INSPECTIONS ====================
+  app.get("/api/sites/:id/signage-inspections", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const inspections = await storage.getSignageInspectionsBySite(siteId);
+      res.json(inspections);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch signage inspections" });
+    }
+  });
+
+  app.get("/api/signage-inspections/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const inspection = await storage.getSignageInspection(id);
+      if (!inspection) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      const photos = await storage.getSignagePhotosByInspection(id);
+      res.json({ ...inspection, photos });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch signage inspection" });
+    }
+  });
+
+  app.post("/api/sites/:id/signage-inspections", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      const inspectionData = {
+        ...req.body,
+        siteId,
+        inspectorId: req.user!.id,
+        inspectorName: req.body.inspectorName || req.user!.fullName || req.user!.username,
+        inspectionDate: req.body.inspectionDate ? new Date(req.body.inspectionDate) : new Date(),
+        siteCode: req.body.siteCode || site.locationCode,
+        siteAddress: req.body.siteAddress || [site.addressLine1, site.city, site.postcode].filter(Boolean).join(", "),
+      };
+      const parsed = insertSignageInspectionSchema.safeParse(inspectionData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const inspection = await storage.createSignageInspection(parsed.data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "signage_inspection",
+        entityId: String(inspection.id),
+        details: { siteId, inspectionDate: inspection.inspectionDate },
+      });
+      res.status(201).json(inspection);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create signage inspection" });
+    }
+  });
+
+  app.patch("/api/signage-inspections/:id", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const existing = await storage.getSignageInspection(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      if (existing.status !== "draft") {
+        return res.status(400).json({ error: "Cannot modify a submitted inspection" });
+      }
+      const updateData = { ...req.body };
+      if (updateData.inspectionDate) updateData.inspectionDate = new Date(updateData.inspectionDate);
+      const parsed = insertSignageInspectionSchema.partial().safeParse(updateData);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request data", details: parsed.error.errors });
+      }
+      const inspection = await storage.updateSignageInspection(id, parsed.data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "signage_inspection",
+        entityId: String(id),
+        details: req.body,
+      });
+      res.json(inspection);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update signage inspection" });
+    }
+  });
+
+  app.post("/api/signage-inspections/:id/submit", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const existing = await storage.getSignageInspection(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      if (existing.status !== "draft") {
+        return res.status(400).json({ error: "Inspection already submitted" });
+      }
+      const photos = await storage.getSignagePhotosByInspection(id);
+      const entrancePhotos = photos.filter(p => p.section === "entrance");
+      if (entrancePhotos.length === 0) {
+        return res.status(400).json({ error: "Entrance signage photo is required before submission" });
+      }
+      const scores = calculateComplianceScores(existing);
+      await storage.updateSignageInspection(id, scores);
+      const inspection = await storage.submitSignageInspection(id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "submit",
+        entityType: "signage_inspection",
+        entityId: String(id),
+        details: { scores },
+      });
+      res.json(inspection);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to submit signage inspection" });
+    }
+  });
+
+  app.post("/api/signage-inspections/:id/approve", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const existing = await storage.getSignageInspection(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      if (existing.status !== "submitted") {
+        return res.status(400).json({ error: "Only submitted inspections can be approved" });
+      }
+      const inspection = await storage.approveSignageInspection(id, req.user!.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "approve",
+        entityType: "signage_inspection",
+        entityId: String(id),
+      });
+      res.json(inspection);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to approve signage inspection" });
+    }
+  });
+
+  app.post("/api/signage-inspections/:id/reject", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const existing = await storage.getSignageInspection(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      if (existing.status !== "submitted") {
+        return res.status(400).json({ error: "Only submitted inspections can be rejected" });
+      }
+      const inspection = await storage.rejectSignageInspection(id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "reject",
+        entityType: "signage_inspection",
+        entityId: String(id),
+      });
+      res.json(inspection);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject signage inspection" });
+    }
+  });
+
+  app.delete("/api/signage-inspections/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const existing = await storage.getSignageInspection(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      await storage.deleteSignageInspection(id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "signage_inspection",
+        entityId: String(id),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete signage inspection" });
+    }
+  });
+
+  // Signage Photos
+  app.post("/api/signage-inspections/:id/photos", authenticateToken, requireRole("admin", "operator"), upload.single("photo"), async (req: AuthRequest, res: Response) => {
+    try {
+      const inspectionId = parseInt(req.params.id);
+      if (isNaN(inspectionId)) {
+        return res.status(400).json({ error: "Invalid inspection ID" });
+      }
+      const inspection = await storage.getSignageInspection(inspectionId);
+      if (!inspection) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+      if (inspection.status !== "draft") {
+        return res.status(400).json({ error: "Cannot add photos to a submitted inspection" });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No photo file provided" });
+      }
+      const { section, caption } = req.body;
+      if (!section) {
+        return res.status(400).json({ error: "Section is required" });
+      }
+      const validSections = ["entrance", "tc", "disabled", "ev", "parent_child", "general"];
+      if (!validSections.includes(section)) {
+        return res.status(400).json({ error: `Invalid section. Must be one of: ${validSections.join(", ")}` });
+      }
+      const photoPath = `/uploads/${req.file.filename}`;
+      const sha256Hash = calculateFileHash(req.file.path);
+      const photo = await storage.createSignagePhoto({
+        inspectionId,
+        section,
+        photoPath,
+        caption: caption || null,
+        sha256Hash,
+        uploadedBy: req.user!.id,
+        metadata: {
+          fileSize: req.file.size,
+          format: req.file.mimetype,
+        },
+      });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "upload",
+        entityType: "signage_photo",
+        entityId: String(photo.id),
+        details: { inspectionId, section },
+      });
+      res.status(201).json(photo);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to upload signage photo" });
+    }
+  });
+
+  app.delete("/api/signage-photos/:id", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid photo ID" });
+      }
+      const photo = await storage.getSignagePhoto(id);
+      if (!photo) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      const inspection = await storage.getSignageInspection(photo.inspectionId);
+      if (inspection && inspection.status !== "draft") {
+        return res.status(400).json({ error: "Cannot delete photos from a submitted inspection" });
+      }
+      if (photo.photoPath) {
+        const filePath = path.join(process.cwd(), photo.photoPath);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+      await storage.deleteSignagePhoto(id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "signage_photo",
+        entityId: String(id),
+      });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete signage photo" });
     }
   });
 
