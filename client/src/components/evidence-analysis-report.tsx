@@ -286,12 +286,12 @@ export function EvidenceAnalysisReport({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold flex items-center gap-2">
-          <Brain className="h-5 w-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h3 className="font-semibold flex items-center gap-2 text-base sm:text-lg">
+          <Brain className="h-5 w-5 shrink-0" />
           Full Analysis Report
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button 
             variant="outline"
             size="sm"
@@ -311,15 +311,18 @@ export function EvidenceAnalysisReport({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center gap-2">
         {decision?.status && getDecisionBadge(decision.status)}
-        {decision?.overallConfidence && (
-          <Badge variant="outline">
+        {decision?.overallConfidence !== undefined && decision.overallConfidence !== null && (
+          <Badge variant="outline" className="whitespace-nowrap">
             Confidence: {Math.round(decision.overallConfidence * 100)}%
           </Badge>
         )}
         {decision?.legalRisk && (
-          <Badge variant={decision.legalRisk === "high" ? "destructive" : decision.legalRisk === "medium" ? "secondary" : "outline"}>
+          <Badge 
+            variant={decision.legalRisk === "high" ? "destructive" : decision.legalRisk === "medium" ? "secondary" : "outline"}
+            className="whitespace-nowrap"
+          >
             Risk: {decision.legalRisk.toUpperCase()}
           </Badge>
         )}
@@ -340,16 +343,16 @@ export function EvidenceAnalysisReport({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <CardContent className="pt-0">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
+                <div className="flex flex-wrap gap-1">
                   <span className="text-muted-foreground">Site:</span>{" "}
-                  <span className="font-medium">{siteName}</span>
+                  <span className="font-medium break-all">{siteName}</span>
                 </div>
-                <div>
+                <div className="flex flex-wrap gap-1">
                   <span className="text-muted-foreground">Case Ref:</span>{" "}
-                  <span className="font-mono">{caseReference.substring(0, 12)}</span>
+                  <span className="font-mono break-all">{caseReference.substring(0, 12)}</span>
                 </div>
-                <div>
+                <div className="flex flex-wrap gap-1">
                   <span className="text-muted-foreground">VRM:</span>{" "}
                   <span className="font-mono font-medium">{vrm || vehicles[0]?.registrationNumber || "Not detected"}</span>
                 </div>
@@ -404,23 +407,23 @@ export function EvidenceAnalysisReport({
           <CollapsibleContent>
             <CardContent className="pt-0">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
+                  <div className="flex flex-wrap gap-1">
                     <span className="text-muted-foreground">Evidence Count:</span>{" "}
                     <span className="font-medium">{evidenceFiles.length} files</span>
                   </div>
-                  <div>
+                  <div className="flex flex-wrap items-center gap-1">
                     <span className="text-muted-foreground">Sources:</span>{" "}
                     <span className="flex items-center gap-1">
-                      <Camera className="h-3 w-3" />
+                      <Camera className="h-3 w-3 shrink-0" />
                       {evidence?.sources?.camera || 0} camera,{" "}
                       {evidence?.sources?.manual || evidenceFiles.length} manual
                     </span>
                   </div>
                   {evidence?.timeRange && (
-                    <div className="col-span-2">
+                    <div className="col-span-1 sm:col-span-2 flex flex-wrap gap-1">
                       <span className="text-muted-foreground">Time Range:</span>{" "}
-                      <span>{evidence.timeRange.start} - {evidence.timeRange.end}</span>
+                      <span className="break-all">{evidence.timeRange.start} - {evidence.timeRange.end}</span>
                     </div>
                   )}
                 </div>
@@ -475,26 +478,26 @@ export function EvidenceAnalysisReport({
                   <p className="text-sm font-medium mb-3">Confidence Scores</p>
                   <div className="space-y-3">
                     {vision?.plateConfidence && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Plate OCR</span>
-                        <ConfidenceMeter value={vision.plateConfidence * 100} className="w-32" />
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                        <span className="text-sm shrink-0">Plate OCR</span>
+                        <ConfidenceMeter value={vision.plateConfidence * 100} className="w-full sm:w-32" />
                       </div>
                     )}
                     {vision?.vehicleConfidence && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Vehicle Detection</span>
-                        <ConfidenceMeter value={vision.vehicleConfidence * 100} className="w-32" />
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                        <span className="text-sm shrink-0">Vehicle Detection</span>
+                        <ConfidenceMeter value={vision.vehicleConfidence * 100} className="w-full sm:w-32" />
                       </div>
                     )}
                     {vision?.bayConfidence && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Bay Analysis</span>
-                        <ConfidenceMeter value={vision.bayConfidence * 100} className="w-32" />
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                        <span className="text-sm shrink-0">Bay Analysis</span>
+                        <ConfidenceMeter value={vision.bayConfidence * 100} className="w-full sm:w-32" />
                       </div>
                     )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Overall Confidence</span>
-                      <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-32" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 pt-2 border-t">
+                      <span className="text-sm font-medium shrink-0">Overall Confidence</span>
+                      <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-full sm:w-32" />
                     </div>
                   </div>
                 </div>

@@ -514,25 +514,25 @@ export default function EvidencePage() {
       )}
 
       <Sheet open={!!selectedBundle} onOpenChange={() => setSelectedBundle(null)}>
-        <SheetContent className="sm:max-w-2xl overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Bundle Details</SheetTitle>
-            <SheetDescription>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader className="pb-2">
+            <SheetTitle className="text-base sm:text-lg">Bundle Details</SheetTitle>
+            <SheetDescription className="text-xs sm:text-sm break-all">
               {selectedBundle?.siteName} - REF: {selectedBundle?.caseReference.substring(0, 8)}
             </SheetDescription>
           </SheetHeader>
           
           {selectedBundle && (
-            <div className="mt-6 space-y-6">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="mt-4 sm:mt-6 space-y-4 sm:space-y-6">
+              <div className="flex flex-wrap items-center gap-2">
                 {getStatusBadge(selectedBundle.status)}
-                <Badge variant="outline">
-                  {selectedBundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
+                <Badge variant="outline" className="whitespace-nowrap">
+                  {selectedBundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1 shrink-0" /> : <FileImage className="h-3 w-3 mr-1 shrink-0" />}
                   {selectedBundle.evidenceCount} file{selectedBundle.evidenceCount !== 1 ? "s" : ""}
                 </Badge>
                 {selectedBundle.vrm && (
-                  <Badge variant="outline" className="font-mono">
-                    <Car className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className="font-mono whitespace-nowrap">
+                    <Car className="h-3 w-3 mr-1 shrink-0" />
                     {selectedBundle.vrm}
                   </Badge>
                 )}
@@ -541,9 +541,9 @@ export default function EvidencePage() {
               <Separator />
 
               <div>
-                <h4 className="font-medium mb-3">All Evidence Files</h4>
-                <ScrollArea className="h-[200px]">
-                  <div className="grid grid-cols-3 gap-2 pr-4">
+                <h4 className="font-medium mb-3 text-sm sm:text-base">All Evidence Files</h4>
+                <ScrollArea className="h-[180px] sm:h-[200px]">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pr-4">
                     {selectedBundle.evidenceFiles.map((file) => (
                       <div key={file.id} className="relative aspect-video rounded-md overflow-hidden bg-muted">
                         {file.imagePath ? (
@@ -554,7 +554,7 @@ export default function EvidencePage() {
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <FileVideo className="h-8 w-8 text-muted-foreground" />
+                            <FileVideo className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
                           </div>
                         )}
                         <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">
@@ -569,13 +569,13 @@ export default function EvidencePage() {
               <Separator />
 
               <div>
-                <h4 className="font-medium mb-3">DVLA Vehicle Lookup</h4>
-                <div className="flex gap-2">
+                <h4 className="font-medium mb-3 text-sm sm:text-base">DVLA Vehicle Lookup</h4>
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Input 
                     placeholder="Enter registration (e.g. AB12 CDE)"
                     value={manualVrmLookup}
                     onChange={(e) => setManualVrmLookup(e.target.value.toUpperCase())}
-                    className="font-mono"
+                    className="font-mono flex-1"
                     data-testid="input-vrm-lookup"
                   />
                   <Button 
@@ -588,6 +588,7 @@ export default function EvidencePage() {
                       }
                     }}
                     disabled={dvlaLookupMutation.isPending || !manualVrmLookup}
+                    className="w-full sm:w-auto"
                     data-testid="button-dvla-lookup"
                   >
                     {dvlaLookupMutation.isPending ? (
@@ -613,26 +614,26 @@ export default function EvidencePage() {
                               {vehicle.verifiedAt && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-                            <div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-sm">
+                            <div className="flex flex-wrap gap-1">
                               <span className="text-muted-foreground">Make:</span> {vehicle.make || "Unknown"}
                             </div>
-                            <div>
+                            <div className="flex flex-wrap gap-1">
                               <span className="text-muted-foreground">Colour:</span> {vehicle.colour || "Unknown"}
                             </div>
-                            <div>
+                            <div className="flex flex-wrap gap-1">
                               <span className="text-muted-foreground">Fuel:</span> {vehicle.fuelType || "Unknown"}
                             </div>
-                            <div>
+                            <div className="flex flex-wrap gap-1">
                               <span className="text-muted-foreground">Year:</span> {vehicle.yearOfManufacture || "Unknown"}
                             </div>
-                            <div>
+                            <div className="flex flex-wrap items-center gap-1">
                               <span className="text-muted-foreground">Tax:</span>{" "}
                               <Badge variant={vehicle.taxStatus === "Taxed" ? "outline" : "destructive"} className="text-xs">
                                 {vehicle.taxStatus || "Unknown"}
                               </Badge>
                             </div>
-                            <div>
+                            <div className="flex flex-wrap items-center gap-1">
                               <span className="text-muted-foreground">MOT:</span>{" "}
                               <Badge variant={vehicle.motStatus === "Valid" ? "outline" : "destructive"} className="text-xs">
                                 {vehicle.motStatus || "Unknown"}
