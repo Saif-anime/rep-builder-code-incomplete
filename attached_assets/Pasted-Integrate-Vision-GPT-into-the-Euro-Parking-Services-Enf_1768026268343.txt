@@ -1,0 +1,167 @@
+Integrate Vision GPT into the
+Euro Parking Services – Enforcement System
+to analyse images accurately and reliably.
+
+====================================================
+GOAL
+====================================================
+
+Use Vision GPT to analyse:
+- Uploaded images
+- Video frames (keyframes)
+- Cropped evidence images
+- Manual uploads
+- Camera snapshots
+
+Vision GPT must produce
+STRUCTURED, EXPLAINABLE, COURT-READY outputs.
+
+====================================================
+WHEN TO USE VISION GPT
+====================================================
+
+Trigger Vision GPT analysis when:
+- Evidence type === image
+- OR extracted video frame
+- OR signage photo
+- OR bay marking photo
+
+DO NOT use Vision GPT for:
+- Raw video streams
+- PDFs (PDFs handled separately)
+
+====================================================
+VISION GPT INPUT PREPARATION (CRITICAL)
+====================================================
+
+For each image:
+
+1️⃣ Resize to max 1024px (preserve aspect ratio)
+2️⃣ Normalize orientation (EXIF rotation)
+3️⃣ Pass ORIGINAL image (no overlays)
+4️⃣ Provide CONTEXT METADATA:
+
+{
+  siteName,
+  bayTypeExpected,
+  violationType,
+  timestamp,
+  cameraName,
+  caseId
+}
+
+====================================================
+VISION GPT PROMPT (STRICT)
+====================================================
+
+Use the following structured instruction:
+
+"You are analysing parking enforcement evidence.
+
+Identify ONLY what is clearly visible.
+Do NOT guess.
+If unsure, say 'uncertain'.
+
+Detect and return:
+- Vehicle presence
+- Vehicle type (car, van, motorcycle)
+- EV indicators (charging port, badge)
+- Bay markings (disabled, EV, parent-child)
+- Ground text and symbols
+- Disabled badge visibility
+- Humans (adult, child)
+- Signage visibility
+- Obstructions or unclear view
+
+Return structured JSON only."
+
+====================================================
+VISION GPT OUTPUT FORMAT (MANDATORY)
+====================================================
+
+Vision GPT MUST return:
+
+{
+  vehicleDetected: boolean,
+  vehicleType: "car" | "van" | "motorcycle" | "unknown",
+  bayTypeVisible: "disabled" | "parent-child" | "ev" | "standard" | "unclear",
+  evIndicators: boolean,
+  disabledBadgeVisible: boolean,
+  humansDetected: {
+    adult: boolean,
+    child: boolean
+  },
+  signageVisible: boolean,
+  visibilityQuality: "clear" | "partial" | "poor",
+  confidenceNotes: string
+}
+
+====================================================
+MULTI-IMAGE CASE LOGIC
+====================================================
+
+When multiple images belong to SAME caseId:
+
+- Analyse each image separately
+- Merge results by confidence
+- Resolve conflicts conservatively
+- Prefer "uncertain" over guessing
+- Produce ONE combined finding
+
+====================================================
+SAFETY & LEGAL RULES
+====================================================
+
+❌ NEVER infer disability
+❌ NEVER assume intent
+❌ NEVER hallucinate signage text
+❌ NEVER fabricate badge presence
+
+✅ Conservative analysis only
+✅ Evidence-backed statements only
+
+====================================================
+PERFORMANCE OPTIMIZATION
+====================================================
+
+- Cache Vision GPT results per image hash
+- Avoid re-analysing same image
+- Parallelise safely (max 3 concurrent calls)
+
+====================================================
+ERROR HANDLING
+====================================================
+
+If Vision GPT fails:
+- Log error
+- Mark image as "analysis_failed"
+- Continue case analysis
+- Do NOT block entire case
+
+====================================================
+STORAGE
+====================================================
+
+Store Vision GPT result in:
+Evidence.metadata.visionAnalysis
+
+Include:
+- model version
+- analysedAt
+- confidence notes
+
+====================================================
+FINAL OBJECTIVE
+====================================================
+
+Vision GPT should:
+- Improve accuracy
+- Reduce false PCNs
+- Strengthen appeal defence
+- Work alongside YOLO & ANPR
+- Never replace human judgement
+
+Implement fully.
+Do not simplify.
+Do not guess.
+Return only structured outputs.
