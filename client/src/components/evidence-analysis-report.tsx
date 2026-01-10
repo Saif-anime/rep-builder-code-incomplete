@@ -196,8 +196,12 @@ export function EvidenceAnalysisReport({
   const ruleSource = signage?.appliedSignageTitle ? "SITE_SIGNAGE" : 
     regulations?.evaluation?.ruleSource === "site_policy" ? "SITE_REGULATION" : "SITE_REGULATION";
 
-  // Get applied rule name
+  // Get applied rule name - fail-safe to generic when data is missing
   const getRuleName = (): string => {
+    // If no decision or regulations data, return neutral message
+    if (!decision?.status || decision.status === "REVIEW_REQUIRED") {
+      return "Pending review";
+    }
     if (regulations?.evaluation?.complianceResult === "OVERSTAY") {
       const maxStay = regulations?.rules?.maxStayMinutes || signage?.extractedRegulations?.maxStayMinutes;
       return maxStay ? `Maximum stay exceeded (${formatDuration(maxStay)})` : "Maximum stay exceeded";
@@ -208,21 +212,28 @@ export function EvidenceAnalysisReport({
     return "Site parking regulations";
   };
 
-  // Build explanation
+  // Build explanation - fail-safe to neutral language when data is missing
   const getExplanation = (): string => {
+    // If no decision data exists, default to neutral review message
+    if (!decision?.status) {
+      return "Manual review required due to incomplete evidence.";
+    }
     if (decision?.plainEnglishExplanation) {
       return decision.plainEnglishExplanation;
     }
-    if (regulations?.evaluation?.breachExplanation) {
-      return regulations.evaluation.breachExplanation;
-    }
-    if (decision?.status === "NO_PCN") {
-      return "Vehicle was parked within permitted time limits as defined by site regulations.";
-    }
-    if (decision?.status === "REVIEW_REQUIRED") {
+    if (decision.status === "REVIEW_REQUIRED") {
       return "Insufficient evidence to make a definitive determination. Manual review required.";
     }
-    return "Vehicle remained on site beyond the permitted stay as defined by site regulations.";
+    if (decision.status === "NO_PCN" || decision.status === "BLOCKED_BY_BAY_RULE") {
+      return "Vehicle was parked within permitted time limits as defined by site regulations.";
+    }
+    if (decision.status === "PCN_ELIGIBLE" && regulations?.evaluation?.breachExplanation) {
+      return regulations.evaluation.breachExplanation;
+    }
+    if (decision.status === "PCN_ELIGIBLE") {
+      return "Vehicle remained on site beyond the permitted stay as defined by site regulations.";
+    }
+    return "Manual review required due to incomplete evidence.";
   };
 
   // Get confidence reason
