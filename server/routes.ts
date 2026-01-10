@@ -487,6 +487,63 @@ export async function registerRoutes(
     }
   });
 
+  // NOTE: /api/evidence/bundles routes MUST come before /api/evidence/:id to avoid :id matching "bundles"
+  // ==================== EVIDENCE BUNDLES (Primary UI Interface) ====================
+  app.get("/api/evidence/bundles", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      // Get all cases with their analysis and evidence
+      const cases = await storage.getCases({ limit: 100 });
+      const bundles = [];
+      
+      for (const caseData of cases) {
+        // Get case evidence
+        const evidenceItems = await storage.getCaseEvidence(caseData.id);
+        const caseAnalysis = await storage.getCaseAnalysis(caseData.id);
+        const vehicles = await storage.getCaseVehiclesByCase(caseData.id);
+        const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+        
+        // Determine status based on analysis
+        let status: "pending" | "analysing" | "completed" = "pending";
+        if (caseData.status === "analysing") status = "analysing";
+        else if (caseAnalysis || caseData.status === "complete" || caseData.status === "reviewed") status = "completed";
+        
+        // Determine upload source
+        const hasCamera = evidenceItems.some((e: any) => e.evidence?.type === "camera" || e.evidence?.cameraId);
+        const uploadSource = hasCamera ? "camera" : "manual";
+        
+        // Get earliest and latest timestamps from evidence
+        const timestamps = evidenceItems
+          .filter((e: any) => e.evidence?.timestamp)
+          .map((e: any) => new Date(e.evidence.timestamp).getTime());
+        const timeWindow = timestamps.length > 0 ? {
+          start: new Date(Math.min(...timestamps)).toISOString(),
+          end: new Date(Math.max(...timestamps)).toISOString(),
+        } : null;
+        
+        bundles.push({
+          id: caseData.id,
+          caseReference: caseData.id,
+          siteName: site?.siteName || "Unknown Site",
+          siteId: caseData.siteId,
+          uploadSource,
+          evidenceCount: evidenceItems.length,
+          status,
+          timeWindow,
+          createdAt: caseData.createdAt,
+          vrm: caseData.vrm || vehicles[0]?.registrationNumber || null,
+          evidenceFiles: evidenceItems.map((e: any) => e.evidence).filter(Boolean),
+          analysis: caseAnalysis,
+          vehicles,
+        });
+      }
+      
+      res.json(bundles);
+    } catch (error) {
+      console.error("Failed to fetch evidence bundles:", error);
+      res.status(500).json({ error: "Failed to fetch evidence bundles" });
+    }
+  });
+
   app.get("/api/evidence/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const id = parseInt(req.params.id);
@@ -667,62 +724,6 @@ export async function registerRoutes(
     }
   });
 
-  // ==================== EVIDENCE BUNDLES (Primary UI Interface) ====================
-  app.get("/api/evidence/bundles", authenticateToken, async (req: AuthRequest, res: Response) => {
-    try {
-      // Get all cases with their analysis and evidence
-      const cases = await storage.getCases({ limit: 100 });
-      const bundles = [];
-      
-      for (const caseData of cases) {
-        // Get case evidence
-        const evidenceItems = await storage.getCaseEvidence(caseData.id);
-        const caseAnalysis = await storage.getCaseAnalysis(caseData.id);
-        const vehicles = await storage.getCaseVehiclesByCase(caseData.id);
-        const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
-        
-        // Determine status based on analysis
-        let status: "pending" | "analysing" | "completed" = "pending";
-        if (caseData.status === "analysing") status = "analysing";
-        else if (caseAnalysis || caseData.status === "complete" || caseData.status === "reviewed") status = "completed";
-        
-        // Determine upload source
-        const hasCamera = evidenceItems.some((e: any) => e.evidence?.type === "camera" || e.evidence?.cameraId);
-        const uploadSource = hasCamera ? "camera" : "manual";
-        
-        // Get earliest and latest timestamps from evidence
-        const timestamps = evidenceItems
-          .filter((e: any) => e.evidence?.timestamp)
-          .map((e: any) => new Date(e.evidence.timestamp).getTime());
-        const timeWindow = timestamps.length > 0 ? {
-          start: new Date(Math.min(...timestamps)).toISOString(),
-          end: new Date(Math.max(...timestamps)).toISOString(),
-        } : null;
-        
-        bundles.push({
-          id: caseData.id,
-          caseReference: caseData.id,
-          siteName: site?.siteName || "Unknown Site",
-          siteId: caseData.siteId,
-          uploadSource,
-          evidenceCount: evidenceItems.length,
-          status,
-          timeWindow,
-          createdAt: caseData.createdAt,
-          vrm: caseData.vrm || vehicles[0]?.registrationNumber || null,
-          evidenceFiles: evidenceItems.map((e: any) => e.evidence).filter(Boolean),
-          analysis: caseAnalysis,
-          vehicles,
-        });
-      }
-      
-      res.json(bundles);
-    } catch (error) {
-      console.error("Failed to fetch evidence bundles:", error);
-      res.status(500).json({ error: "Failed to fetch evidence bundles" });
-    }
-  });
-
   // Upload evidence and automatically create/reuse case bundle
   app.post("/api/evidence/bundles/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
     upload.array("files", 20)(req, res, (err: any) => {
@@ -875,11 +876,11 @@ export async function registerRoutes(
               const existing = await storage.getCaseVehicleByPlate(caseId, plate);
               if (!existing) {
                 // Get confidence from vision analysis that detected this plate
-                const plateDetection = imageEvidence.find(e => 
-                  e.visionAnalysis?.numberPlateDetected?.replace(/\s/g, '') === plate
+                const plateResult = successfulResults.find(r => 
+                  r.numberPlateDetected?.replace(/\s/g, '') === plate
                 );
-                const plateConfidence = plateDetection?.visionAnalysis?.visibilityQuality === "clear" ? 0.95 : 
-                  plateDetection?.visionAnalysis?.visibilityQuality === "partial" ? 0.8 : 0.7;
+                const plateConfidence = plateResult?.visibilityQuality === "clear" ? 0.95 : 
+                  plateResult?.visibilityQuality === "partial" ? 0.8 : 0.7;
                 
                 await storage.createCaseVehicle({
                   caseId,
@@ -893,7 +894,6 @@ export async function registerRoutes(
                   yearOfManufacture: dvlaResult.data.yearOfManufacture,
                   detectionMethod: "vision_gpt",
                   dvlaVerified: true,
-                  sourceEvidenceIds: plateDetection ? [plateDetection.evidenceId] : [],
                 });
               }
             }
@@ -933,28 +933,33 @@ export async function registerRoutes(
       const deriveConfidence = (quality?: string) => quality === "clear" ? 0.9 : quality === "partial" ? 0.7 : 0.5;
       const visionConfidence = deriveConfidence(mergedVision?.visibilityQuality);
       
-      // Build merged detections from all analyzed images
-      const mergedDetections = mergedVision && imageEvidence.length > 0 ? {
-        vehicles: mergedVision.vehicleDetected ? imageEvidence
-          .filter(e => e.visionAnalysis?.vehicleDetected)
-          .map(e => ({ 
-            type: e.visionAnalysis?.vehicleType || "unknown", 
-            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
-            evidenceId: e.evidenceId 
+      // Build merged detections from successful vision results
+      // Map vision results back to evidence IDs
+      const visionToEvidence = new Map(
+        imageEvidence.map((e, idx) => [idx, e.evidenceId])
+      );
+      
+      const mergedDetections = mergedVision && successfulResults.length > 0 ? {
+        vehicles: mergedVision.vehicleDetected ? successfulResults
+          .filter(r => r.vehicleDetected)
+          .map((r, idx) => ({ 
+            type: r.vehicleType || "unknown", 
+            confidence: deriveConfidence(r.visibilityQuality), 
+            evidenceId: visionToEvidence.get(idx) || 0 
           })) : [],
-        persons: mergedVision.humansDetected?.adult || mergedVision.humansDetected?.child ? imageEvidence
-          .filter(e => e.visionAnalysis?.humansDetected?.adult || e.visionAnalysis?.humansDetected?.child)
-          .map(e => ({ 
-            type: e.visionAnalysis?.humansDetected?.child ? "child" : "adult", 
-            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
-            evidenceId: e.evidenceId 
+        persons: mergedVision.humansDetected?.adult || mergedVision.humansDetected?.child ? successfulResults
+          .filter(r => r.humansDetected?.adult || r.humansDetected?.child)
+          .map((r, idx) => ({ 
+            type: r.humansDetected?.child ? "child" : "adult", 
+            confidence: deriveConfidence(r.visibilityQuality), 
+            evidenceId: visionToEvidence.get(idx) || 0 
           })) : [],
-        bayMarkings: mergedVision.bayTypeVisible && mergedVision.bayTypeVisible !== "unclear" ? imageEvidence
-          .filter(e => e.visionAnalysis?.bayTypeVisible && e.visionAnalysis.bayTypeVisible !== "unclear")
-          .map(e => ({ 
-            type: e.visionAnalysis?.bayTypeVisible || "unclear", 
-            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
-            evidenceId: e.evidenceId 
+        bayMarkings: mergedVision.bayTypeVisible && mergedVision.bayTypeVisible !== "unclear" ? successfulResults
+          .filter(r => r.bayTypeVisible && r.bayTypeVisible !== "unclear")
+          .map((r, idx) => ({ 
+            type: r.bayTypeVisible || "unclear", 
+            confidence: deriveConfidence(r.visibilityQuality), 
+            evidenceId: visionToEvidence.get(idx) || 0 
           })) : [],
       } : null;
       
