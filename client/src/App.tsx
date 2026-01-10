@@ -13,7 +13,6 @@ import { Loader2 } from "lucide-react";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import EvidencePage from "@/pages/evidence";
-import AnalysisPage from "@/pages/analysis";
 import UsersPage from "@/pages/users";
 import AdminSitesPage from "@/pages/admin-sites";
 import SignageInspectionPage from "@/pages/signage-inspection";
@@ -29,7 +28,6 @@ function ProtectedRoutes() {
     <Switch location={location}>
       <Route path="/" component={DashboardPage} />
       <Route path="/evidence" component={EvidencePage} />
-      <Route path="/analysis" component={AnalysisPage} />
       <Route path="/admin/users" component={UsersPage} />
       <Route path="/admin/sites" component={AdminSitesPage} />
       <Route path="/signage/:siteId" component={SignageInspectionPage} />

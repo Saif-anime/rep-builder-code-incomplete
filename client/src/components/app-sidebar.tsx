@@ -2,7 +2,6 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
   FileImage,
-  Brain,
   Users,
   Settings,
   LogOut,
@@ -35,19 +34,14 @@ const mainNavItems = [
     icon: LayoutDashboard,
   },
   {
-    title: "Flagged Sessions",
-    url: "/flagged-sessions",
-    icon: Flag,
-  },
-  {
     title: "Evidence",
     url: "/evidence",
     icon: FileImage,
   },
   {
-    title: "Analysis",
-    url: "/analysis",
-    icon: Brain,
+    title: "Flagged Sessions",
+    url: "/flagged-sessions",
+    icon: Flag,
   },
   {
     title: "AI Reports",

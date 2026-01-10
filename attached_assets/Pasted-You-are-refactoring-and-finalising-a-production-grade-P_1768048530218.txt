@@ -1,0 +1,217 @@
+You are refactoring and finalising a production-grade
+Parking Enforcement System for Euro Parking Services.
+
+GOAL:
+Remove the standalone “Analysis” module entirely.
+All analysis must live inside the Evidence section.
+PCNs must ONLY be generated from a complete, explainable analysis report.
+
+This system must be legally defensible, auditable, and simple for operators.
+
+====================================================
+1. SIDEBAR & ROUTING CLEANUP (CRITICAL)
+====================================================
+
+Remove from UI:
+- Sidebar item: “Analysis”
+- Any routes, pages, or components under /analysis
+- Any menu references, permissions, or feature flags related to Analysis
+
+Evidence becomes the SINGLE source of:
+- Evidence review
+- AI analysis
+- Decision logic
+- PCN generation
+
+After refactor, sidebar MUST be:
+- Dashboard
+- Evidence
+- Flagged Sessions (if present)
+- AI Reports (optional summary only)
+- User Management
+- Parking Sites
+- Settings
+- Logout
+
+====================================================
+2. CODE & DEPENDENCY CLEANUP
+====================================================
+
+Remove ALL unused analysis dependencies that are no longer required
+outside Evidence:
+
+- Remove unused services, hooks, reducers, jobs tied only to /analysis
+- Remove background jobs that compute analysis independently of evidence
+- Remove duplicated AI pipelines
+
+Ensure:
+- One analysis pipeline
+- Triggered ONLY from Evidence
+- Stored per CASE
+
+====================================================
+3. EVIDENCE-CENTRIC CASE MODEL (MANDATORY)
+====================================================
+
+Refactor Evidence to be CASE-FIRST, not FILE-FIRST.
+
+Rules:
+- Multiple uploads for same case_id are grouped automatically
+- Manual + camera evidence can coexist in same case
+- Evidence UI shows BUNDLES, not isolated files
+
+Data model:
+- case_id
+- site_id
+- camera_id (optional)
+- evidence_files[]
+- timestamps[]
+- status: NEW | ANALYSED | REVIEW_REQUIRED | PCN_READY
+
+====================================================
+4. UNIFIED ANALYSIS PIPELINE (INSIDE EVIDENCE ONLY)
+====================================================
+
+When user clicks “Analyse Case”:
+
+Run ONE pipeline that includes:
+
+A. Evidence Normalisation
+- Merge all files
+- Extract timestamps (EXIF, overlay OCR, filename)
+- Build timeline window
+
+B. Vision Analysis
+- YOLOv8:
+  - Vehicle detection
+  - Bay usage
+  - Disabled / EV / Parent-child bay inference (if visible)
+- Vision GPT:
+  - Context reasoning
+  - Ambiguity explanation
+  - Human-readable summaries
+
+C. ANPR + DVLA
+- Best-confidence VRM
+- DVLA lookup
+- Vehicle attributes stored as evidence
+
+D. Parking Site Regulations
+- Max stay
+- Enforcement hours
+- Bay restrictions
+- Grace periods
+- Site-specific overrides
+
+E. Signage Compliance (PDF-derived)
+- Entrance signage presence
+- Terms visibility
+- Legibility confidence
+- Distance & placement assumptions
+- Missing/weak signage flags
+
+F. Context Enrichment (already integrated)
+- Weather
+- Events
+- Anomalies
+- Site policy overrides
+
+====================================================
+5. ANALYSIS REPORT (DISPLAYED IN EVIDENCE VIEW)
+====================================================
+
+REMOVE any separate “analysis page”.
+
+Inside Evidence → Case Drawer show:
+
+SECTION 1: Case Summary
+- Site
+- VRM
+- Vehicle type
+- Duration vs allowed
+- Decision badge
+
+SECTION 2: What Was Analysed
+- Evidence count
+- Cameras/manual sources
+- Time range
+- AI models used
+
+SECTION 3: How It Was Measured
+- Entry/exit detection method
+- Duration formula
+- Confidence per signal
+- OCR + vision confidence
+
+SECTION 4: Regulations Applied
+- Rule-by-rule evaluation
+- Breached rules highlighted
+- Numeric comparisons
+
+SECTION 5: Signage Assessment
+- Entrance signage: PASS/FAIL
+- Terms visibility: PASS/FAIL
+- Overall signage confidence %
+
+SECTION 6: Risk & Confidence
+- Overall confidence %
+- Legal risk level
+- Recommendation
+
+SECTION 7: Full Audit Log
+- Every signal source
+- Model versions
+- External APIs used
+- Timestamps
+
+All sections are READ-ONLY unless reviewer role.
+
+====================================================
+6. PCN GENERATION (STRICT & SAFE)
+====================================================
+
+PCN button appears ONLY if:
+
+- Analysis complete
+- Decision === PCN_ELIGIBLE
+- Signage compliance === PASS
+- Confidence >= threshold
+- No HOLD_PCN flags active
+
+PCN must reference:
+- Regulation breached
+- Evidence files
+- Signage confirmation
+- Duration calculation
+- Plain-English justification
+
+Store:
+- analysis_snapshot.json
+- evidence references
+- generated_by
+- generated_at
+
+====================================================
+7. UI / UX REQUIREMENTS
+====================================================
+
+- Evidence list shows cases grouped visually
+- Clear “Analyse Case” and “Generate PCN” actions
+- Weak evidence highlighted in amber/red
+- Tooltips explaining WHY decisions were made
+- Mobile, tablet, desktop responsive
+
+====================================================
+8. ACCEPTANCE CHECKS
+====================================================
+
+✔ No Analysis menu exists  
+✔ No background analysis outside Evidence  
+✔ One case = one analysis = one decision  
+✔ Analysis fully explainable  
+✔ PCN impossible without analysis  
+✔ All AI is advisory, not blind decision-making  
+
+Refactor incrementally.
+Do not break existing evidence uploads.
+Preserve historical data.
