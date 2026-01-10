@@ -480,24 +480,24 @@ export function EvidenceAnalysisReport({
                     {vision?.plateConfidence && (
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
                         <span className="text-sm shrink-0">Plate OCR</span>
-                        <ConfidenceMeter value={vision.plateConfidence * 100} className="w-full sm:w-32" />
+                        <ConfidenceMeter value={vision.plateConfidence} className="w-full sm:w-32" />
                       </div>
                     )}
                     {vision?.vehicleConfidence && (
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
                         <span className="text-sm shrink-0">Vehicle Detection</span>
-                        <ConfidenceMeter value={vision.vehicleConfidence * 100} className="w-full sm:w-32" />
+                        <ConfidenceMeter value={vision.vehicleConfidence} className="w-full sm:w-32" />
                       </div>
                     )}
                     {vision?.bayConfidence && (
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
                         <span className="text-sm shrink-0">Bay Analysis</span>
-                        <ConfidenceMeter value={vision.bayConfidence * 100} className="w-full sm:w-32" />
+                        <ConfidenceMeter value={vision.bayConfidence} className="w-full sm:w-32" />
                       </div>
                     )}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 pt-2 border-t">
                       <span className="text-sm font-medium shrink-0">Overall Confidence</span>
-                      <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-full sm:w-32" />
+                      <ConfidenceMeter value={decision?.overallConfidence || analysis?.confidenceScore || 0} className="w-full sm:w-32" />
                     </div>
                   </div>
                 </div>
@@ -664,7 +664,7 @@ export function EvidenceAnalysisReport({
                 {(signage?.overallConfidence || signage?.confidenceScore) && (
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Signage Confidence</span>
-                    <ConfidenceMeter value={(signage.overallConfidence || signage.confidenceScore) * 100} className="w-32" />
+                    <ConfidenceMeter value={signage.overallConfidence || signage.confidenceScore || 0} className="w-32" />
                   </div>
                 )}
                 {signage?.issues?.length > 0 && (
@@ -849,7 +849,7 @@ export function EvidenceAnalysisReport({
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Overall Confidence</span>
                   <div className="flex items-center gap-3">
-                    <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-40" />
+                    <ConfidenceMeter value={decision?.overallConfidence || analysis?.confidenceScore || 0} className="w-40" />
                     <span className="text-sm font-mono">
                       {Math.round((decision?.overallConfidence || analysis?.confidenceScore || 0) * 100)}%
                     </span>
