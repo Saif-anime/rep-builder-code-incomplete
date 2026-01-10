@@ -9,7 +9,6 @@ import {
   Shield,
   MapPin,
   Flag,
-  FolderOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -38,11 +37,6 @@ const mainNavItems = [
     title: "Flagged Sessions",
     url: "/flagged-sessions",
     icon: Flag,
-  },
-  {
-    title: "Cases",
-    url: "/cases",
-    icon: FolderOpen,
   },
   {
     title: "Evidence",

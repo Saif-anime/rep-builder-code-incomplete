@@ -22,6 +22,7 @@ import {
 } from "./ai-analysis";
 import { checkSingleCamera } from "./camera-health";
 import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
+import { lookupVehicle } from "./dvlaService";
 import { runEnrichment } from "./contextEnrichment";
 import { getDriverProfileWithFreshCalculation, recomputeDriverProfiles } from "./driverProfiling";
 import { processPdf, parsePdfToSignageData } from "./pdfProcessor";
@@ -663,6 +664,444 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Retry analysis error:", error);
       res.status(500).json({ error: "Failed to retry analysis" });
+    }
+  });
+
+  // ==================== EVIDENCE BUNDLES (Primary UI Interface) ====================
+  app.get("/api/evidence/bundles", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      // Get all cases with their analysis and evidence
+      const cases = await storage.getCases({ limit: 100 });
+      const bundles = [];
+      
+      for (const caseData of cases) {
+        // Get case evidence
+        const evidenceItems = await storage.getCaseEvidence(caseData.id);
+        const caseAnalysis = await storage.getCaseAnalysis(caseData.id);
+        const vehicles = await storage.getCaseVehiclesByCase(caseData.id);
+        const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+        
+        // Determine status based on analysis
+        let status: "pending" | "analysing" | "completed" = "pending";
+        if (caseData.status === "analysing") status = "analysing";
+        else if (caseAnalysis || caseData.status === "complete" || caseData.status === "reviewed") status = "completed";
+        
+        // Determine upload source
+        const hasCamera = evidenceItems.some((e: any) => e.evidence?.type === "camera" || e.evidence?.cameraId);
+        const uploadSource = hasCamera ? "camera" : "manual";
+        
+        // Get earliest and latest timestamps from evidence
+        const timestamps = evidenceItems
+          .filter((e: any) => e.evidence?.timestamp)
+          .map((e: any) => new Date(e.evidence.timestamp).getTime());
+        const timeWindow = timestamps.length > 0 ? {
+          start: new Date(Math.min(...timestamps)).toISOString(),
+          end: new Date(Math.max(...timestamps)).toISOString(),
+        } : null;
+        
+        bundles.push({
+          id: caseData.id,
+          caseReference: caseData.id,
+          siteName: site?.siteName || "Unknown Site",
+          siteId: caseData.siteId,
+          uploadSource,
+          evidenceCount: evidenceItems.length,
+          status,
+          timeWindow,
+          createdAt: caseData.createdAt,
+          vrm: caseData.vrm || vehicles[0]?.registrationNumber || null,
+          evidenceFiles: evidenceItems.map((e: any) => e.evidence).filter(Boolean),
+          analysis: caseAnalysis,
+          vehicles,
+        });
+      }
+      
+      res.json(bundles);
+    } catch (error) {
+      console.error("Failed to fetch evidence bundles:", error);
+      res.status(500).json({ error: "Failed to fetch evidence bundles" });
+    }
+  });
+
+  // Upload evidence and automatically create/reuse case bundle
+  app.post("/api/evidence/bundles/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
+    upload.array("files", 20)(req, res, (err: any) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ error: "File too large. Maximum size is 50MB." });
+        }
+        if (err.message === "Only images and videos are allowed") {
+          return res.status(415).json({ error: "Unsupported file type. Only images and videos allowed." });
+        }
+        return res.status(400).json({ error: err.message || "File upload error" });
+      }
+      next();
+    });
+  }, async (req: AuthRequest, res: Response) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+      }
+      
+      const { siteId, cameraId } = req.body;
+      const parsedSiteId = siteId && siteId !== "none" ? parseInt(siteId) : null;
+      const parsedCameraId = cameraId && cameraId !== "none" ? parseInt(cameraId) : null;
+      
+      // Create a new case for this bundle
+      const newCase = await storage.createCase({
+        siteId: parsedSiteId,
+        createdBy: req.user!.id,
+        status: "pending",
+      });
+      
+      const evidenceIds: number[] = [];
+      
+      // Process all files and link them to the case
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const hash = calculateFileHash(file.path);
+        const isImage = file.mimetype.startsWith("image/");
+        
+        // Create evidence record
+        const ev = await storage.createEvidence({
+          type: parsedCameraId ? "camera" : "manual",
+          uploadedBy: req.user!.id,
+          siteId: parsedSiteId,
+          cameraId: parsedCameraId,
+          imagePath: isImage ? `/uploads/${file.filename}` : null,
+          videoPath: !isImage ? `/uploads/${file.filename}` : null,
+          thumbnailPath: isImage ? `/uploads/${file.filename}` : null,
+          timestamp: new Date(Date.now() + (i * 1000)),
+          sha256Hash: hash,
+          notes: `Bundle ${newCase.id} - File ${i + 1} of ${files.length}`,
+          status: "pending",
+          metadata: {
+            format: file.mimetype,
+            fileSize: file.size,
+          },
+        });
+        
+        evidenceIds.push(ev.id);
+        
+        // Link evidence to case
+        await storage.addEvidenceToCase({
+          caseId: newCase.id,
+          evidenceId: ev.id,
+          source: parsedCameraId ? "camera" : "manual",
+        });
+        
+        // Evidence with status "pending" will be picked up by the worker automatically
+      }
+      
+      // Update case evidence count
+      await storage.updateCaseEvidenceCount(newCase.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "evidence_bundle",
+        entityId: newCase.id,
+        details: { siteId: parsedSiteId, cameraId: parsedCameraId, filesUploaded: files.length },
+      });
+      
+      res.status(201).json({
+        success: true,
+        bundleId: newCase.id,
+        evidenceIds,
+        message: `Successfully created bundle with ${files.length} file(s)`,
+      });
+    } catch (error: any) {
+      console.error("[Bundle Upload] Error:", error.message);
+      res.status(500).json({ error: "Failed to upload evidence bundle" });
+    }
+  });
+
+  // Analyze entire bundle
+  app.post("/api/evidence/bundles/:id/analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const caseData = await storage.getCaseById(caseId);
+      if (!caseData) {
+        return res.status(404).json({ error: "Bundle not found" });
+      }
+      
+      await storage.updateCaseStatus(caseId, "analysing");
+      
+      const evidenceItems = await storage.getCaseEvidence(caseId);
+      if (evidenceItems.length === 0) {
+        await storage.updateCaseStatus(caseId, "pending");
+        return res.status(400).json({ error: "No evidence in bundle to analyze" });
+      }
+      
+      const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+      
+      // Run Vision GPT on all images
+      const imageEvidence = evidenceItems.filter((e: any) => e.evidence?.imagePath);
+      const visionInputs = imageEvidence.map((e: any) => ({
+        imagePath: e.evidence.imagePath,
+        siteName: site?.siteName,
+        caseId: caseData.id,
+        timestamp: e.evidence.timestamp?.toISOString(),
+      }));
+      
+      const visionResults = await analyzeMultipleImages(visionInputs);
+      const successfulResults = visionResults
+        .filter(r => r.success && r.result)
+        .map(r => r.result!);
+      
+      const mergedVision = mergeVisionResults(successfulResults);
+      
+      // Extract detected plates and run DVLA lookups
+      const detectedPlates = successfulResults
+        .filter(r => r.numberPlateDetected)
+        .map(r => r.numberPlateDetected!.toUpperCase().replace(/\s+/g, ""));
+      
+      const uniquePlates = Array.from(new Set(detectedPlates));
+      const vehicleDetails: any[] = [];
+      
+      for (const plate of uniquePlates) {
+        if (/^[A-Z]{2}[0-9]{2}\s?[A-Z]{3}$/.test(plate) || /^[A-Z][0-9]{1,3}\s?[A-Z]{3}$/.test(plate) || /^[A-Z]{3}\s?[0-9]{1,3}[A-Z]$/.test(plate)) {
+          try {
+            const dvlaResult = await lookupVehicle(plate, caseId);
+            if (dvlaResult.success && dvlaResult.data) {
+              vehicleDetails.push({
+                registration: plate,
+                ...dvlaResult.data,
+              });
+              
+              // Save to case vehicles - derive confidence from vision quality
+              const existing = await storage.getCaseVehicleByPlate(caseId, plate);
+              if (!existing) {
+                // Get confidence from vision analysis that detected this plate
+                const plateDetection = imageEvidence.find(e => 
+                  e.visionAnalysis?.numberPlateDetected?.replace(/\s/g, '') === plate
+                );
+                const plateConfidence = plateDetection?.visionAnalysis?.visibilityQuality === "clear" ? 0.95 : 
+                  plateDetection?.visionAnalysis?.visibilityQuality === "partial" ? 0.8 : 0.7;
+                
+                await storage.createCaseVehicle({
+                  caseId,
+                  registrationNumber: plate,
+                  confidenceScore: plateConfidence,
+                  make: dvlaResult.data.make,
+                  colour: dvlaResult.data.colour,
+                  fuelType: dvlaResult.data.fuelType,
+                  taxStatus: dvlaResult.data.taxStatus,
+                  motStatus: dvlaResult.data.motStatus,
+                  yearOfManufacture: dvlaResult.data.yearOfManufacture,
+                  detectionMethod: "vision_gpt",
+                  dvlaVerified: true,
+                  sourceEvidenceIds: plateDetection ? [plateDetection.evidenceId] : [],
+                });
+              }
+            }
+          } catch (dvlaError) {
+            console.error("DVLA lookup failed for", plate, dvlaError);
+          }
+        }
+      }
+      
+      // Determine violation
+      let violation = null;
+      let confidenceScore = 0.5;
+      let recommendation = "Review required";
+      let riskAssessment = "Medium";
+      
+      if (mergedVision) {
+        if (mergedVision.bayTypeVisible === "disabled" && !mergedVision.disabledBadgeVisible) {
+          violation = { type: "DISABLED BAY", detected: true, confidence: 0.8, explanation: "Vehicle in disabled bay without visible blue badge" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.8;
+        } else if (mergedVision.bayTypeVisible === "ev" && !mergedVision.evIndicators) {
+          violation = { type: "EV BAY", detected: true, confidence: 0.75, explanation: "Non-EV vehicle in EV charging bay" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.75;
+        } else if (mergedVision.bayTypeVisible === "parent-child") {
+          violation = { type: "PARENT & CHILD", detected: true, confidence: 0.6, explanation: "Vehicle in parent & child bay - verify eligibility" };
+          recommendation = "Review required";
+          riskAssessment = "Medium";
+          confidenceScore = 0.6;
+        }
+      }
+      
+      // Create analysis record - transform vision results into schema-compliant format
+      // Derive confidence from visibility quality
+      const deriveConfidence = (quality?: string) => quality === "clear" ? 0.9 : quality === "partial" ? 0.7 : 0.5;
+      const visionConfidence = deriveConfidence(mergedVision?.visibilityQuality);
+      
+      // Build merged detections from all analyzed images
+      const mergedDetections = mergedVision && imageEvidence.length > 0 ? {
+        vehicles: mergedVision.vehicleDetected ? imageEvidence
+          .filter(e => e.visionAnalysis?.vehicleDetected)
+          .map(e => ({ 
+            type: e.visionAnalysis?.vehicleType || "unknown", 
+            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
+            evidenceId: e.evidenceId 
+          })) : [],
+        persons: mergedVision.humansDetected?.adult || mergedVision.humansDetected?.child ? imageEvidence
+          .filter(e => e.visionAnalysis?.humansDetected?.adult || e.visionAnalysis?.humansDetected?.child)
+          .map(e => ({ 
+            type: e.visionAnalysis?.humansDetected?.child ? "child" : "adult", 
+            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
+            evidenceId: e.evidenceId 
+          })) : [],
+        bayMarkings: mergedVision.bayTypeVisible && mergedVision.bayTypeVisible !== "unclear" ? imageEvidence
+          .filter(e => e.visionAnalysis?.bayTypeVisible && e.visionAnalysis.bayTypeVisible !== "unclear")
+          .map(e => ({ 
+            type: e.visionAnalysis?.bayTypeVisible || "unclear", 
+            confidence: deriveConfidence(e.visionAnalysis?.visibilityQuality), 
+            evidenceId: e.evidenceId 
+          })) : [],
+      } : null;
+      
+      const analysis = await storage.createCaseAnalysis({
+        caseId,
+        recommendation,
+        confidenceScore,
+        riskAssessment,
+        violations: violation ? [violation] : [],
+        mergedDetections,
+        timelineSummary: evidenceItems.map((e: any) => `Evidence ${e.evidenceId} at ${e.evidence?.timestamp}`).join("; "),
+        vehicleDetails: vehicleDetails.length > 0 ? {
+          detected: true,
+          type: vehicleDetails[0]?.fuelType || "unknown",
+          plate: vehicleDetails[0]?.registration || null,
+          evIndicators: vehicleDetails[0]?.fuelType === "ELECTRICITY",
+        } : null,
+        modelVersions: {
+          visionGPT: "gpt-4o",
+        },
+      });
+      
+      await storage.updateCaseStatus(caseId, "complete");
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "analyze",
+        entityType: "evidence_bundle",
+        entityId: caseId,
+        details: { evidenceCount: evidenceItems.length, platesFound: uniquePlates.length, violation: violation?.type },
+      });
+      
+      res.json({
+        success: true,
+        analysis,
+        platesDetected: uniquePlates,
+        vehicleDetails,
+      });
+    } catch (error: any) {
+      console.error("[Bundle Analysis] Error:", error.message);
+      res.status(500).json({ error: "Failed to analyze bundle" });
+    }
+  });
+
+  // Get single bundle details
+  app.get("/api/evidence/bundles/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const caseData = await storage.getCaseById(caseId);
+      if (!caseData) {
+        return res.status(404).json({ error: "Bundle not found" });
+      }
+      
+      const evidenceItems = await storage.getCaseEvidence(caseId);
+      const caseAnalysis = await storage.getCaseAnalysis(caseId);
+      const vehicles = await storage.getCaseVehiclesByCase(caseId);
+      const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+      
+      let status: "pending" | "analysing" | "completed" = "pending";
+      if (caseData.status === "analysing") status = "analysing";
+      else if (caseAnalysis || caseData.status === "complete" || caseData.status === "reviewed") status = "completed";
+      
+      const hasCamera = evidenceItems.some((e: any) => e.evidence?.type === "camera" || e.evidence?.cameraId);
+      
+      res.json({
+        id: caseData.id,
+        caseReference: caseData.id,
+        siteName: site?.siteName || "Unknown Site",
+        siteId: caseData.siteId,
+        uploadSource: hasCamera ? "camera" : "manual",
+        evidenceCount: evidenceItems.length,
+        status,
+        createdAt: caseData.createdAt,
+        vrm: caseData.vrm || vehicles[0]?.registrationNumber || null,
+        evidenceFiles: evidenceItems.map((e: any) => e.evidence).filter(Boolean),
+        analysis: caseAnalysis,
+        vehicles,
+      });
+    } catch (error) {
+      console.error("Failed to fetch bundle:", error);
+      res.status(500).json({ error: "Failed to fetch bundle" });
+    }
+  });
+
+  // DVLA lookup for bundle
+  app.post("/api/evidence/bundles/:id/vehicles/lookup", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const { registrationNumber } = req.body;
+      
+      if (!registrationNumber) {
+        return res.status(400).json({ error: "Registration number required" });
+      }
+      
+      const normalizedPlate = registrationNumber.toUpperCase().replace(/\s+/g, "");
+      
+      const caseData = await storage.getCaseById(caseId);
+      if (!caseData) {
+        return res.status(404).json({ error: "Bundle not found" });
+      }
+      
+      const dvlaResult = await lookupVehicle(normalizedPlate, caseId);
+      
+      if (dvlaResult.success && dvlaResult.data) {
+        const existing = await storage.getCaseVehicleByPlate(caseId, normalizedPlate);
+        if (existing) {
+          await storage.updateCaseVehicle(existing.id, {
+            make: dvlaResult.data.make,
+            colour: dvlaResult.data.colour,
+            fuelType: dvlaResult.data.fuelType,
+            taxStatus: dvlaResult.data.taxStatus,
+            motStatus: dvlaResult.data.motStatus,
+            yearOfManufacture: dvlaResult.data.yearOfManufacture,
+            dvlaVerified: true,
+          });
+          await storage.updateCaseVehicleVerified(existing.id);
+        } else {
+          await storage.createCaseVehicle({
+            caseId,
+            registrationNumber: normalizedPlate,
+            confidenceScore: 1.0,
+            make: dvlaResult.data.make,
+            colour: dvlaResult.data.colour,
+            fuelType: dvlaResult.data.fuelType,
+            taxStatus: dvlaResult.data.taxStatus,
+            motStatus: dvlaResult.data.motStatus,
+            yearOfManufacture: dvlaResult.data.yearOfManufacture,
+            detectionMethod: "manual",
+            dvlaVerified: true,
+          });
+        }
+        
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "lookup",
+          entityType: "dvla_vehicle",
+          entityId: normalizedPlate,
+          details: { caseId, source: "manual" },
+        });
+        
+        res.json({ success: true, vehicle: dvlaResult.data });
+      } else {
+        res.json({ success: false, error: dvlaResult.error || "Vehicle not found" });
+      }
+    } catch (error: any) {
+      console.error("DVLA lookup error:", error.message);
+      res.status(500).json({ error: "Failed to lookup vehicle" });
     }
   });
 
@@ -3155,10 +3594,7 @@ export async function registerRoutes(
             storage
           );
           
-          // Update case VRM if vehicle successfully verified
-          if (vehicleLookupResult.success && normalizedPlate) {
-            await storage.updateCase(bundle.caseId, { vrm: normalizedPlate });
-          }
+          // Vehicle VRM is stored in case_vehicles table via lookupAndStorePlate
           
           console.log(`[Bundle Analysis] DVLA lookup for ${normalizedPlate}: ${vehicleLookupResult.success ? 'Success' : vehicleLookupResult.error}`);
         } catch (dvlaError: any) {
@@ -3235,9 +3671,7 @@ export async function registerRoutes(
         storage
       );
 
-      if (result.success) {
-        await storage.updateCase(req.params.id, { vrm: normalized });
-      }
+      // Vehicle VRM is stored in case_vehicles table via lookupAndStorePlate
 
       await storage.createAuditLog({
         userId: req.user!.id,

@@ -1,40 +1,73 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { EvidenceCard } from "@/components/evidence-card";
-import { Upload, FileImage, Camera, Filter, Loader2, RefreshCw, MapPin } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { 
+  Upload, 
+  FileImage, 
+  Camera, 
+  Filter, 
+  Loader2, 
+  RefreshCw, 
+  MapPin, 
+  Brain, 
+  Car, 
+  ChevronRight, 
+  ChevronDown,
+  Clock,
+  FileVideo,
+  CheckCircle2,
+  AlertTriangle,
+  Eye
+} from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Evidence, Bay, ParkingSite, Camera as CameraType } from "@shared/schema";
+import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle } from "@shared/schema";
 
 type SourceFilter = "all" | "camera" | "manual";
+type StatusFilter = "all" | "pending" | "analysing" | "completed";
+
+interface EvidenceBundle {
+  id: string;
+  caseReference: string;
+  siteName: string;
+  siteId: number | null;
+  uploadSource: "camera" | "manual";
+  evidenceCount: number;
+  status: "pending" | "analysing" | "completed";
+  timeWindow: { start: string; end: string } | null;
+  createdAt: string;
+  vrm: string | null;
+  evidenceFiles: Evidence[];
+  analysis: CaseAnalysis | null;
+  vehicles: CaseVehicle[];
+}
 
 export default function EvidencePage() {
   const { toast } = useToast();
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [selectedEvidence, setSelectedEvidence] = useState<Evidence | null>(null);
+  const [selectedBundle, setSelectedBundle] = useState<EvidenceBundle | null>(null);
+  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
-  const [notes, setNotes] = useState("");
-  const [selectedBayId, setSelectedBayId] = useState<string>("");
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+  const [manualVrmLookup, setManualVrmLookup] = useState("");
 
-  const { data: evidenceList = [], isLoading, refetch } = useQuery<Evidence[]>({
-    queryKey: ["/api/evidence"],
+  const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
+    queryKey: ["/api/evidence/bundles"],
     refetchInterval: 10000,
-  });
-
-  const { data: bays = [] } = useQuery<Bay[]>({
-    queryKey: ["/api/bays"],
   });
 
   const { data: parkingSites = [] } = useQuery<ParkingSite[]>({
@@ -45,10 +78,9 @@ export default function EvidencePage() {
     queryKey: ["/api/cameras"],
   });
 
-
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const response = await fetch("/api/evidence/upload", {
+      const response = await fetch("/api/evidence/bundles/upload", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
@@ -61,18 +93,47 @@ export default function EvidencePage() {
       }
       return response.json();
     },
-    onSuccess: () => {
-      toast({ title: "Evidence uploaded successfully" });
+    onSuccess: (result) => {
+      toast({ title: "Evidence uploaded", description: `Created bundle with ${result.evidenceIds?.length || 0} file(s)` });
       setUploadDialogOpen(false);
       setUploadFiles([]);
-      setNotes("");
-      setSelectedBayId("");
       setSelectedSiteId("");
       setSelectedCameraId("");
-      queryClient.invalidateQueries({ queryKey: ["/api/evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
     },
     onError: (error: Error) => {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: async (bundleId: string) => {
+      return apiRequest("POST", `/api/evidence/bundles/${bundleId}/analyze`);
+    },
+    onSuccess: () => {
+      toast({ title: "Analysis complete", description: "Bundle has been analyzed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Analysis failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const dvlaLookupMutation = useMutation({
+    mutationFn: async ({ bundleId, registrationNumber }: { bundleId: string; registrationNumber: string }) => {
+      return apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
+    },
+    onSuccess: (result: any) => {
+      if (result.success) {
+        toast({ title: "Vehicle verified", description: `${result.vehicle?.make} ${result.vehicle?.colour}` });
+        queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      } else {
+        toast({ title: "Lookup failed", description: result.error, variant: "destructive" });
+      }
+      setManualVrmLookup("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -84,29 +145,55 @@ export default function EvidencePage() {
 
     const formData = new FormData();
     uploadFiles.forEach((file) => formData.append("files", file));
-    if (notes) formData.append("notes", notes);
-    if (selectedBayId && selectedBayId !== "none") formData.append("bayId", selectedBayId);
     if (selectedSiteId && selectedSiteId !== "none") formData.append("siteId", selectedSiteId);
     if (selectedCameraId && selectedCameraId !== "none") formData.append("cameraId", selectedCameraId);
 
     uploadMutation.mutate(formData);
   };
 
+  const toggleBundle = (bundleId: string) => {
+    setExpandedBundles(prev => {
+      const next = new Set(prev);
+      if (next.has(bundleId)) {
+        next.delete(bundleId);
+      } else {
+        next.add(bundleId);
+      }
+      return next;
+    });
+  };
 
-  const filteredEvidence = evidenceList.filter((ev) => {
-    if (sourceFilter === "all") return true;
-    return ev.type === sourceFilter;
+  const filteredBundles = bundles.filter((bundle) => {
+    if (sourceFilter !== "all" && bundle.uploadSource !== sourceFilter) return false;
+    if (statusFilter !== "all" && bundle.status !== statusFilter) return false;
+    return true;
   });
 
-  const cameraCount = evidenceList.filter((e) => e.type === "camera").length;
-  const manualCount = evidenceList.filter((e) => e.type === "manual").length;
+  const pendingCount = bundles.filter((b) => b.status === "pending").length;
+  const analysingCount = bundles.filter((b) => b.status === "analysing").length;
+  const completedCount = bundles.filter((b) => b.status === "completed").length;
+  const cameraCount = bundles.filter((b) => b.uploadSource === "camera").length;
+  const manualCount = bundles.filter((b) => b.uploadSource === "manual").length;
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      case "analysing":
+        return <Badge variant="default"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Analysing</Badge>;
+      case "completed":
+        return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400"><CheckCircle2 className="h-3 w-3 mr-1" />Completed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Evidence</h1>
-          <p className="text-muted-foreground">View and manage all evidence from cameras and manual uploads</p>
+          <p className="text-muted-foreground">View and analyze evidence bundles from cameras and manual uploads</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => refetch()} data-testid="button-refresh-evidence">
@@ -122,6 +209,9 @@ export default function EvidencePage() {
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>Upload Evidence</DialogTitle>
+                <DialogDescription>
+                  Select multiple files to create an evidence bundle for analysis
+                </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-4 py-4">
                 <div className="flex flex-col gap-2">
@@ -130,7 +220,7 @@ export default function EvidencePage() {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept=".jpg,.jpeg,.png,.mp4,.avi"
+                    accept=".jpg,.jpeg,.png,.mp4,.avi,.pdf"
                     onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
                     data-testid="input-upload-files"
                   />
@@ -139,10 +229,10 @@ export default function EvidencePage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Parking Site (Optional)</Label>
+                  <Label>Parking Site</Label>
                   <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
                     <SelectTrigger data-testid="select-site">
-                      <SelectValue placeholder="No site selected" />
+                      <SelectValue placeholder="Select site" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No site selected</SelectItem>
@@ -156,10 +246,7 @@ export default function EvidencePage() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Camera (Optional)</Label>
-                  <Select 
-                    value={selectedCameraId} 
-                    onValueChange={setSelectedCameraId}
-                  >
+                  <Select value={selectedCameraId} onValueChange={setSelectedCameraId}>
                     <SelectTrigger data-testid="select-camera">
                       <SelectValue placeholder="None - Manual upload" />
                     </SelectTrigger>
@@ -167,39 +254,15 @@ export default function EvidencePage() {
                       <SelectItem value="none">None - Manual upload</SelectItem>
                       {allCameras.map((camera) => (
                         <SelectItem key={camera.id} value={camera.id.toString()}>
-                          {camera.name} {parkingSites.find(s => s.id.toString() === String(camera.siteId))?.siteName && `(${parkingSites.find(s => s.id.toString() === String(camera.siteId))?.siteName})`}
+                          {camera.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Parking Bay (Optional)</Label>
-                  <Select value={selectedBayId} onValueChange={setSelectedBayId}>
-                    <SelectTrigger data-testid="select-bay">
-                      <SelectValue placeholder="Select a bay" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bays.map((bay) => (
-                        <SelectItem key={bay.id} value={bay.id.toString()}>
-                          {bay.name} ({bay.type})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Notes</Label>
-                  <Textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add any relevant notes..."
-                    data-testid="input-notes"
-                  />
                 </div>
                 <Button 
                   onClick={handleUpload} 
-                  disabled={uploadMutation.isPending}
+                  disabled={uploadMutation.isPending || uploadFiles.length === 0}
                   data-testid="button-submit-upload"
                 >
                   {uploadMutation.isPending ? (
@@ -208,7 +271,10 @@ export default function EvidencePage() {
                       Uploading...
                     </>
                   ) : (
-                    "Upload"
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Create Bundle
+                    </>
                   )}
                 </Button>
               </div>
@@ -219,14 +285,14 @@ export default function EvidencePage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="flex items-center gap-2">
               <Filter className="h-5 w-5" />
-              Filter Evidence
+              Filter Bundles
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant={sourceFilter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("all")} data-testid="filter-all">
-                All ({evidenceList.length})
+                All ({bundles.length})
               </Badge>
               <Badge variant={sourceFilter === "camera" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("camera")} data-testid="filter-camera">
                 <Camera className="h-3 w-3 mr-1" />
@@ -235,6 +301,15 @@ export default function EvidencePage() {
               <Badge variant={sourceFilter === "manual" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("manual")} data-testid="filter-manual">
                 <FileImage className="h-3 w-3 mr-1" />
                 Manual ({manualCount})
+              </Badge>
+              <Separator orientation="vertical" className="h-6" />
+              <Badge variant={statusFilter === "pending" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === "pending" ? "all" : "pending")} data-testid="filter-pending">
+                <Clock className="h-3 w-3 mr-1" />
+                Pending ({pendingCount})
+              </Badge>
+              <Badge variant={statusFilter === "completed" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")} data-testid="filter-completed">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Completed ({completedCount})
               </Badge>
             </div>
           </div>
@@ -245,105 +320,423 @@ export default function EvidencePage() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : filteredEvidence.length === 0 ? (
+      ) : filteredBundles.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FileImage className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <p className="text-lg font-medium text-muted-foreground">No evidence found</p>
-            <p className="text-sm text-muted-foreground">Upload evidence or configure cameras to capture images</p>
+            <p className="text-lg font-medium text-muted-foreground">No evidence bundles found</p>
+            <p className="text-sm text-muted-foreground">Upload evidence to create a new bundle</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredEvidence.map((ev) => (
-            <EvidenceCard
-              key={ev.id}
-              evidence={ev}
-              onClick={() => setSelectedEvidence(ev)}
-            />
+        <div className="flex flex-col gap-4">
+          {filteredBundles.map((bundle) => (
+            <Card key={bundle.id} className="hover-elevate cursor-pointer" data-testid={`bundle-card-${bundle.id}`}>
+              <Collapsible open={expandedBundles.has(bundle.id)} onOpenChange={() => toggleBundle(bundle.id)}>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        {expandedBundles.has(bundle.id) ? (
+                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        )}
+                        <div>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
+                            {bundle.siteName}
+                          </CardTitle>
+                          <CardDescription className="flex items-center gap-2 mt-1">
+                            <span className="font-mono text-xs">REF: {bundle.caseReference.substring(0, 8)}</span>
+                            {bundle.vrm && (
+                              <>
+                                <Separator orientation="vertical" className="h-3" />
+                                <span className="font-mono text-xs flex items-center gap-1">
+                                  <Car className="h-3 w-3" />
+                                  {bundle.vrm}
+                                </span>
+                              </>
+                            )}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline">
+                          {bundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
+                          {bundle.evidenceCount} file{bundle.evidenceCount !== 1 ? "s" : ""}
+                        </Badge>
+                        {getStatusBadge(bundle.status)}
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(bundle.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="pt-0">
+                    <Separator className="mb-4" />
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div>
+                        <h4 className="font-medium mb-3 flex items-center gap-2">
+                          <FileImage className="h-4 w-4" />
+                          Evidence Files ({bundle.evidenceFiles.length})
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {bundle.evidenceFiles.slice(0, 6).map((file) => (
+                            <div key={file.id} className="relative aspect-video rounded-md overflow-hidden bg-muted">
+                              {file.imagePath ? (
+                                <img 
+                                  src={file.imagePath} 
+                                  alt={`Evidence ${file.id}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : file.videoPath ? (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <FileVideo className="h-8 w-8 text-muted-foreground" />
+                                </div>
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <FileImage className="h-8 w-8 text-muted-foreground" />
+                                </div>
+                              )}
+                              <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">
+                                #{file.id}
+                              </Badge>
+                            </div>
+                          ))}
+                          {bundle.evidenceFiles.length > 6 && (
+                            <div className="aspect-video rounded-md bg-muted flex items-center justify-center">
+                              <span className="text-sm text-muted-foreground">+{bundle.evidenceFiles.length - 6} more</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              analyzeMutation.mutate(bundle.id);
+                            }}
+                            disabled={analyzeMutation.isPending}
+                            data-testid={`button-analyze-${bundle.id}`}
+                          >
+                            {analyzeMutation.isPending ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Analysing...
+                              </>
+                            ) : (
+                              <>
+                                <Brain className="h-4 w-4 mr-2" />
+                                Analyse Bundle
+                              </>
+                            )}
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedBundle(bundle);
+                            }}
+                            data-testid={`button-view-${bundle.id}`}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="font-medium mb-3 flex items-center gap-2">
+                          <Brain className="h-4 w-4" />
+                          Analysis Report
+                        </h4>
+                        {bundle.analysis ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={bundle.analysis.recommendation === "Issue PCN" ? "destructive" : "secondary"}>
+                                {bundle.analysis.recommendation}
+                              </Badge>
+                              <Badge variant="outline">
+                                {Math.round((bundle.analysis.confidenceScore || 0) * 100)}% Confidence
+                              </Badge>
+                            </div>
+                            
+                            {bundle.analysis.violations && (bundle.analysis.violations as any[]).length > 0 && (
+                              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                                <p className="text-sm font-medium text-destructive flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4" />
+                                  Violation Detected
+                                </p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {((bundle.analysis.violations as any[])[0])?.explanation}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {bundle.vehicles.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium">Vehicle Details</p>
+                                {bundle.vehicles.map((vehicle) => (
+                                  <div key={vehicle.id} className="p-2 rounded-md bg-muted text-sm">
+                                    <div className="flex items-center gap-2">
+                                      <Car className="h-4 w-4" />
+                                      <span className="font-mono font-medium">{vehicle.registrationNumber}</span>
+                                      {vehicle.verifiedAt && <CheckCircle2 className="h-3 w-3 text-green-500" />}
+                                    </div>
+                                    <p className="text-muted-foreground mt-1">
+                                      {vehicle.make} {vehicle.colour} • Tax: {vehicle.taxStatus} • MOT: {vehicle.motStatus}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-md bg-muted/50 text-center">
+                            <Brain className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
+                            <p className="text-sm text-muted-foreground">No analysis yet</p>
+                            <p className="text-xs text-muted-foreground">Click "Analyse Bundle" to generate report</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
           ))}
         </div>
       )}
 
-      <Dialog open={!!selectedEvidence} onOpenChange={() => setSelectedEvidence(null)}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Evidence Details</DialogTitle>
-          </DialogHeader>
-          {selectedEvidence && (
-            <div className="flex flex-col gap-4">
-              {(selectedEvidence.imagePath || selectedEvidence.thumbnailPath) && (
-                <img
-                  src={selectedEvidence.imagePath || selectedEvidence.thumbnailPath || ""}
-                  alt={`Evidence ${selectedEvidence.id}`}
-                  className="w-full rounded-lg max-h-[400px] object-contain bg-muted"
-                />
-              )}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">ID:</span>
-                  <span className="ml-2 font-mono">#{selectedEvidence.id.toString().padStart(6, "0")}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Type:</span>
-                  <Badge variant="outline" className="ml-2">{selectedEvidence.type}</Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Status:</span>
-                  <Badge variant="outline" className="ml-2">{selectedEvidence.status}</Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Timestamp:</span>
-                  <span className="ml-2">{new Date(selectedEvidence.timestamp).toLocaleString()}</span>
-                </div>
-                {selectedEvidence.siteId && (
-                  <div>
-                    <span className="text-muted-foreground">Site:</span>
-                    <span className="ml-2">
-                      {parkingSites.find(s => s.id === selectedEvidence.siteId)?.siteName || `Site #${selectedEvidence.siteId}`}
-                    </span>
-                  </div>
+      <Sheet open={!!selectedBundle} onOpenChange={() => setSelectedBundle(null)}>
+        <SheetContent className="sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Bundle Details</SheetTitle>
+            <SheetDescription>
+              {selectedBundle?.siteName} - REF: {selectedBundle?.caseReference.substring(0, 8)}
+            </SheetDescription>
+          </SheetHeader>
+          
+          {selectedBundle && (
+            <div className="mt-6 space-y-6">
+              <div className="flex items-center gap-2 flex-wrap">
+                {getStatusBadge(selectedBundle.status)}
+                <Badge variant="outline">
+                  {selectedBundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
+                  {selectedBundle.evidenceCount} file{selectedBundle.evidenceCount !== 1 ? "s" : ""}
+                </Badge>
+                {selectedBundle.vrm && (
+                  <Badge variant="outline" className="font-mono">
+                    <Car className="h-3 w-3 mr-1" />
+                    {selectedBundle.vrm}
+                  </Badge>
                 )}
-                {selectedEvidence.cameraId && (
-                  <div>
-                    <span className="text-muted-foreground">Camera:</span>
-                    <span className="ml-2">
-                      {allCameras.find(c => c.id === selectedEvidence.cameraId)?.name || `Camera #${selectedEvidence.cameraId}`}
-                    </span>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h4 className="font-medium mb-3">All Evidence Files</h4>
+                <ScrollArea className="h-[200px]">
+                  <div className="grid grid-cols-3 gap-2 pr-4">
+                    {selectedBundle.evidenceFiles.map((file) => (
+                      <div key={file.id} className="relative aspect-video rounded-md overflow-hidden bg-muted">
+                        {file.imagePath ? (
+                          <img 
+                            src={file.imagePath} 
+                            alt={`Evidence ${file.id}`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <FileVideo className="h-8 w-8 text-muted-foreground" />
+                          </div>
+                        )}
+                        <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">
+                          #{file.id}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h4 className="font-medium mb-3">DVLA Vehicle Lookup</h4>
+                <div className="flex gap-2">
+                  <Input 
+                    placeholder="Enter registration (e.g. AB12 CDE)"
+                    value={manualVrmLookup}
+                    onChange={(e) => setManualVrmLookup(e.target.value.toUpperCase())}
+                    className="font-mono"
+                    data-testid="input-vrm-lookup"
+                  />
+                  <Button 
+                    onClick={() => {
+                      if (manualVrmLookup && selectedBundle) {
+                        dvlaLookupMutation.mutate({ 
+                          bundleId: selectedBundle.id, 
+                          registrationNumber: manualVrmLookup 
+                        });
+                      }
+                    }}
+                    disabled={dvlaLookupMutation.isPending || !manualVrmLookup}
+                    data-testid="button-dvla-lookup"
+                  >
+                    {dvlaLookupMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Car className="h-4 w-4 mr-2" />
+                        Lookup
+                      </>
+                    )}
+                  </Button>
+                </div>
+                
+                {selectedBundle.vehicles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {selectedBundle.vehicles.map((vehicle) => (
+                      <Card key={vehicle.id}>
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Car className="h-4 w-4" />
+                              <span className="font-mono font-medium">{vehicle.registrationNumber}</span>
+                              {vehicle.verifiedAt && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Make:</span> {vehicle.make || "Unknown"}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Colour:</span> {vehicle.colour || "Unknown"}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Fuel:</span> {vehicle.fuelType || "Unknown"}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Year:</span> {vehicle.yearOfManufacture || "Unknown"}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Tax:</span>{" "}
+                              <Badge variant={vehicle.taxStatus === "Taxed" ? "outline" : "destructive"} className="text-xs">
+                                {vehicle.taxStatus || "Unknown"}
+                              </Badge>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">MOT:</span>{" "}
+                              <Badge variant={vehicle.motStatus === "Valid" ? "outline" : "destructive"} className="text-xs">
+                                {vehicle.motStatus || "Unknown"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 )}
               </div>
-              {selectedEvidence.notes && (
-                <div>
-                  <span className="text-muted-foreground text-sm">Notes:</span>
-                  <p className="mt-1 text-sm">{selectedEvidence.notes}</p>
+
+              <Separator />
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium">Analysis Report</h4>
+                  <Button 
+                    onClick={() => analyzeMutation.mutate(selectedBundle.id)}
+                    disabled={analyzeMutation.isPending}
+                    data-testid="button-analyze-detail"
+                  >
+                    {analyzeMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Analysing...
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="h-4 w-4 mr-2" />
+                        {selectedBundle.analysis ? "Re-analyse" : "Analyse Bundle"}
+                      </>
+                    )}
+                  </Button>
                 </div>
-              )}
-              {selectedEvidence.aiResult && (
-                <Card>
-                  <CardHeader className="py-3">
-                    <CardTitle className="text-sm">AI Analysis Result</CardTitle>
-                  </CardHeader>
-                  <CardContent className="py-3">
-                    <div className="flex flex-col gap-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={(selectedEvidence.aiResult as any).violationDetected ? "destructive" : "default"}>
-                          {(selectedEvidence.aiResult as any).violationDetected ? "Violation Detected" : "No Violation"}
+                
+                {selectedBundle.analysis ? (
+                  <Card>
+                    <CardContent className="p-4 space-y-4">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant={selectedBundle.analysis.recommendation === "Issue PCN" ? "destructive" : "secondary"}>
+                          {selectedBundle.analysis.recommendation}
                         </Badge>
-                        {(selectedEvidence.aiResult as any).violationType && (
-                          <Badge variant="outline">{(selectedEvidence.aiResult as any).violationType}</Badge>
-                        )}
-                        <Badge variant="secondary">{Math.round((selectedEvidence.aiResult as any).confidence * 100)}% Confidence</Badge>
+                        <Badge variant="outline">
+                          Confidence: {Math.round((selectedBundle.analysis.confidenceScore || 0) * 100)}%
+                        </Badge>
+                        <Badge variant="outline">
+                          Risk: {selectedBundle.analysis.riskAssessment}
+                        </Badge>
                       </div>
-                      <p className="text-muted-foreground">{(selectedEvidence.aiResult as any).explanation}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                      
+                      {selectedBundle.analysis.violations && (selectedBundle.analysis.violations as any[]).length > 0 && (
+                        <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                          <p className="text-sm font-medium text-destructive flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            Violation: {((selectedBundle.analysis.violations as any[])[0])?.type}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {((selectedBundle.analysis.violations as any[])[0])?.explanation}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {selectedBundle.analysis.mergedDetections && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Vision Analysis Details</p>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            {(selectedBundle.analysis.mergedDetections as any).bayMarkings?.length > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">Bay Type:</span>{" "}
+                                {(selectedBundle.analysis.mergedDetections as any).bayMarkings[0]?.type}
+                              </div>
+                            )}
+                            {selectedBundle.analysis.vehicleDetails?.plate && (
+                              <div>
+                                <span className="text-muted-foreground">Plate:</span>{" "}
+                                <span className="font-mono">{selectedBundle.analysis.vehicleDetails.plate}</span>
+                              </div>
+                            )}
+                            {(selectedBundle.analysis.mergedDetections as any).vehicles?.length > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">Vehicle:</span>{" "}
+                                {(selectedBundle.analysis.mergedDetections as any).vehicles[0]?.type}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <Brain className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground">No analysis available</p>
+                      <p className="text-sm text-muted-foreground">Click "Analyse Bundle" to generate a comprehensive report</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

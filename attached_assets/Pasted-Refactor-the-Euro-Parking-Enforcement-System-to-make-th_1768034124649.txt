@@ -1,0 +1,216 @@
+Refactor the Euro Parking Enforcement System to make
+the EVIDENCE section the single source of truth.
+
+REMOVE the "Cases" concept from the UI entirely,
+while keeping case-level logic internally.
+
+====================================================
+PRIMARY OBJECTIVES
+====================================================
+
+1️⃣ CLEAN the Evidence UI
+2️⃣ Bundle multiple manual uploads for the SAME case
+3️⃣ Analyse ALL bundled evidence together
+4️⃣ Generate ONE final analysis report
+5️⃣ Remove "Cases" section from sidebar WITHOUT
+    breaking backend functionality
+
+====================================================
+SIDEBAR CHANGES (MANDATORY)
+====================================================
+
+REMOVE:
+- Cases
+
+KEEP:
+- Dashboard
+- Evidence
+- Analysis
+- Users
+- Settings
+- Logout
+
+❌ No navigation to Cases
+❌ No case list page
+
+====================================================
+INTERNAL LOGIC (IMPORTANT)
+====================================================
+
+Cases MUST still exist internally for:
+- grouping evidence
+- analysis
+- DVLA / AI correlation
+
+But:
+❌ Users NEVER see a "Cases" page
+❌ Users interact ONLY via Evidence
+
+====================================================
+EVIDENCE UI – NEW DESIGN
+====================================================
+
+Evidence page must show:
+
+▶ Evidence Bundles (not files)
+
+Each bundle represents:
+- One logical case
+- One incident
+- One final outcome
+
+----------------------------------------------------
+BUNDLE CARD DISPLAY
+----------------------------------------------------
+
+Each Evidence Bundle card shows:
+- Site name
+- Case reference
+- Upload source: Manual / Camera
+- Evidence count
+- Status:
+    • Pending
+    • Analysing
+    • Completed
+
+Clicking a bundle:
+- Expands to show all evidence files
+- Shows ONE final analysis panel
+
+====================================================
+MANUAL UPLOAD FLOW
+====================================================
+
+1️⃣ User clicks "Upload Evidence"
+2️⃣ User selects MULTIPLE files
+3️⃣ User selects:
+    - Site
+    - Camera (optional)
+4️⃣ System:
+    - Creates OR reuses internal caseId
+    - Stores all files under same caseId
+5️⃣ UI shows ONE bundle card
+
+❌ Do NOT show each file as separate entry
+
+====================================================
+ANALYSIS TRIGGER
+====================================================
+
+Analysis runs:
+- Automatically after upload
+OR
+- Via "Analyse Evidence" button on bundle
+
+ONLY ONE analysis per bundle.
+
+====================================================
+ANALYSIS PIPELINE (STRICT)
+====================================================
+
+Load ALL evidence for the bundle:
+
+IMAGES / VIDEO:
+- YOLOv8:
+    • vehicle
+    • person
+    • bay markings
+- Vision GPT:
+    • signage
+    • badge visibility
+    • bay confirmation
+    • visibility quality
+
+NUMBER PLATE:
+- ANPR / OCR
+- Normalise plate
+- Call DVLA Vehicle Enquiry API
+- Validate vehicle attributes
+
+PDFs:
+- OCR + text extraction
+- Signage / rules validation
+
+----------------------------------------------------
+MERGING LOGIC
+----------------------------------------------------
+
+- Align all evidence by timestamp
+- Merge detections conservatively
+- Remove duplicates
+- Resolve conflicts by confidence
+- Never guess
+
+====================================================
+FINAL ANALYSIS REPORT (ONE ONLY)
+====================================================
+
+Each bundle produces ONE report:
+
+{
+  referenceId,
+  siteName,
+  evidenceCount,
+  timeWindow,
+  vehicleDetails: {
+    registration,
+    make,
+    colour,
+    fuelType,
+    taxStatus,
+    motStatus
+  },
+  bayType,
+  signageCompliance,
+  humanFactors,
+  violationDecision,
+  confidenceScore,
+  supportingEvidenceIds,
+  modelsUsed: {
+    yolo: "v8",
+    visionGPT: "enabled",
+    dvla: "verified"
+  }
+}
+
+====================================================
+ANALYSIS UI RULES
+====================================================
+
+- ONE report per bundle
+- NO per-file analysis cards
+- Clear, readable summary
+- Expandable evidence references
+
+====================================================
+ERROR & EDGE HANDLING
+====================================================
+
+- If one file fails → continue
+- If DVLA fails → mark unavailable
+- If AI uncertain → flag for review
+
+====================================================
+LEGAL & SAFETY RULES
+====================================================
+
+❌ Do not infer driver identity
+❌ Do not infer disability
+❌ Do not guess intent
+
+✅ Conservative conclusions only
+✅ Evidence-backed decisions
+
+====================================================
+FINAL DELIVERABLE
+====================================================
+
+✔ Evidence UI is clean and simple
+✔ Manual uploads grouped automatically
+✔ One analysis per incident
+✔ Cases removed from sidebar
+✔ All AI & DVLA dependencies integrated
+✔ Court-ready final report
+
+Implement fully.
+Do not simplify.
