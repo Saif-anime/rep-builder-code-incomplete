@@ -236,6 +236,16 @@ export interface IStorage {
   createCasePipelineResults(results: InsertCasePipelineResults): Promise<CasePipelineResults>;
   getCasePipelineResults(caseId: string): Promise<CasePipelineResults | undefined>;
   updateCasePipelineResults(caseId: string, update: Partial<CasePipelineResults>): Promise<CasePipelineResults | undefined>;
+  getCompletedAnalysisBySite(siteId: number, options?: { action?: string; limit?: number }): Promise<Array<{
+    caseId: string;
+    caseReference: string;
+    siteName: string;
+    siteId: number;
+    vrm: string | null;
+    evidenceCount: number;
+    analysisTimestamp: Date;
+    pipelineResults: CasePipelineResults;
+  }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1386,6 +1396,56 @@ export class DatabaseStorage implements IStorage {
       .where(eq(casePipelineResults.caseId, caseId))
       .returning();
     return updated || undefined;
+  }
+
+  async getCompletedAnalysisBySite(siteId: number, options?: { action?: string; limit?: number }): Promise<Array<{
+    caseId: string;
+    caseReference: string;
+    siteName: string;
+    siteId: number;
+    vrm: string | null;
+    evidenceCount: number;
+    analysisTimestamp: Date;
+    pipelineResults: CasePipelineResults;
+  }>> {
+    const results = await db.select({
+      caseId: enforcementCases.id,
+      caseReference: enforcementCases.caseReference,
+      siteId: enforcementCases.siteId,
+      vrm: enforcementCases.vrm,
+      evidenceCount: enforcementCases.evidenceCount,
+      siteName: parkingSites.siteName,
+      pipelineResults: casePipelineResults,
+    })
+    .from(casePipelineResults)
+    .innerJoin(enforcementCases, eq(casePipelineResults.caseId, enforcementCases.id))
+    .innerJoin(parkingSites, eq(enforcementCases.siteId, parkingSites.id))
+    .where(and(
+      eq(enforcementCases.siteId, siteId),
+      eq(casePipelineResults.pipelineStatus, "completed")
+    ))
+    .orderBy(desc(casePipelineResults.updatedAt))
+    .limit(options?.limit || 50);
+
+    // Filter by action if specified
+    let filtered = results;
+    if (options?.action && options.action !== "all") {
+      filtered = results.filter(r => {
+        const decision = r.pipelineResults.decisionEngine as any;
+        return decision?.status === options.action;
+      });
+    }
+
+    return filtered.map(r => ({
+      caseId: r.caseId,
+      caseReference: r.caseReference,
+      siteName: r.siteName,
+      siteId: r.siteId,
+      vrm: r.vrm,
+      evidenceCount: r.evidenceCount || 0,
+      analysisTimestamp: r.pipelineResults.updatedAt || r.pipelineResults.createdAt,
+      pipelineResults: r.pipelineResults,
+    }));
   }
 }
 

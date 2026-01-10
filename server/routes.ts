@@ -3763,6 +3763,30 @@ export async function registerRoutes(
     }
   });
 
+  // Get completed analysis reports by site (reads from case_pipeline_results)
+  app.get("/api/analysis-reports", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { siteId, action, limit } = req.query;
+      
+      if (!siteId) {
+        return res.status(400).json({ error: "Site ID is required" });
+      }
+
+      const reports = await storage.getCompletedAnalysisBySite(
+        parseInt(siteId as string),
+        {
+          action: action as string,
+          limit: limit ? parseInt(limit as string) : 50,
+        }
+      );
+
+      res.json(reports);
+    } catch (error: any) {
+      console.error("[API] Error fetching analysis reports:", error);
+      res.status(500).json({ error: "Failed to fetch analysis reports" });
+    }
+  });
+
   // Get all recommendations with filters
   app.get("/api/recommendations", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {

@@ -1,0 +1,147 @@
+====================================================
+GOAL
+====================================================
+
+Update the AI Reports / Recommendations page so that
+analysis reports are rendered STRICTLY from existing,
+current analysis data generated in the Evidence section.
+
+DO NOT generate placeholders.
+DO NOT show empty dashboards when analysis exists.
+
+====================================================
+PART 1 – DATA SOURCE (CRITICAL)
+====================================================
+
+The AI Reports page MUST read data ONLY from:
+
+- evidence_analysis table
+- case_analysis_results
+- enforcement_recommendations
+
+Filtered by:
+- site_id
+- case_id
+- analysis_status = COMPLETED
+
+DO NOT trigger new analysis here.
+This page is READ-ONLY.
+
+====================================================
+PART 2 – WHEN TO SHOW “NO RECOMMENDATIONS FOUND”
+====================================================
+
+Show:
+“No recommendations found”
+
+ONLY if:
+- No completed analysis exists for the selected site
+- OR analysis_status ≠ COMPLETED
+
+If ANY analysed case exists → render reports.
+
+====================================================
+PART 3 – REPORT RENDERING LOGIC
+====================================================
+
+For each analysed case:
+
+Display a card with:
+
+• Case Reference
+• Parking Site
+• Evidence Count
+• Analysis Timestamp
+• Risk Level (Low / Medium / High)
+• Confidence %
+• Final Recommendation:
+   - ISSUE PCN
+   - HOLD
+   - REVIEW
+   - DISMISS
+
+Status counters at top MUST be calculated dynamically
+from analysis results, not static values.
+
+====================================================
+PART 4 – WHAT THE REPORT SHOWS
+====================================================
+
+Each report MUST include:
+
+SECTION 1 – Evidence Summary
+- Number of images/videos
+- Time window analysed
+- ANPR / manual capture source
+
+SECTION 2 – Duration Calculation
+- First seen timestamp
+- Last seen timestamp
+- Total stay duration
+- Allowed duration (from site rules)
+
+SECTION 3 – Signage & Regulation Check
+- Signage present (Yes/Partial/Unclear)
+- Regulation applied
+- Compliance result
+
+SECTION 4 – Vehicle & DVLA
+- Registration number
+- Vehicle type
+- Make / colour (if available)
+
+SECTION 5 – Decision Explanation
+- Why this outcome was chosen
+- Key rule violations (if any)
+- Confidence justification
+
+====================================================
+PART 5 – UI RULES
+====================================================
+
+✔ No mention of:
+  - AI models
+  - GPT
+  - YOLO
+  - Vision AI
+
+✔ Use enforcement language:
+  “Automated assessment”
+  “Image interpretation”
+  “Evidence-based decision”
+
+✔ If analysis exists → NEVER show empty state
+
+====================================================
+PART 6 – FILTERS & COUNTS
+====================================================
+
+Top counters (Total / Issue / Hold / Review / Dismissed)
+MUST be computed from live analysis data.
+
+Dropdown filters:
+- Site
+- Action type
+
+Must update list instantly.
+
+====================================================
+PART 7 – FAILURE HANDLING
+====================================================
+
+If analysis data is malformed or partial:
+- Show report with warning badge
+- Do NOT hide the report
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+✔ If Evidence → Analyse Bundle → Completed
+  → AI Reports page shows report
+
+✔ Numbers match actual data
+
+✔ Reports differ per case
+
+✔ Page never lies or shows zero when data exist
