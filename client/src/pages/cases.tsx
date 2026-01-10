@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis } from "@shared/schema";
+import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle } from "@shared/schema";
 
 type CaseWithDetails = EnforcementCase & {
   site?: ParkingSite;
@@ -46,6 +46,10 @@ type CaseEvidenceWithEvidence = {
   source: string;
   keyFinding: string | null;
   evidence: Evidence;
+};
+
+type BundleWithFiles = EvidenceBundle & {
+  files: Evidence[];
 };
 
 export default function CasesPage() {
@@ -105,6 +109,19 @@ export default function CasesPage() {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
       });
       if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!selectedCase,
+  });
+
+  const { data: caseBundles = [], refetch: refetchBundles } = useQuery<BundleWithFiles[]>({
+    queryKey: ["/api/cases", selectedCase?.id, "bundles"],
+    queryFn: async () => {
+      if (!selectedCase) return [];
+      const res = await fetch(`/api/cases/${selectedCase.id}/bundles`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch bundles");
       return res.json();
     },
     enabled: !!selectedCase,
@@ -200,11 +217,11 @@ export default function CasesPage() {
       return response.json();
     },
     onSuccess: (result) => {
-      toast({ title: `Successfully uploaded ${result.evidenceIds.length} file(s)` });
+      toast({ title: `Successfully uploaded ${result.evidenceIds.length} file(s) as bundle` });
       setUploadFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      queryClient.invalidateQueries({ queryKey: ["/api/cases", selectedCase?.id, "bundles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cases", selectedCase?.id, "evidence"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/cases", selectedCase?.id, "analysis"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cases"] });
     },
     onError: (error: Error) => {
@@ -212,9 +229,38 @@ export default function CasesPage() {
     },
   });
 
+  const analyzeBundleMutation = useMutation({
+    mutationFn: async (bundleId: number) => {
+      return apiRequest("POST", `/api/bundles/${bundleId}/analyze`);
+    },
+    onSuccess: () => {
+      toast({ title: "Bundle analyzed successfully" });
+      refetchBundles();
+      refetchCases();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Bundle analysis failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleFileUpload = () => {
     if (!selectedCase || uploadFiles.length === 0) return;
     uploadMutation.mutate({ caseId: selectedCase.id, files: uploadFiles });
+  };
+
+  const getBundleStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return <Badge variant="secondary">Pending Analysis</Badge>;
+      case "analyzing":
+        return <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-300">Analyzing</Badge>;
+      case "analyzed":
+        return <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">Analyzed</Badge>;
+      case "failed":
+        return <Badge className="bg-red-500/20 text-red-700 dark:text-red-300">Failed</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -491,14 +537,141 @@ export default function CasesPage() {
                     </div>
                   </div>
 
+                  <div className="mt-4">
+                    <h3 className="font-semibold flex items-center gap-2 mb-3">
+                      <FolderOpen className="h-4 w-4" />
+                      Evidence Bundles ({caseBundles.length})
+                    </h3>
+                    
+                    {caseBundles.length === 0 ? (
+                      <div className="border border-dashed rounded-md p-6 text-center text-muted-foreground">
+                        <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No evidence bundles yet</p>
+                        <p className="text-xs mt-1">Upload files above to create a bundle</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        {caseBundles.map((bundle) => (
+                          <Card key={bundle.id} className="border" data-testid={`bundle-card-${bundle.id}`}>
+                            <CardHeader className="pb-2">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                  <FolderOpen className="h-4 w-4" />
+                                  {bundle.name || `Bundle #${bundle.id}`}
+                                </CardTitle>
+                                {getBundleStatusBadge(bundle.status)}
+                              </div>
+                              <CardDescription className="text-xs">
+                                {bundle.fileCount} file(s) - Created {new Date(bundle.createdAt).toLocaleDateString()}
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                {bundle.files.slice(0, 4).map((file) => (
+                                  <div key={file.id} className="relative">
+                                    {file.imagePath ? (
+                                      <img
+                                        src={file.imagePath}
+                                        alt="Evidence"
+                                        className="w-16 h-16 object-cover rounded border"
+                                      />
+                                    ) : (
+                                      <div className="w-16 h-16 bg-muted rounded border flex items-center justify-center">
+                                        <FileVideo className="h-6 w-6 text-muted-foreground" />
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {bundle.files.length > 4 && (
+                                  <div className="w-16 h-16 bg-muted/50 rounded border flex items-center justify-center">
+                                    <span className="text-xs text-muted-foreground">+{bundle.files.length - 4}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {bundle.status === "analyzed" && bundle.aiResult && (
+                                <div className="bg-muted/30 rounded-md p-3 mb-3">
+                                  <p className="text-sm font-medium mb-2">AI Analysis Result</p>
+                                  <p className="text-xs text-muted-foreground mb-2">{bundle.aiResult.summary}</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {bundle.aiResult.recommendation && (
+                                      <Badge 
+                                        className={
+                                          bundle.aiResult.recommendation === "Issue PCN" 
+                                            ? "bg-red-500/20 text-red-700 dark:text-red-300"
+                                            : bundle.aiResult.recommendation === "No Action"
+                                            ? "bg-green-500/20 text-green-700 dark:text-green-300"
+                                            : "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300"
+                                        }
+                                      >
+                                        {bundle.aiResult.recommendation}
+                                      </Badge>
+                                    )}
+                                    {bundle.aiResult.riskAssessment && (
+                                      <Badge variant="outline">{bundle.aiResult.riskAssessment} Risk</Badge>
+                                    )}
+                                    {bundle.aiResult.bayType && (
+                                      <Badge variant="secondary">{bundle.aiResult.bayType}</Badge>
+                                    )}
+                                  </div>
+                                  {bundle.aiResult.timeWindow && bundle.aiResult.timeWindow.durationMinutes > 0 && (
+                                    <div className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+                                      <Clock className="h-3 w-3" />
+                                      Duration: {bundle.aiResult.timeWindow.durationMinutes} minutes
+                                    </div>
+                                  )}
+                                  {bundle.aiResult.violations && bundle.aiResult.violations.length > 0 && (
+                                    <div className="mt-2">
+                                      {bundle.aiResult.violations.map((v: any, idx: number) => (
+                                        <div key={idx} className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                                          <AlertTriangle className="h-3 w-3" />
+                                          {v.type}: {v.explanation}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              <Button
+                                size="sm"
+                                className="w-full"
+                                onClick={() => analyzeBundleMutation.mutate(bundle.id)}
+                                disabled={bundle.status === "analyzing" || analyzeBundleMutation.isPending}
+                                data-testid={`button-analyze-bundle-${bundle.id}`}
+                              >
+                                {bundle.status === "analyzing" || analyzeBundleMutation.isPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Analyzing...
+                                  </>
+                                ) : bundle.status === "analyzed" ? (
+                                  <>
+                                    <RefreshCw className="h-4 w-4 mr-2" />
+                                    Re-Analyze Bundle
+                                  </>
+                                ) : (
+                                  <>
+                                    <Brain className="h-4 w-4 mr-2" />
+                                    Analyze Bundle
+                                  </>
+                                )}
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <Collapsible open={evidenceExpanded} onOpenChange={setEvidenceExpanded} className="mt-4">
                     <div className="flex items-center justify-between">
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm" className="p-0 h-auto hover:bg-transparent" data-testid="button-toggle-evidence">
-                          <h3 className="font-semibold flex items-center gap-2">
+                          <h3 className="font-semibold flex items-center gap-2 text-muted-foreground">
                             {evidenceExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             <FileImage className="h-4 w-4" />
-                            Evidence Files ({caseEvidence.length})
+                            Linked Evidence ({caseEvidence.length})
                           </h3>
                         </Button>
                       </CollapsibleTrigger>
@@ -567,10 +740,8 @@ export default function CasesPage() {
                     
                     <CollapsibleContent className="mt-3">
                       {caseEvidence.length === 0 ? (
-                        <div className="border border-dashed rounded-md p-6 text-center text-muted-foreground">
-                          <FileImage className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p>No evidence files yet</p>
-                          <p className="text-xs mt-1">Upload files above or link existing evidence</p>
+                        <div className="border border-dashed rounded-md p-4 text-center text-muted-foreground text-sm">
+                          No linked evidence
                         </div>
                       ) : (
                         <div className="grid gap-2">

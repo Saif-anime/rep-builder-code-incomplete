@@ -3035,7 +3035,6 @@ export async function registerRoutes(
           type: mergedVision.vehicleType,
           plate: mergedVision.numberPlateDetected || null,
           evIndicators: mergedVision.evIndicators,
-          color: mergedVision.vehicleColor,
         } : { detected: false, type: "unknown", plate: null, evIndicators: false },
         bayType: mergedVision?.bayTypeVisible || "unknown",
         signageFindings: {
