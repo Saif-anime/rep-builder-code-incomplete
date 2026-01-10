@@ -1,0 +1,908 @@
+import { storage } from "./storage";
+import { analyzeImageWithVision, mergeVisionResults, type VisionAnalysisResult } from "./visionAnalysis";
+import { lookupVehicle, normalizeRegistration } from "./dvlaService";
+import type { 
+  Evidence, 
+  CasePipelineResults, 
+  CaseAnalysisStep, 
+  InsertCaseAnalysisStep,
+  ParkingSite,
+  SiteRule,
+  SignageInspection
+} from "@shared/schema";
+
+export type PipelineStepName = 
+  | "evidence_normalisation"
+  | "vision_analysis"
+  | "dvla_enrichment"
+  | "regulation_evaluation"
+  | "signage_compliance"
+  | "decision_engine";
+
+const STEP_ORDER: Record<PipelineStepName, number> = {
+  evidence_normalisation: 1,
+  vision_analysis: 2,
+  dvla_enrichment: 3,
+  regulation_evaluation: 4,
+  signage_compliance: 5,
+  decision_engine: 6,
+};
+
+const CONFIDENCE_THRESHOLD = 0.7;
+
+interface EvidenceTimelineResult {
+  evidenceCount: number;
+  imageCount: number;
+  videoCount: number;
+  timestamps: Array<{
+    evidenceId: number;
+    timestamp: string;
+    source: "exif" | "camera_overlay" | "filename" | "upload_time";
+    confidence: number;
+  }>;
+  entryWindow: { start: string; end: string; confidence: number } | null;
+  exitWindow: { start: string; end: string; confidence: number } | null;
+  timeRange: { first: string; last: string; durationMinutes: number };
+}
+
+interface VisionResultsOutput {
+  vehicleDetections: Array<{
+    evidenceId: number;
+    detected: boolean;
+    type: string;
+    confidence: number;
+  }>;
+  vrmDetections: Array<{
+    evidenceId: number;
+    plate: string;
+    confidence: number;
+    method: "ocr" | "vision_gpt";
+  }>;
+  bayUsageDetections: Array<{
+    evidenceId: number;
+    bayType: string;
+    confidence: number;
+  }>;
+  bestVrmFrame: { evidenceId: number; plate: string; confidence: number } | null;
+  overallConfidence: number;
+  modelVersions: { yolov8?: string; visionGpt: string };
+}
+
+interface DVLADataOutput {
+  vrm: string;
+  verified: boolean;
+  lookupTimestamp: string;
+  vehicleData: {
+    make: string;
+    model?: string;
+    colour: string;
+    fuelType: string;
+    taxStatus: string;
+    taxDueDate?: string;
+    motStatus: string;
+    motExpiryDate?: string;
+    yearOfManufacture?: number;
+    engineCapacity?: number;
+    co2Emissions?: number;
+  } | null;
+  error?: string;
+}
+
+interface RegulationEvaluationOutput {
+  siteId: number;
+  siteName: string;
+  rules: {
+    maxStayMinutes: number | null;
+    gracePeriodMinutes: number;
+    enforcementHours: { start: string; end: string; days: string[] };
+    paymentRequired: boolean;
+    permitRequired: boolean;
+    specialRules: string[];
+  };
+  evaluation: {
+    actualDurationMinutes: number;
+    allowedDurationMinutes: number | null;
+    withinEnforcementHours: boolean;
+    breachDetected: boolean;
+    breachType: string | null;
+    breachExplanation: string | null;
+    numericComparison: string;
+  };
+}
+
+interface SignageComplianceOutput {
+  inspectionId: number | null;
+  inspectionDate: string | null;
+  entranceSignage: { status: "pass" | "fail" | "unknown"; notes: string };
+  termsVisibility: { status: "pass" | "fail" | "unknown"; notes: string };
+  signSpacing: { status: "pass" | "fail" | "unknown"; distanceMeters?: number };
+  wordingCompliance: { status: "pass" | "fail" | "unknown"; coreTermsVisible: boolean };
+  overallCompliance: "pass" | "fail" | "partial";
+  overallConfidence: number;
+  issues: string[];
+}
+
+interface DecisionOutput {
+  status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+  eligibilityGates: {
+    regulationBreach: boolean;
+    signageCompliant: boolean;
+    confidenceThresholdMet: boolean;
+  };
+  overallConfidence: number;
+  legalRisk: "low" | "medium" | "high";
+  recommendation: string;
+  reasoning: string;
+  blockers: string[];
+}
+
+export interface PipelineContext {
+  caseId: string;
+  siteId: number;
+  userId?: string;
+  evidenceTimeline?: EvidenceTimelineResult;
+  visionResults?: VisionResultsOutput;
+  dvlaData?: DVLADataOutput;
+  regulationEvaluation?: RegulationEvaluationOutput;
+  signageCompliance?: SignageComplianceOutput;
+  decision?: DecisionOutput;
+}
+
+async function createOrUpdateStep(
+  caseId: string, 
+  stepName: PipelineStepName, 
+  status: string, 
+  data?: Omit<Partial<InsertCaseAnalysisStep>, 'caseId' | 'stepName' | 'stepOrder' | 'status'>
+): Promise<CaseAnalysisStep> {
+  const existingSteps = await storage.getAnalysisStepsByCase(caseId);
+  const existing = existingSteps.find(s => s.stepName === stepName);
+  
+  if (existing) {
+    const updated = await storage.updateAnalysisStep(existing.id, { status, ...data });
+    return updated!;
+  }
+  
+  const newStep: InsertCaseAnalysisStep = {
+    caseId,
+    stepName,
+    stepOrder: STEP_ORDER[stepName],
+    status,
+    ...data,
+  };
+  return await storage.createAnalysisStep(newStep);
+}
+
+async function stepEvidenceNormalisation(
+  ctx: PipelineContext,
+  evidenceItems: Evidence[]
+): Promise<EvidenceTimelineResult> {
+  const step = await createOrUpdateStep(ctx.caseId, "evidence_normalisation", "running", {
+    startedAt: new Date(),
+  });
+  
+  try {
+    const timestamps: EvidenceTimelineResult["timestamps"] = [];
+    let imageCount = 0;
+    let videoCount = 0;
+    
+    for (const ev of evidenceItems) {
+      if (ev.imagePath) imageCount++;
+      if (ev.videoPath) videoCount++;
+      
+      let source: "exif" | "camera_overlay" | "filename" | "upload_time" = "upload_time";
+      let confidence = 0.5;
+      
+      if (ev.metadata && typeof ev.metadata === "object") {
+        if ("exifTimestamp" in ev.metadata) {
+          source = "exif";
+          confidence = 0.9;
+        } else if ("cameraOverlayTime" in ev.metadata) {
+          source = "camera_overlay";
+          confidence = 0.85;
+        }
+      }
+      
+      if (ev.notes?.includes("filename_derived")) {
+        source = "filename";
+        confidence = 0.7;
+      }
+      
+      timestamps.push({
+        evidenceId: ev.id,
+        timestamp: ev.timestamp.toISOString(),
+        source,
+        confidence,
+      });
+    }
+    
+    timestamps.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    const first = timestamps[0]?.timestamp || new Date().toISOString();
+    const last = timestamps[timestamps.length - 1]?.timestamp || first;
+    const durationMinutes = Math.round(
+      (new Date(last).getTime() - new Date(first).getTime()) / (1000 * 60)
+    );
+    
+    let entryWindow: EvidenceTimelineResult["entryWindow"] = null;
+    let exitWindow: EvidenceTimelineResult["exitWindow"] = null;
+    
+    if (timestamps.length >= 2) {
+      entryWindow = {
+        start: timestamps[0].timestamp,
+        end: timestamps[Math.min(1, timestamps.length - 1)].timestamp,
+        confidence: timestamps[0].confidence,
+      };
+      exitWindow = {
+        start: timestamps[Math.max(0, timestamps.length - 2)].timestamp,
+        end: last,
+        confidence: timestamps[timestamps.length - 1].confidence,
+      };
+    }
+    
+    const result: EvidenceTimelineResult = {
+      evidenceCount: evidenceItems.length,
+      imageCount,
+      videoCount,
+      timestamps,
+      entryWindow,
+      exitWindow,
+      timeRange: { first, last, durationMinutes },
+    };
+    
+    await createOrUpdateStep(ctx.caseId, "evidence_normalisation", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+      outputData: result,
+    });
+    
+    return result;
+  } catch (error: any) {
+    await createOrUpdateStep(ctx.caseId, "evidence_normalisation", "failed", {
+      completedAt: new Date(),
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+}
+
+async function stepVisionAnalysis(
+  ctx: PipelineContext,
+  evidenceItems: Evidence[]
+): Promise<VisionResultsOutput> {
+  const step = await createOrUpdateStep(ctx.caseId, "vision_analysis", "running", {
+    startedAt: new Date(),
+  });
+  
+  try {
+    const vehicleDetections: VisionResultsOutput["vehicleDetections"] = [];
+    const vrmDetections: VisionResultsOutput["vrmDetections"] = [];
+    const bayUsageDetections: VisionResultsOutput["bayUsageDetections"] = [];
+    const visionResults: VisionAnalysisResult[] = [];
+    
+    const imageEvidence = evidenceItems.filter(e => e.imagePath);
+    
+    for (const ev of imageEvidence) {
+      if (!ev.imagePath) continue;
+      
+      const result = await analyzeImageWithVision({
+        imagePath: ev.imagePath,
+        caseId: ctx.caseId,
+      });
+      
+      if (result.success && result.result) {
+        visionResults.push(result.result);
+        
+        vehicleDetections.push({
+          evidenceId: ev.id,
+          detected: result.result.vehicleDetected,
+          type: result.result.vehicleType,
+          confidence: result.result.vehicleDetected ? 0.85 : 0.3,
+        });
+        
+        if (result.result.numberPlateDetected) {
+          vrmDetections.push({
+            evidenceId: ev.id,
+            plate: normalizeRegistration(result.result.numberPlateDetected),
+            confidence: 0.8,
+            method: "vision_gpt",
+          });
+        }
+        
+        if (result.result.bayTypeVisible !== "unclear") {
+          bayUsageDetections.push({
+            evidenceId: ev.id,
+            bayType: result.result.bayTypeVisible,
+            confidence: 0.75,
+          });
+        }
+      }
+    }
+    
+    let bestVrmFrame: VisionResultsOutput["bestVrmFrame"] = null;
+    if (vrmDetections.length > 0) {
+      const best = vrmDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
+      bestVrmFrame = {
+        evidenceId: best.evidenceId,
+        plate: best.plate,
+        confidence: best.confidence,
+      };
+    }
+    
+    const merged = mergeVisionResults(visionResults);
+    const overallConfidence = merged ? 0.8 : 0.5;
+    
+    const result: VisionResultsOutput = {
+      vehicleDetections,
+      vrmDetections,
+      bayUsageDetections,
+      bestVrmFrame,
+      overallConfidence,
+      modelVersions: { visionGpt: "gpt-4o" },
+    };
+    
+    await createOrUpdateStep(ctx.caseId, "vision_analysis", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+      outputData: result,
+      modelVersion: "gpt-4o",
+    });
+    
+    return result;
+  } catch (error: any) {
+    await createOrUpdateStep(ctx.caseId, "vision_analysis", "failed", {
+      completedAt: new Date(),
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+}
+
+async function stepDVLAEnrichment(
+  ctx: PipelineContext,
+  vrm: string | null
+): Promise<DVLADataOutput> {
+  const step = await createOrUpdateStep(ctx.caseId, "dvla_enrichment", "running", {
+    startedAt: new Date(),
+  });
+  
+  try {
+    if (!vrm) {
+      const result: DVLADataOutput = {
+        vrm: "",
+        verified: false,
+        lookupTimestamp: new Date().toISOString(),
+        vehicleData: null,
+        error: "No VRM detected from vision analysis",
+      };
+      
+      await createOrUpdateStep(ctx.caseId, "dvla_enrichment", "skipped", {
+        completedAt: new Date(),
+        durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+        outputData: result,
+      });
+      
+      return result;
+    }
+    
+    const normalized = normalizeRegistration(vrm);
+    const dvlaResult = await lookupVehicle(normalized, ctx.caseId);
+    
+    const result: DVLADataOutput = {
+      vrm: normalized,
+      verified: dvlaResult.success,
+      lookupTimestamp: new Date().toISOString(),
+      vehicleData: dvlaResult.success && dvlaResult.data ? {
+        make: dvlaResult.data.make || "Unknown",
+        model: dvlaResult.data.model,
+        colour: dvlaResult.data.colour || "Unknown",
+        fuelType: dvlaResult.data.fuelType || "Unknown",
+        taxStatus: dvlaResult.data.taxStatus || "Unknown",
+        taxDueDate: dvlaResult.data.taxDueDate,
+        motStatus: dvlaResult.data.motStatus || "Unknown",
+        motExpiryDate: dvlaResult.data.motExpiryDate,
+        yearOfManufacture: dvlaResult.data.yearOfManufacture,
+        engineCapacity: dvlaResult.data.engineCapacity,
+        co2Emissions: dvlaResult.data.co2Emissions,
+      } : null,
+      error: dvlaResult.error,
+    };
+    
+    await createOrUpdateStep(ctx.caseId, "dvla_enrichment", dvlaResult.success ? "completed" : "failed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+      outputData: result,
+      errorMessage: dvlaResult.error,
+    });
+    
+    return result;
+  } catch (error: any) {
+    await createOrUpdateStep(ctx.caseId, "dvla_enrichment", "failed", {
+      completedAt: new Date(),
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+}
+
+async function stepRegulationEvaluation(
+  ctx: PipelineContext,
+  site: ParkingSite,
+  siteRules: SiteRule | undefined,
+  durationMinutes: number
+): Promise<RegulationEvaluationOutput> {
+  const step = await createOrUpdateStep(ctx.caseId, "regulation_evaluation", "running", {
+    startedAt: new Date(),
+  });
+  
+  try {
+    const maxStayMinutes = siteRules?.maxStayMinutes ?? null;
+    const graceEntryMinutes = siteRules?.graceEntryMinutes ?? 5;
+    const graceExitMinutes = siteRules?.graceExitMinutes ?? 5;
+    const gracePeriodMinutes = graceEntryMinutes + graceExitMinutes;
+    const enforcementMode = siteRules?.enforcementMode || "standard";
+    const enforcementStart = "00:00";
+    const enforcementEnd = "23:59";
+    const enforcementDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    
+    const now = new Date();
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const currentDay = dayNames[now.getDay()];
+    const currentTime = now.toTimeString().slice(0, 5);
+    
+    const withinEnforcementHours = 
+      enforcementMode !== "disabled" &&
+      enforcementDays.includes(currentDay) &&
+      currentTime >= enforcementStart &&
+      currentTime <= enforcementEnd;
+    
+    let breachDetected = false;
+    let breachType: string | null = null;
+    let breachExplanation: string | null = null;
+    
+    const effectiveAllowedDuration = maxStayMinutes ? maxStayMinutes + gracePeriodMinutes : null;
+    
+    if (maxStayMinutes && durationMinutes > effectiveAllowedDuration!) {
+      breachDetected = true;
+      breachType = "OVERSTAY";
+      breachExplanation = `Vehicle parked for ${durationMinutes} minutes, exceeding maximum stay of ${maxStayMinutes} minutes (plus ${gracePeriodMinutes}min grace period).`;
+    }
+    
+    const formatDuration = (mins: number) => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    };
+    
+    const numericComparison = maxStayMinutes 
+      ? `${formatDuration(durationMinutes)} vs ${formatDuration(maxStayMinutes)} allowed`
+      : `${formatDuration(durationMinutes)} (no max stay limit)`;
+    
+    const result: RegulationEvaluationOutput = {
+      siteId: site.id,
+      siteName: site.siteName,
+      rules: {
+        maxStayMinutes,
+        gracePeriodMinutes,
+        enforcementHours: { start: enforcementStart, end: enforcementEnd, days: enforcementDays },
+        paymentRequired: false,
+        permitRequired: false,
+        specialRules: [],
+      },
+      evaluation: {
+        actualDurationMinutes: durationMinutes,
+        allowedDurationMinutes: maxStayMinutes,
+        withinEnforcementHours,
+        breachDetected,
+        breachType,
+        breachExplanation,
+        numericComparison,
+      },
+    };
+    
+    await createOrUpdateStep(ctx.caseId, "regulation_evaluation", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+      outputData: result,
+    });
+    
+    return result;
+  } catch (error: any) {
+    await createOrUpdateStep(ctx.caseId, "regulation_evaluation", "failed", {
+      completedAt: new Date(),
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+}
+
+async function stepSignageCompliance(
+  ctx: PipelineContext,
+  inspection: SignageInspection | undefined
+): Promise<SignageComplianceOutput> {
+  const step = await createOrUpdateStep(ctx.caseId, "signage_compliance", "running", {
+    startedAt: new Date(),
+  });
+  
+  try {
+    if (!inspection) {
+      const result: SignageComplianceOutput = {
+        inspectionId: null,
+        inspectionDate: null,
+        entranceSignage: { status: "unknown", notes: "No signage inspection on record" },
+        termsVisibility: { status: "unknown", notes: "No signage inspection on record" },
+        signSpacing: { status: "unknown" },
+        wordingCompliance: { status: "unknown", coreTermsVisible: false },
+        overallCompliance: "partial",
+        overallConfidence: 0.3,
+        issues: ["No signage inspection data available for this site"],
+      };
+      
+      await createOrUpdateStep(ctx.caseId, "signage_compliance", "completed", {
+        completedAt: new Date(),
+        durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+        outputData: result,
+      });
+      
+      return result;
+    }
+    
+    const issues: string[] = [];
+    
+    const entrancePresent = inspection.entranceSignagePresent ?? false;
+    const entranceSignage: SignageComplianceOutput["entranceSignage"] = {
+      status: entrancePresent ? "pass" : "fail",
+      notes: entrancePresent 
+        ? "Entrance signage confirmed present" 
+        : "Entrance signage not present or not verified",
+    };
+    if (!entrancePresent) {
+      issues.push("Missing entrance signage");
+    }
+    
+    const termsVisible = (inspection.tcTariffVisible && inspection.tcFontReadable) ?? false;
+    const termsVisibility: SignageComplianceOutput["termsVisibility"] = {
+      status: termsVisible ? "pass" : "fail",
+      notes: termsVisible 
+        ? "Core parking terms are visible to drivers"
+        : "Core parking terms not clearly visible",
+    };
+    if (!termsVisible) {
+      issues.push("Core terms not visible");
+    }
+    
+    const distanceReadable = inspection.tcDistanceReadable;
+    const signSpacing: SignageComplianceOutput["signSpacing"] = {
+      status: distanceReadable && distanceReadable <= 3 ? "pass" : distanceReadable ? "fail" : "unknown",
+      distanceMeters: distanceReadable ?? undefined,
+    };
+    if (distanceReadable && distanceReadable > 3) {
+      issues.push("Sign spacing inadequate");
+    }
+    
+    const wordingCorrect = (inspection.entranceCorrectWording && inspection.tcLanguageCorrect) ?? false;
+    const wordingCompliance: SignageComplianceOutput["wordingCompliance"] = {
+      status: wordingCorrect ? "pass" : "fail",
+      coreTermsVisible: termsVisible,
+    };
+    if (!wordingCorrect) {
+      issues.push("Wording not compliant with regulations");
+    }
+    
+    const passCount = [
+      entranceSignage.status === "pass",
+      termsVisibility.status === "pass",
+      signSpacing.status === "pass",
+      wordingCompliance.status === "pass",
+    ].filter(Boolean).length;
+    
+    let overallCompliance: "pass" | "fail" | "partial";
+    if (passCount === 4) {
+      overallCompliance = "pass";
+    } else if (passCount === 0) {
+      overallCompliance = "fail";
+    } else {
+      overallCompliance = "partial";
+    }
+    
+    const overallConfidence = passCount / 4;
+    
+    const result: SignageComplianceOutput = {
+      inspectionId: inspection.id,
+      inspectionDate: inspection.inspectionDate?.toISOString() || null,
+      entranceSignage,
+      termsVisibility,
+      signSpacing,
+      wordingCompliance,
+      overallCompliance,
+      overallConfidence,
+      issues,
+    };
+    
+    await createOrUpdateStep(ctx.caseId, "signage_compliance", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
+      outputData: result,
+    });
+    
+    return result;
+  } catch (error: any) {
+    await createOrUpdateStep(ctx.caseId, "signage_compliance", "failed", {
+      completedAt: new Date(),
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+}
+
+function stepDecisionEngine(
+  ctx: PipelineContext,
+  regulationEval: RegulationEvaluationOutput,
+  signageCompliance: SignageComplianceOutput,
+  visionConfidence: number
+): DecisionOutput {
+  const regulationBreach = regulationEval.evaluation.breachDetected;
+  const signageCompliant = signageCompliance.overallCompliance === "pass";
+  const confidenceThresholdMet = visionConfidence >= CONFIDENCE_THRESHOLD;
+  
+  const blockers: string[] = [];
+  
+  if (!regulationBreach) {
+    blockers.push("No regulation breach detected");
+  }
+  if (!signageCompliant) {
+    blockers.push(`Signage compliance: ${signageCompliance.overallCompliance} (${signageCompliance.issues.join(", ")})`);
+  }
+  if (!confidenceThresholdMet) {
+    blockers.push(`Evidence confidence ${(visionConfidence * 100).toFixed(0)}% below threshold ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+  }
+  
+  let status: DecisionOutput["status"];
+  let legalRisk: DecisionOutput["legalRisk"];
+  let recommendation: string;
+  let reasoning: string;
+  
+  if (regulationBreach && signageCompliant && confidenceThresholdMet) {
+    status = "PCN_ELIGIBLE";
+    legalRisk = "low";
+    recommendation = "Issue PCN - all eligibility criteria met";
+    reasoning = `Regulation breach confirmed (${regulationEval.evaluation.breachType}). Signage compliant. Evidence confidence sufficient.`;
+  } else if (regulationBreach && !signageCompliant) {
+    status = "REVIEW_REQUIRED";
+    legalRisk = "high";
+    recommendation = "Manual review required - signage compliance issues";
+    reasoning = `Regulation breach detected but signage compliance is ${signageCompliance.overallCompliance}. PCN may be challenged.`;
+  } else if (regulationBreach && !confidenceThresholdMet) {
+    status = "REVIEW_REQUIRED";
+    legalRisk = "medium";
+    recommendation = "Manual review required - evidence confidence below threshold";
+    reasoning = `Regulation breach detected but evidence confidence is ${(visionConfidence * 100).toFixed(0)}%, below ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}% threshold.`;
+  } else {
+    status = "NO_PCN";
+    legalRisk = "low";
+    recommendation = "No PCN warranted - no breach detected";
+    reasoning = "Analysis did not identify a regulation breach.";
+  }
+  
+  const overallConfidence = (
+    (regulationBreach ? 0.4 : 0) +
+    (signageCompliant ? 0.3 : 0) +
+    (visionConfidence * 0.3)
+  );
+  
+  return {
+    status,
+    eligibilityGates: {
+      regulationBreach,
+      signageCompliant,
+      confidenceThresholdMet,
+    },
+    overallConfidence,
+    legalRisk,
+    recommendation,
+    reasoning,
+    blockers,
+  };
+}
+
+export async function runCaseAnalysisPipeline(
+  caseId: string,
+  userId?: string
+): Promise<CasePipelineResults> {
+  console.log(`[Pipeline] Starting analysis for case ${caseId}`);
+  
+  const caseData = await storage.getCaseById(caseId);
+  if (!caseData) {
+    throw new Error(`Case ${caseId} not found`);
+  }
+  
+  if (!caseData.siteId) {
+    throw new Error(`Case ${caseId} has no associated site`);
+  }
+  
+  await storage.deleteAnalysisStepsByCase(caseId);
+  
+  let pipelineResults = await storage.createCasePipelineResults({
+    caseId,
+    pipelineStatus: "running",
+    currentStep: "evidence_normalisation",
+    completedSteps: 0,
+    totalSteps: 6,
+    analysisStartedAt: new Date(),
+    triggeredBy: userId,
+  });
+  
+  const ctx: PipelineContext = {
+    caseId,
+    siteId: caseData.siteId,
+    userId,
+  };
+  
+  try {
+    const caseEvidenceItems = await storage.getCaseEvidence(caseId);
+    const evidenceItems: Evidence[] = caseEvidenceItems
+      .filter(ce => ce.evidence)
+      .map(ce => ce.evidence!);
+    
+    if (evidenceItems.length === 0) {
+      throw new Error("No evidence items found for case");
+    }
+    
+    console.log(`[Pipeline] Step 1: Evidence Normalisation (${evidenceItems.length} items)`);
+    ctx.evidenceTimeline = await stepEvidenceNormalisation(ctx, evidenceItems);
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "vision_analysis",
+      completedSteps: 1,
+      evidenceTimeline: ctx.evidenceTimeline,
+    }) as CasePipelineResults;
+    
+    console.log(`[Pipeline] Step 2: Vision Analysis`);
+    ctx.visionResults = await stepVisionAnalysis(ctx, evidenceItems);
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "dvla_enrichment",
+      completedSteps: 2,
+      visionResults: ctx.visionResults,
+    }) as CasePipelineResults;
+    
+    const detectedVrm = ctx.visionResults.bestVrmFrame?.plate || caseData.vrm || null;
+    
+    console.log(`[Pipeline] Step 3: DVLA Enrichment (VRM: ${detectedVrm || "none"})`);
+    ctx.dvlaData = await stepDVLAEnrichment(ctx, detectedVrm);
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "regulation_evaluation",
+      completedSteps: 3,
+      dvlaData: ctx.dvlaData,
+    }) as CasePipelineResults;
+    
+    const site = await storage.getParkingSite(caseData.siteId);
+    if (!site) {
+      throw new Error(`Site ${caseData.siteId} not found`);
+    }
+    
+    const siteRules = await storage.getSiteRules(caseData.siteId);
+    const durationMinutes = ctx.evidenceTimeline.timeRange.durationMinutes;
+    
+    console.log(`[Pipeline] Step 4: Regulation Evaluation`);
+    ctx.regulationEvaluation = await stepRegulationEvaluation(ctx, site, siteRules, durationMinutes);
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "signage_compliance",
+      completedSteps: 4,
+      regulationEvaluation: ctx.regulationEvaluation,
+    }) as CasePipelineResults;
+    
+    const signageInspection = await storage.getLatestSignageInspection(caseData.siteId);
+    
+    console.log(`[Pipeline] Step 5: Signage Compliance`);
+    ctx.signageCompliance = await stepSignageCompliance(ctx, signageInspection);
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "decision_engine",
+      completedSteps: 5,
+      signageCompliance: ctx.signageCompliance,
+    }) as CasePipelineResults;
+    
+    console.log(`[Pipeline] Step 6: Decision Engine`);
+    const decisionStep = await createOrUpdateStep(caseId, "decision_engine", "running", {
+      startedAt: new Date(),
+    });
+    
+    ctx.decision = stepDecisionEngine(
+      ctx,
+      ctx.regulationEvaluation,
+      ctx.signageCompliance,
+      ctx.visionResults.overallConfidence
+    );
+    
+    await createOrUpdateStep(caseId, "decision_engine", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (decisionStep.startedAt?.getTime() || Date.now()),
+      outputData: ctx.decision,
+    });
+    
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      pipelineStatus: "completed",
+      currentStep: null,
+      completedSteps: 6,
+      decision: ctx.decision,
+      analysisCompletedAt: new Date(),
+    }) as CasePipelineResults;
+    
+    await storage.updateCaseStatus(caseId, "complete");
+    
+    console.log(`[Pipeline] Completed analysis for case ${caseId}: ${ctx.decision.status}`);
+    
+    return pipelineResults;
+    
+  } catch (error: any) {
+    console.error(`[Pipeline] Failed for case ${caseId}:`, error.message);
+    
+    await storage.updateCasePipelineResults(caseId, {
+      pipelineStatus: "failed",
+      analysisError: error.message,
+      analysisCompletedAt: new Date(),
+    });
+    
+    await storage.updateCaseStatus(caseId, "failed");
+    
+    throw error;
+  }
+}
+
+export async function getAnalysisReport(caseId: string) {
+  const pipelineResults = await storage.getCasePipelineResults(caseId);
+  const steps = await storage.getAnalysisStepsByCase(caseId);
+  const caseData = await storage.getCaseById(caseId);
+  
+  if (!pipelineResults || !caseData) {
+    return null;
+  }
+  
+  const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+  
+  return {
+    caseSummary: {
+      caseId,
+      siteName: site?.siteName || "Unknown",
+      vrm: pipelineResults.dvlaData?.vrm || caseData.vrm || "Unknown",
+      vehicleType: pipelineResults.visionResults?.vehicleDetections[0]?.type || "Unknown",
+      totalDuration: pipelineResults.evidenceTimeline?.timeRange.durationMinutes || 0,
+      allowedDuration: pipelineResults.regulationEvaluation?.rules.maxStayMinutes || null,
+      outcome: pipelineResults.decision?.status || "PENDING",
+    },
+    whatWasAnalysed: {
+      evidenceCount: pipelineResults.evidenceTimeline?.evidenceCount || 0,
+      imageCount: pipelineResults.evidenceTimeline?.imageCount || 0,
+      videoCount: pipelineResults.evidenceTimeline?.videoCount || 0,
+      timeRange: pipelineResults.evidenceTimeline?.timeRange,
+      visionModelsUsed: pipelineResults.visionResults?.modelVersions || {},
+      externalServicesUsed: pipelineResults.dvlaData?.verified ? ["DVLA"] : [],
+    },
+    howItWasMeasured: {
+      entryExitMethod: pipelineResults.evidenceTimeline?.entryWindow ? "timestamp_based" : "single_point",
+      durationCalculation: "first_to_last_evidence",
+      visionConfidence: pipelineResults.visionResults?.overallConfidence || 0,
+      ocrConfidence: pipelineResults.visionResults?.bestVrmFrame?.confidence || 0,
+    },
+    regulationsApplied: pipelineResults.regulationEvaluation,
+    signageAssessment: pipelineResults.signageCompliance,
+    riskAndConfidence: {
+      overallConfidence: pipelineResults.decision?.overallConfidence || 0,
+      legalRisk: pipelineResults.decision?.legalRisk || "unknown",
+      recommendation: pipelineResults.decision?.recommendation || "",
+      blockers: pipelineResults.decision?.blockers || [],
+    },
+    auditLog: {
+      steps: steps.map(s => ({
+        stepName: s.stepName,
+        status: s.status,
+        startedAt: s.startedAt,
+        completedAt: s.completedAt,
+        durationMs: s.durationMs,
+        modelVersion: s.modelVersion,
+        errorMessage: s.errorMessage,
+      })),
+      analysisStartedAt: pipelineResults.analysisStartedAt,
+      analysisCompletedAt: pipelineResults.analysisCompletedAt,
+      triggeredBy: pipelineResults.triggeredBy,
+    },
+    decision: pipelineResults.decision,
+  };
+}
