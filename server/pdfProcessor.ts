@@ -1,13 +1,38 @@
 import Tesseract from "tesseract.js";
 import { createCanvas } from "canvas";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { createRequire } from "module";
+import * as fs from "fs";
+import * as path from "path";
 
-const require = createRequire(import.meta.url);
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
+// Dynamic import for pdf-parse (CommonJS module)
+let pdfParse: any = null;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+async function getPdfParse() {
+  if (!pdfParse) {
+    try {
+      const mod: any = await import("pdf-parse");
+      pdfParse = mod.default || mod;
+    } catch (e) {
+      console.error("[PDF] Failed to load pdf-parse:", e);
+    }
+  }
+  return pdfParse;
+}
+
+// Dynamic import for pdfjs-dist
+let pdfjsLib: any = null;
+
+async function getPdfjsLib() {
+  if (!pdfjsLib) {
+    try {
+      pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      // Disable worker to avoid worker setup issues
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+    } catch (e) {
+      console.error("[PDF] Failed to load pdfjs-dist:", e);
+    }
+  }
+  return pdfjsLib;
+}
 
 const MIN_TEXT_LENGTH = 50;
 
@@ -30,30 +55,52 @@ export interface ExtractedSections {
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number }> {
+  // Try pdf-parse first
   try {
-    const data = await pdfParse(buffer);
-    console.log("[PDF Text] Extracted text length:", data.text?.length || 0, "pages:", data.numpages);
-    return { text: data.text || "", pages: data.numpages };
-  } catch (error: any) {
-    console.log("[PDF Text] pdf-parse failed, trying pdfjs-dist:", error.message);
-    try {
-      const uint8Array = new Uint8Array(buffer);
-      const doc = await pdfjsLib.getDocument({ data: uint8Array, useSystemFonts: true }).promise;
-      let fullText = "";
-      for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(" ");
-        fullText += pageText + "\n";
+    const parser = await getPdfParse();
+    if (parser) {
+      const data = await parser(buffer);
+      console.log("[PDF Text] Extracted text length:", data.text?.length || 0, "pages:", data.numpages);
+      if (data.text && data.text.trim().length > 0) {
+        return { text: data.text || "", pages: data.numpages };
       }
-      console.log("[PDF Text] pdfjs-dist extracted text length:", fullText.length);
-      return { text: fullText, pages: doc.numPages };
-    } catch (pdfjsError: any) {
-      console.error("[PDF Text] Both extractors failed:", pdfjsError.message);
+    }
+  } catch (error: any) {
+    console.log("[PDF Text] pdf-parse failed:", error.message);
+  }
+  
+  // Fallback to pdfjs-dist
+  console.log("[PDF Text] Trying pdfjs-dist...");
+  try {
+    const pdfjs = await getPdfjsLib();
+    if (!pdfjs) {
+      console.error("[PDF Text] pdfjs-dist not available");
       return { text: "", pages: 0 };
     }
+    
+    const uint8Array = new Uint8Array(buffer);
+    const loadingTask = pdfjs.getDocument({ 
+      data: uint8Array, 
+      useSystemFonts: true,
+      disableFontFace: true,
+      isEvalSupported: false,
+    });
+    const doc = await loadingTask.promise;
+    
+    let fullText = "";
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(" ");
+      fullText += pageText + "\n";
+    }
+    console.log("[PDF Text] pdfjs-dist extracted text length:", fullText.length);
+    return { text: fullText, pages: doc.numPages };
+  } catch (pdfjsError: any) {
+    console.error("[PDF Text] pdfjs-dist failed:", pdfjsError.message);
+    return { text: "", pages: 0 };
   }
 }
 
@@ -61,16 +108,29 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
   console.log("[PDF OCR] Starting OCR extraction...");
   
   try {
-    let canvas: any;
+    // Test canvas availability
+    let testCanvas: any;
     try {
-      canvas = createCanvas(100, 100);
+      testCanvas = createCanvas(100, 100);
     } catch (canvasError: any) {
       console.error("[PDF OCR] Canvas unavailable (native dependencies missing):", canvasError.message);
       return { text: "", pages: 0 };
     }
     
+    const pdfjs = await getPdfjsLib();
+    if (!pdfjs) {
+      console.error("[PDF OCR] pdfjs-dist not available for OCR");
+      return { text: "", pages: 0 };
+    }
+    
     const uint8Array = new Uint8Array(buffer);
-    const doc = await pdfjsLib.getDocument({ data: uint8Array, useSystemFonts: true }).promise;
+    const loadingTask = pdfjs.getDocument({ 
+      data: uint8Array, 
+      useSystemFonts: true,
+      disableFontFace: true,
+      isEvalSupported: false,
+    });
+    const doc = await loadingTask.promise;
     const numPages = doc.numPages;
     console.log("[PDF OCR] Document has", numPages, "pages");
     
@@ -84,15 +144,15 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
         const page = await doc.getPage(pageNum);
         const viewport = page.getViewport({ scale: 2.0 });
         
-        canvas = createCanvas(viewport.width, viewport.height);
-        const context = canvas.getContext("2d");
+        const pageCanvas = createCanvas(viewport.width, viewport.height);
+        const context = pageCanvas.getContext("2d");
         
         await (page.render({
           canvasContext: context as any,
           viewport: viewport,
         } as any)).promise;
         
-        const imageBuffer = canvas.toBuffer("image/png");
+        const imageBuffer = pageCanvas.toBuffer("image/png");
         
         const { data } = await Tesseract.recognize(imageBuffer, "eng", {
           logger: (m) => {
