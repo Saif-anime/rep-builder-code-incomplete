@@ -3711,6 +3711,208 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== CONTEXT-AWARE RECOMMENDATION ENGINE ====================
+  
+  // Generate recommendation for a session using all available signals
+  app.post("/api/sessions/:id/recommend", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      if (isNaN(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID" });
+      }
+
+      const session = await storage.getParkingSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const { recommendationEngineService } = await import("./services/recommendationEngine");
+
+      const recommendation = await recommendationEngineService.generateRecommendation({
+        sessionId: session.id,
+        siteId: session.siteId,
+        vrm: session.vrm,
+        entryAt: session.entryAt || undefined,
+        exitAt: session.exitAt || undefined,
+        durationMinutes: session.durationMinutes || undefined,
+      }, req.user?.id);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "generate",
+        entityType: "pcn_recommendation",
+        entityId: String(recommendation.id),
+        details: { sessionId, action: recommendation.action, confidence: recommendation.confidence },
+      });
+
+      res.status(201).json(recommendation);
+    } catch (error: any) {
+      console.error("[API] Error generating recommendation:", error);
+      res.status(500).json({ error: "Failed to generate recommendation" });
+    }
+  });
+
+  // Get all recommendations with filters
+  app.get("/api/recommendations", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { siteId, action, source, limit } = req.query;
+      
+      if (!siteId) {
+        return res.status(400).json({ error: "Site ID is required" });
+      }
+
+      const { recommendationEngineService } = await import("./services/recommendationEngine");
+
+      const recommendations = await recommendationEngineService.getRecommendationsBySite(
+        parseInt(siteId as string),
+        {
+          action: action as any,
+          source: source as any,
+          limit: limit ? parseInt(limit as string) : 50,
+        }
+      );
+
+      res.json(recommendations);
+    } catch (error: any) {
+      console.error("[API] Error fetching recommendations:", error);
+      res.status(500).json({ error: "Failed to fetch recommendations" });
+    }
+  });
+
+  // Override a specific recommendation
+  app.post("/api/recommendations/:id/override", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const recommendationId = parseInt(req.params.id);
+      if (isNaN(recommendationId)) {
+        return res.status(400).json({ error: "Invalid recommendation ID" });
+      }
+
+      const { action, reason } = req.body;
+      if (!action || !["HOLD_PCN", "PROCEED_PCN", "REVIEW_REQUIRED", "AUTO_DISMISS"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action" });
+      }
+      if (!reason || reason.trim().length === 0) {
+        return res.status(400).json({ error: "Override reason is required" });
+      }
+
+      const { recommendationEngineService } = await import("./services/recommendationEngine");
+
+      const override = await recommendationEngineService.overrideRecommendation(
+        recommendationId,
+        action,
+        reason.trim(),
+        req.user!.id
+      );
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "override",
+        entityType: "pcn_recommendation",
+        entityId: String(override.id),
+        details: { originalId: recommendationId, newAction: action, reason },
+      });
+
+      res.status(201).json(override);
+    } catch (error: any) {
+      console.error("[API] Error overriding recommendation:", error);
+      if (error.message === "Recommendation not found") {
+        return res.status(404).json({ error: "Recommendation not found" });
+      }
+      res.status(500).json({ error: "Failed to override recommendation" });
+    }
+  });
+
+  // Run spike detection for a site
+  app.post("/api/sites/:id/spike-detection/run", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const { from, to } = req.query;
+      const windowStart = from ? new Date(from as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const windowEnd = to ? new Date(to as string) : new Date();
+
+      const { spikeDetectionService } = await import("./services/spikeDetection");
+
+      const result = await spikeDetectionService.detectSpike(
+        siteId,
+        windowStart,
+        windowEnd,
+        req.user?.id
+      );
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "run",
+        entityType: "spike_detection",
+        entityId: String(siteId),
+        details: { ...result, windowStart, windowEnd },
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Error running spike detection:", error);
+      res.status(500).json({ error: "Failed to run spike detection" });
+    }
+  });
+
+  // Get site event policy
+  app.get("/api/sites/:id/policy", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const { siteEventPolicyService } = await import("./services/siteEventPolicy");
+      const policy = await siteEventPolicyService.getPolicy(siteId);
+
+      res.json(policy || { siteId, eventCategoriesEnforce: [], eventCategoriesGrace: [], isActive: false });
+    } catch (error: any) {
+      console.error("[API] Error fetching site policy:", error);
+      res.status(500).json({ error: "Failed to fetch site policy" });
+    }
+  });
+
+  // Update site event policy
+  app.put("/api/sites/:id/policy", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      if (isNaN(siteId)) {
+        return res.status(400).json({ error: "Invalid site ID" });
+      }
+
+      const { siteEventPolicyService } = await import("./services/siteEventPolicy");
+      const policy = await siteEventPolicyService.createOrUpdatePolicy(siteId, req.body);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_policy",
+        entityId: String(policy.id),
+        details: req.body,
+      });
+
+      res.json(policy);
+    } catch (error: any) {
+      console.error("[API] Error updating site policy:", error);
+      res.status(500).json({ error: "Failed to update site policy" });
+    }
+  });
+
+  // Get event categories configuration
+  app.get("/api/event-categories", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { siteEventPolicyService } = await import("./services/siteEventPolicy");
+      const categories = siteEventPolicyService.getEventCategories();
+      res.json(categories);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch event categories" });
+    }
+  });
+
   // Serve uploaded files
   app.use("/uploads", (req, res, next) => {
     res.setHeader("Cache-Control", "public, max-age=31536000");
