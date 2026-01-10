@@ -2520,7 +2520,7 @@ export async function registerRoutes(
     }
   });
 
-  // Case-level multi-file upload - uploads all files directly to a case
+  // Case-level multi-file upload - creates a bundle and adds all files to it
   app.post("/api/cases/:id/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
     upload.array("files", 20)(req, res, (err: any) => {
       if (err) {
@@ -2548,27 +2548,38 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Case not found" });
       }
       
-      const { capturedAt } = req.body;
+      const { capturedAt, bundleName } = req.body;
       const capturedTimestamp = capturedAt ? new Date(capturedAt) : new Date();
+      
+      // Create evidence bundle first
+      const bundle = await storage.createEvidenceBundle({
+        caseId,
+        name: bundleName || `Upload ${new Date().toISOString().split('T')[0]}`,
+        status: "pending",
+        fileCount: files.length,
+        createdBy: req.user!.id,
+      });
+      
       const evidenceIds: number[] = [];
       
-      // Process all files and link them to the case
+      // Process all files and link them to the bundle
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const hash = calculateFileHash(file.path);
         const isImage = file.mimetype.startsWith("image/");
         
-        // Create evidence record
+        // Create evidence record with bundleId
         const ev = await storage.createEvidence({
           type: "manual",
+          bundleId: bundle.id,
           uploadedBy: req.user!.id,
           siteId: caseData.siteId,
           imagePath: isImage ? `/uploads/${file.filename}` : null,
           videoPath: !isImage ? `/uploads/${file.filename}` : null,
           thumbnailPath: isImage ? `/uploads/${file.filename}` : null,
-          timestamp: new Date(capturedTimestamp.getTime() + (i * 1000)), // Offset slightly for ordering
+          timestamp: new Date(capturedTimestamp.getTime() + (i * 1000)),
           sha256Hash: hash,
-          notes: `Case ${caseId} - File ${i + 1} of ${files.length}`,
+          notes: `Bundle ${bundle.id} - File ${i + 1} of ${files.length}`,
           status: "pending",
           metadata: {
             format: file.mimetype,
@@ -2578,34 +2589,23 @@ export async function registerRoutes(
         
         evidenceIds.push(ev.id);
         
-        // Link evidence to case
-        await storage.addEvidenceToCase({
-          caseId,
-          evidenceId: ev.id,
-          source: "manual",
-        });
-        
         await storage.createAuditLog({
           userId: req.user!.id,
           action: "upload",
-          entityType: "case_evidence",
-          entityId: ev.id.toString(),
-          details: { caseId, filename: file.originalname, fileIndex: i + 1, totalFiles: files.length },
+          entityType: "evidence_bundle",
+          entityId: bundle.id.toString(),
+          details: { caseId, bundleId: bundle.id, filename: file.originalname, fileIndex: i + 1, totalFiles: files.length },
         });
       }
       
-      // Update case evidence count
-      await storage.updateCaseEvidenceCount(caseId);
-      
-      const updatedCase = await storage.getCaseById(caseId);
-      const caseEvidenceItems = await storage.getCaseEvidence(caseId);
+      // Update bundle file count
+      await storage.updateEvidenceBundleFileCount(bundle.id);
       
       res.status(201).json({
         success: true,
-        case: updatedCase,
+        bundle,
         evidenceIds,
-        evidenceCount: caseEvidenceItems.length,
-        message: `Successfully uploaded ${files.length} file(s) to case`,
+        message: `Successfully uploaded ${files.length} file(s) as bundle`,
       });
     } catch (error: any) {
       console.error("[Case Upload] Error:", error.message);
@@ -2903,6 +2903,186 @@ export async function registerRoutes(
       res.json(analysis);
     } catch (error: any) {
       res.status(500).json({ error: "Failed to fetch case analysis" });
+    }
+  });
+
+  // Get bundles for a case
+  app.get("/api/cases/:id/bundles", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const bundles = await storage.getEvidenceBundlesByCase(req.params.id);
+      const bundlesWithFiles = await Promise.all(
+        bundles.map(async (bundle) => {
+          const files = await storage.getEvidenceByBundle(bundle.id);
+          return { ...bundle, files };
+        })
+      );
+      res.json(bundlesWithFiles);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch case bundles" });
+    }
+  });
+
+  // Get specific bundle with files
+  app.get("/api/bundles/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const bundle = await storage.getEvidenceBundle(parseInt(req.params.id));
+      if (!bundle) {
+        return res.status(404).json({ error: "Bundle not found" });
+      }
+      const files = await storage.getEvidenceByBundle(bundle.id);
+      res.json({ ...bundle, files });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch bundle" });
+    }
+  });
+
+  // Analyze a bundle - processes all files together with unified prompt
+  app.post("/api/bundles/:id/analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const bundleId = parseInt(req.params.id);
+      const bundle = await storage.getEvidenceBundle(bundleId);
+      if (!bundle) {
+        return res.status(404).json({ error: "Bundle not found" });
+      }
+
+      await storage.updateEvidenceBundle(bundleId, { 
+        status: "analyzing", 
+        analysisStartedAt: new Date() 
+      });
+
+      const files = await storage.getEvidenceByBundle(bundleId);
+      if (files.length === 0) {
+        await storage.updateEvidenceBundle(bundleId, { status: "pending" });
+        return res.status(400).json({ error: "No files in bundle to analyze" });
+      }
+
+      const caseData = await storage.getCaseById(bundle.caseId);
+      const site = caseData?.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+
+      // Get all image files from the bundle
+      const imageFiles = files.filter(f => f.imagePath);
+      const visionInputs = imageFiles.map(f => ({
+        imagePath: f.imagePath!,
+        siteName: site?.siteName,
+        caseId: bundle.caseId,
+        timestamp: f.timestamp?.toISOString(),
+      }));
+
+      const visionResults = await analyzeMultipleImages(visionInputs);
+      const successfulResults = visionResults
+        .filter(r => r.success && r.result)
+        .map(r => r.result!);
+
+      const mergedVision = mergeVisionResults(successfulResults);
+
+      // Determine violation and recommendation
+      let violation = null;
+      let confidenceScore = 0.5;
+      let recommendation = "Review";
+      let riskAssessment = "Medium";
+
+      if (mergedVision) {
+        if (mergedVision.bayTypeVisible === "disabled" && !mergedVision.disabledBadgeVisible) {
+          violation = { type: "DISABLED BAY", detected: true, confidence: 0.8, explanation: "Vehicle in disabled bay without visible blue badge" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.8;
+        } else if (mergedVision.bayTypeVisible === "ev" && !mergedVision.evIndicators) {
+          violation = { type: "EV BAY", detected: true, confidence: 0.75, explanation: "Non-EV vehicle in EV charging bay" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.75;
+        } else if (mergedVision.bayTypeVisible === "parent-child" && !mergedVision.humansDetected.child) {
+          violation = { type: "PARENT & CHILD", detected: true, confidence: 0.7, explanation: "No child detected in parent-child bay" };
+          recommendation = "Review";
+          riskAssessment = "Medium";
+          confidenceScore = 0.7;
+        } else {
+          recommendation = "No Action";
+          riskAssessment = "Low";
+          confidenceScore = 0.6;
+        }
+      }
+
+      // Calculate time window from all files
+      const timestamps = files
+        .map(f => f.timestamp)
+        .filter(Boolean)
+        .sort((a, b) => a!.getTime() - b!.getTime());
+
+      let timeWindow = null;
+      const gaps: string[] = [];
+      if (timestamps.length > 0) {
+        const firstSeen = timestamps[0]!.toISOString();
+        const lastSeen = timestamps[timestamps.length - 1]!.toISOString();
+        const durationMinutes = Math.round((timestamps[timestamps.length - 1]!.getTime() - timestamps[0]!.getTime()) / 60000);
+
+        for (let i = 1; i < timestamps.length; i++) {
+          const gap = (timestamps[i]!.getTime() - timestamps[i - 1]!.getTime()) / 60000;
+          if (gap > 5) {
+            gaps.push(`${gap.toFixed(1)} minute gap between file ${i} and ${i + 1}`);
+          }
+        }
+
+        timeWindow = { firstSeen, lastSeen, durationMinutes, gaps };
+      }
+
+      // Build unified AI result for the bundle
+      const aiResult = {
+        summary: `Unified analysis of ${files.length} files. ${mergedVision ? `Vehicle: ${mergedVision.vehicleType || 'Unknown'}. Bay: ${mergedVision.bayTypeVisible || 'Unknown'}.` : 'No visual data extracted.'}`,
+        vehicleDetails: mergedVision ? {
+          detected: mergedVision.vehicleDetected,
+          type: mergedVision.vehicleType,
+          plate: mergedVision.numberPlateDetected || null,
+          evIndicators: mergedVision.evIndicators,
+          color: mergedVision.vehicleColor,
+        } : { detected: false, type: "unknown", plate: null, evIndicators: false },
+        bayType: mergedVision?.bayTypeVisible || "unknown",
+        signageFindings: {
+          visible: mergedVision?.signageVisible || false,
+          compliant: true,
+          notes: mergedVision?.confidenceNotes || "No signage analysis available",
+        },
+        humanDetection: mergedVision ? {
+          adult: mergedVision.humansDetected.adult,
+          child: mergedVision.humansDetected.child,
+          disabledBadgeVisible: mergedVision.disabledBadgeVisible,
+        } : { adult: false, child: false, disabledBadgeVisible: false },
+        violations: violation ? [violation] : [],
+        timeWindow: timeWindow || { firstSeen: "", lastSeen: "", durationMinutes: 0, gaps: [] },
+        confidenceScore,
+        riskAssessment,
+        recommendation,
+        modelVersion: "gpt-4o",
+      };
+
+      // Update bundle with AI result
+      const updatedBundle = await storage.updateEvidenceBundle(bundleId, {
+        status: "analyzed",
+        aiResult,
+        analysisCompletedAt: new Date(),
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "analyze",
+        entityType: "evidence_bundle",
+        entityId: bundleId.toString(),
+        details: { caseId: bundle.caseId, recommendation, fileCount: files.length },
+      });
+
+      res.json({
+        bundle: updatedBundle,
+        files,
+        analysis: aiResult,
+      });
+    } catch (error: any) {
+      console.error("[Bundle Analysis] Error:", error.message);
+      await storage.updateEvidenceBundle(parseInt(req.params.id), {
+        status: "failed",
+        analysisError: error.message,
+      });
+      res.status(500).json({ error: "Failed to analyze bundle" });
     }
   });
 
