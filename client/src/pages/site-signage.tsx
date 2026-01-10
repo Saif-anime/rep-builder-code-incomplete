@@ -26,6 +26,24 @@ interface SignageWithFiles extends ParkingSiteSignage {
   }>;
 }
 
+// Helper function to format enforcement hours object to string
+function formatEnforcementHours(hours: any): string {
+  if (!hours) return "Not detected";
+  if (typeof hours === "string") return hours;
+  if (typeof hours === "object") {
+    const { start, end, days } = hours;
+    let result = "";
+    if (start && end) {
+      result = `${start} - ${end}`;
+    }
+    if (Array.isArray(days) && days.length > 0) {
+      result += result ? ` (${days.join(", ")})` : days.join(", ");
+    }
+    return result || "Not detected";
+  }
+  return "Not detected";
+}
+
 export default function SiteSignagePage() {
   const { toast } = useToast();
   const [, params] = useRoute("/sites/:siteId/signage");
@@ -398,7 +416,7 @@ export default function SiteSignagePage() {
                       <div>
                         <p className="text-sm text-muted-foreground">Enforcement Hours</p>
                         <p className="font-medium">
-                          {(selectedSignage.extractedData as any)?.enforcementHours || "Not detected"}
+                          {formatEnforcementHours((selectedSignage.extractedData as any)?.enforcementHours)}
                         </p>
                       </div>
                       <div>
@@ -533,7 +551,7 @@ function SignageCard({
               <span>Grace: {extractedData.graceMinutes}m</span>
             )}
             {extractedData?.enforcementHours && (
-              <span>{extractedData.enforcementHours}</span>
+              <span>{formatEnforcementHours(extractedData.enforcementHours)}</span>
             )}
           </div>
         </div>
