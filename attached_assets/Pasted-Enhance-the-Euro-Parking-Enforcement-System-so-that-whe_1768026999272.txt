@@ -1,0 +1,176 @@
+Enhance the Euro Parking Enforcement System so that
+when MULTIPLE files are uploaded for the SAME CASE,
+the system produces ONE unified analysis report.
+
+====================================================
+CORE REQUIREMENT
+====================================================
+
+When a user uploads:
+- multiple images
+- videos
+- PDFs
+- camera evidence
+- manual uploads
+
+ALL linked to the SAME caseId
+
+➡ Analyse EVERYTHING together
+➡ Generate ONE final case analysis
+➡ Store ONE consolidated report
+
+====================================================
+CASE IDENTIFICATION (MANDATORY)
+====================================================
+
+Each evidence upload MUST include:
+- caseId (string, UUID)
+- siteId
+- cameraId (optional for manual)
+- source: "camera" | "manual" | "pdf"
+- timestamp
+
+If caseId already exists:
+- DO NOT create new analysis
+- Append evidence to existing case
+
+====================================================
+DATABASE MODEL (REQUIRED)
+====================================================
+
+Case
+- id
+- siteId
+- status: pending | analysing | complete
+- createdAt
+
+Evidence
+- id
+- caseId
+- type: image | video | pdf
+- source
+- fileUrl
+- metadata
+- createdAt
+
+CaseAnalysis
+- caseId
+- summary
+- vehicleDetails
+- bayType
+- signageFindings
+- humanDetection
+- violations
+- confidenceScore
+- generatedAt
+
+====================================================
+ANALYSIS PIPELINE (CRITICAL)
+====================================================
+
+1️⃣ Trigger analysis ONLY when:
+- User clicks "Analyse Case"
+OR
+- Auto-trigger when last file uploaded
+
+2️⃣ Load ALL evidence for that caseId
+
+3️⃣ Run AI analysis across ALL files:
+- Merge detections
+- Cross-validate findings
+- Remove duplicates
+- Resolve conflicts by confidence
+
+====================================================
+AI ANALYSIS RULES
+====================================================
+
+From ALL files combined, determine:
+
+- Vehicle detected (yes/no)
+- Vehicle type (EV / non-EV)
+- Number plate (best confidence)
+- Bay type (disabled / parent-child / EV / standard)
+- Human detection:
+    - adult
+    - child
+    - disabled badge visible
+- Signage compliance (from PDFs/images)
+- Time consistency (timestamps match offence window)
+
+====================================================
+CONSOLIDATED REPORT FORMAT (STRICT)
+====================================================
+
+Return ONE report per case:
+
+{
+  caseId,
+  siteName,
+  evidenceCount,
+  timelineSummary,
+  finalFindings: {
+    vehicle,
+    plate,
+    bayType,
+    violation,
+    signageCompliance
+  },
+  supportingEvidence: [
+    { evidenceId, type, keyFinding }
+  ],
+  riskAssessment: "Low | Medium | High",
+  confidenceScore: 0-100,
+  recommendation: "Issue PCN | Review | No Action"
+}
+
+====================================================
+FRONTEND UI BEHAVIOUR
+====================================================
+
+- Case page shows:
+  - All uploaded files
+  - ONE "Analyse Case" button
+  - ONE analysis result panel
+
+- No per-file analysis cards
+- No duplicate reports
+
+====================================================
+STATUS HANDLING
+====================================================
+
+Case status:
+- pending → analysing → complete
+
+Show progress indicator while analysing
+
+====================================================
+ERROR HANDLING
+====================================================
+
+- If one file fails → continue analysis
+- Log partial failures
+- Still produce final report
+
+====================================================
+NON-NEGOTIABLE RULES
+====================================================
+
+❌ Never analyse files individually for same case
+❌ Never create multiple reports for same case
+❌ Never overwrite evidence
+
+✅ Case-centric, not file-centric
+
+====================================================
+DELIVERABLE
+====================================================
+
+- Multi-file uploads supported
+- Single unified case analysis
+- Accurate, court-ready report
+- Fully integrated into existing system
+
+Implement fully.
+Do not simplify.

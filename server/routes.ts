@@ -25,7 +25,8 @@ import { analyzeEvidenceById, retryFailedAnalysis } from "./evidence-worker";
 import { runEnrichment } from "./contextEnrichment";
 import { getDriverProfileWithFreshCalculation, recomputeDriverProfiles } from "./driverProfiling";
 import { processPdf, parsePdfToSignageData } from "./pdfProcessor";
-import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema } from "@shared/schema";
+import { analyzeImageWithVision, analyzeMultipleImages, mergeVisionResults } from "./visionAnalysis";
+import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema, insertEnforcementCaseSchema, insertCaseEvidenceSchema } from "@shared/schema";
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -2388,6 +2389,263 @@ export async function registerRoutes(
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to update AI settings" });
+    }
+  });
+
+  // ==================== VISION GPT ANALYSIS ====================
+  app.post("/api/evidence/:id/vision-analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const evidenceId = parseInt(req.params.id);
+      const evidenceItem = await storage.getEvidence(evidenceId);
+      
+      if (!evidenceItem) {
+        return res.status(404).json({ error: "Evidence not found" });
+      }
+      
+      if (!evidenceItem.imagePath) {
+        return res.status(400).json({ error: "No image available for analysis" });
+      }
+      
+      const site = evidenceItem.siteId ? await storage.getParkingSite(evidenceItem.siteId) : null;
+      
+      const result = await analyzeImageWithVision({
+        imagePath: evidenceItem.imagePath,
+        siteName: site?.siteName || undefined,
+        timestamp: evidenceItem.timestamp?.toISOString(),
+      });
+      
+      if (result.success && result.result) {
+        await storage.updateEvidence(evidenceId, {
+          notes: evidenceItem.notes ? `${evidenceItem.notes}\n[Vision Analysis]: ${result.result.confidenceNotes}` : `[Vision Analysis]: ${result.result.confidenceNotes}`,
+        });
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Vision] Error:", error.message);
+      res.status(500).json({ error: "Failed to analyze image with Vision GPT" });
+    }
+  });
+
+  // ==================== ENFORCEMENT CASES ====================
+  app.get("/api/cases", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { siteId, status, limit = "50", offset = "0" } = req.query;
+      const cases = await storage.getCases({
+        siteId: siteId ? parseInt(siteId as string) : undefined,
+        status: status as string,
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string),
+      });
+      res.json(cases);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch cases" });
+    }
+  });
+
+  app.get("/api/cases/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseData = await storage.getCaseById(req.params.id);
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      res.json(caseData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch case" });
+    }
+  });
+
+  app.post("/api/cases", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const parsed = insertEnforcementCaseSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid case data", details: parsed.error.errors });
+      }
+      
+      const newCase = await storage.createCase({
+        ...parsed.data,
+        createdBy: req.user!.id,
+      });
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "enforcement_case",
+        entityId: newCase.id,
+        details: { siteId: newCase.siteId },
+      });
+      
+      res.status(201).json(newCase);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to create case" });
+    }
+  });
+
+  app.post("/api/cases/:id/evidence", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { evidenceIds, source = "manual" } = req.body;
+      
+      if (!Array.isArray(evidenceIds) || evidenceIds.length === 0) {
+        return res.status(400).json({ error: "evidenceIds array required" });
+      }
+      
+      const caseData = await storage.getCaseById(req.params.id);
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      for (const evidenceId of evidenceIds) {
+        await storage.addEvidenceToCase({
+          caseId: req.params.id,
+          evidenceId,
+          source,
+        });
+      }
+      
+      await storage.updateCaseEvidenceCount(req.params.id);
+      
+      const updatedCase = await storage.getCaseById(req.params.id);
+      res.json(updatedCase);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to add evidence to case" });
+    }
+  });
+
+  app.get("/api/cases/:id/evidence", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const evidenceItems = await storage.getCaseEvidence(req.params.id);
+      res.json(evidenceItems);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch case evidence" });
+    }
+  });
+
+  app.post("/api/cases/:id/analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseData = await storage.getCaseById(req.params.id);
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      await storage.updateCaseStatus(req.params.id, "analysing");
+      
+      const evidenceItems = await storage.getCaseEvidence(req.params.id);
+      if (evidenceItems.length === 0) {
+        await storage.updateCaseStatus(req.params.id, "pending");
+        return res.status(400).json({ error: "No evidence in case to analyze" });
+      }
+      
+      const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+      
+      const imageEvidence = evidenceItems.filter((e: any) => e.evidence?.imagePath);
+      const visionInputs = imageEvidence.map((e: any) => ({
+        imagePath: e.evidence.imagePath,
+        siteName: site?.siteName,
+        caseId: caseData.id,
+        timestamp: e.evidence.timestamp?.toISOString(),
+      }));
+      
+      const visionResults = await analyzeMultipleImages(visionInputs);
+      const successfulResults = visionResults
+        .filter(r => r.success && r.result)
+        .map(r => r.result!);
+      
+      const mergedVision = mergeVisionResults(successfulResults);
+      
+      let violation = null;
+      let confidenceScore = 0.5;
+      let recommendation = "Review";
+      let riskAssessment = "Medium";
+      
+      if (mergedVision) {
+        if (mergedVision.bayTypeVisible === "disabled" && !mergedVision.disabledBadgeVisible) {
+          violation = { type: "DISABLED BAY", detected: true, confidence: 0.8, explanation: "Vehicle in disabled bay without visible blue badge" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.8;
+        } else if (mergedVision.bayTypeVisible === "ev" && !mergedVision.evIndicators) {
+          violation = { type: "EV BAY", detected: true, confidence: 0.75, explanation: "Non-EV vehicle in EV charging bay" };
+          recommendation = "Issue PCN";
+          riskAssessment = "Low";
+          confidenceScore = 0.75;
+        } else if (mergedVision.bayTypeVisible === "parent-child" && !mergedVision.humansDetected.child) {
+          violation = { type: "PARENT & CHILD", detected: true, confidence: 0.7, explanation: "No child detected in parent-child bay" };
+          recommendation = "Review";
+          riskAssessment = "Medium";
+          confidenceScore = 0.7;
+        } else {
+          recommendation = "No Action";
+          riskAssessment = "Low";
+          confidenceScore = 0.6;
+        }
+      }
+      
+      const timestamps = evidenceItems
+        .map((e: any) => e.evidence?.timestamp)
+        .filter(Boolean)
+        .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+      
+      const timelineSummary = timestamps.length > 0
+        ? `Evidence spans from ${timestamps[0].toISOString()} to ${timestamps[timestamps.length - 1].toISOString()}`
+        : "No timestamp data available";
+      
+      const analysis = await storage.createCaseAnalysis({
+        caseId: caseData.id,
+        summary: `Analysis of ${evidenceItems.length} evidence items for ${site?.siteName || "Unknown Site"}`,
+        vehicleDetails: mergedVision ? {
+          detected: mergedVision.vehicleDetected,
+          type: mergedVision.vehicleType,
+          plate: mergedVision.numberPlateDetected || null,
+          evIndicators: mergedVision.evIndicators,
+        } : null,
+        bayType: mergedVision?.bayTypeVisible || null,
+        signageFindings: mergedVision ? {
+          visible: mergedVision.signageVisible,
+          compliant: true,
+          notes: mergedVision.confidenceNotes,
+        } : null,
+        humanDetection: mergedVision ? {
+          adult: mergedVision.humansDetected.adult,
+          child: mergedVision.humansDetected.child,
+          disabledBadgeVisible: mergedVision.disabledBadgeVisible,
+        } : null,
+        violations: violation ? [violation] : [],
+        confidenceScore,
+        riskAssessment,
+        recommendation,
+        timelineSummary,
+      });
+      
+      await storage.updateCaseStatus(req.params.id, "complete");
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "analyze",
+        entityType: "enforcement_case",
+        entityId: caseData.id,
+        details: { recommendation, evidenceCount: evidenceItems.length },
+      });
+      
+      res.json({
+        case: await storage.getCaseById(req.params.id),
+        analysis,
+      });
+    } catch (error: any) {
+      console.error("[Case Analysis] Error:", error.message);
+      await storage.updateCaseStatus(req.params.id, "pending");
+      res.status(500).json({ error: "Failed to analyze case" });
+    }
+  });
+
+  app.get("/api/cases/:id/analysis", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const analysis = await storage.getCaseAnalysis(req.params.id);
+      if (!analysis) {
+        return res.status(404).json({ error: "No analysis found for this case" });
+      }
+      res.json(analysis);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch case analysis" });
     }
   });
 

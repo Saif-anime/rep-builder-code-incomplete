@@ -133,6 +133,89 @@ export const insertEvidenceSchema = createInsertSchema(evidence).omit({
 export type InsertEvidence = z.infer<typeof insertEvidenceSchema>;
 export type Evidence = typeof evidence.$inferSelect;
 
+// ==================== ENFORCEMENT CASES ====================
+export const enforcementCases = pgTable("enforcement_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  siteId: integer("site_id").references(() => parkingSites.id),
+  vrm: text("vrm"),
+  status: text("status").notNull().default("pending"), // pending, analysing, complete, dismissed
+  evidenceCount: integer("evidence_count").notNull().default(0),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEnforcementCaseSchema = createInsertSchema(enforcementCases).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  evidenceCount: true,
+});
+
+export type InsertEnforcementCase = z.infer<typeof insertEnforcementCaseSchema>;
+export type EnforcementCase = typeof enforcementCases.$inferSelect;
+
+// ==================== CASE EVIDENCE LINK ====================
+export const caseEvidence = pgTable("case_evidence", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  evidenceId: integer("evidence_id").references(() => evidence.id).notNull(),
+  source: text("source").notNull().default("manual"), // camera, manual, pdf
+  keyFinding: text("key_finding"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCaseEvidenceSchema = createInsertSchema(caseEvidence).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCaseEvidence = z.infer<typeof insertCaseEvidenceSchema>;
+export type CaseEvidence = typeof caseEvidence.$inferSelect;
+
+// ==================== CASE ANALYSIS ====================
+export const caseAnalysis = pgTable("case_analysis", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull().unique(),
+  summary: text("summary"),
+  vehicleDetails: jsonb("vehicle_details").$type<{
+    detected: boolean;
+    type: string;
+    plate: string | null;
+    evIndicators: boolean;
+  }>(),
+  bayType: text("bay_type"),
+  signageFindings: jsonb("signage_findings").$type<{
+    visible: boolean;
+    compliant: boolean;
+    notes: string;
+  }>(),
+  humanDetection: jsonb("human_detection").$type<{
+    adult: boolean;
+    child: boolean;
+    disabledBadgeVisible: boolean;
+  }>(),
+  violations: jsonb("violations").$type<{
+    type: string;
+    detected: boolean;
+    confidence: number;
+    explanation: string;
+  }[]>(),
+  confidenceScore: real("confidence_score"),
+  riskAssessment: text("risk_assessment"), // Low, Medium, High
+  recommendation: text("recommendation"), // Issue PCN, Review, No Action
+  timelineSummary: text("timeline_summary"),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+});
+
+export const insertCaseAnalysisSchema = createInsertSchema(caseAnalysis).omit({
+  id: true,
+  generatedAt: true,
+});
+
+export type InsertCaseAnalysis = z.infer<typeof insertCaseAnalysisSchema>;
+export type CaseAnalysis = typeof caseAnalysis.$inferSelect;
+
 // ==================== DETECTIONS ====================
 export const detections = pgTable("detections", {
   id: serial("id").primaryKey(),

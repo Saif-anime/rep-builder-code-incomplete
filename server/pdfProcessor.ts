@@ -26,9 +26,9 @@ export interface ExtractedSections {
 // Extract text using pdf-parse
 async function extractWithPdfParse(buffer: Buffer): Promise<{ text: string; pages: number }> {
   try {
-    // Use dynamic import with default export handling
-    const pdfParseModule = await import("pdf-parse");
-    const pdfParse = pdfParseModule.default || pdfParseModule;
+    // Use dynamic import - pdf-parse exports the function directly
+    const pdfParseModule = await import("pdf-parse") as any;
+    const pdfParse = pdfParseModule.default ?? pdfParseModule;
     
     if (typeof pdfParse !== "function") {
       console.log("[PDF] pdf-parse loaded but not a function, type:", typeof pdfParse);

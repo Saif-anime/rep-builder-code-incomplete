@@ -1,6 +1,7 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
   anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
+  enforcementCases, caseEvidence, caseAnalysis,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -13,7 +14,8 @@ import {
   type EnrichmentRun, type InsertEnrichmentRun,
   type SessionFlag, type InsertSessionFlag,
   type DriverProfile, type InsertDriverProfile,
-  type PcnRecommendation, type InsertPcnRecommendation
+  type PcnRecommendation, type InsertPcnRecommendation,
+  type EnforcementCase, type InsertEnforcementCase, type CaseEvidence, type InsertCaseEvidence, type CaseAnalysis, type InsertCaseAnalysis
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -1081,6 +1083,83 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(parkingSessions)
       .where(and(...conditions))
       .orderBy(desc(parkingSessions.entryAt));
+  }
+
+  // Enforcement Cases
+  async getCases(options: { siteId?: number; status?: string; limit?: number; offset?: number }): Promise<EnforcementCase[]> {
+    const conditions = [];
+    if (options.siteId) {
+      conditions.push(eq(enforcementCases.siteId, options.siteId));
+    }
+    if (options.status) {
+      conditions.push(eq(enforcementCases.status, options.status));
+    }
+    const query = db.select().from(enforcementCases)
+      .orderBy(desc(enforcementCases.createdAt))
+      .limit(options.limit || 50)
+      .offset(options.offset || 0);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions));
+    }
+    return query;
+  }
+
+  async getCaseById(id: string): Promise<EnforcementCase | undefined> {
+    const [caseData] = await db.select().from(enforcementCases).where(eq(enforcementCases.id, id));
+    return caseData || undefined;
+  }
+
+  async createCase(insertCase: InsertEnforcementCase): Promise<EnforcementCase> {
+    const [created] = await db.insert(enforcementCases).values(insertCase).returning();
+    return created;
+  }
+
+  async updateCaseStatus(id: string, status: string): Promise<EnforcementCase | undefined> {
+    const [updated] = await db.update(enforcementCases)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(enforcementCases.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async updateCaseEvidenceCount(id: string): Promise<void> {
+    const evidenceItems = await db.select().from(caseEvidence).where(eq(caseEvidence.caseId, id));
+    await db.update(enforcementCases)
+      .set({ evidenceCount: evidenceItems.length, updatedAt: new Date() })
+      .where(eq(enforcementCases.id, id));
+  }
+
+  async addEvidenceToCase(insertCaseEvidence: InsertCaseEvidence): Promise<CaseEvidence> {
+    const [created] = await db.insert(caseEvidence).values(insertCaseEvidence).returning();
+    return created;
+  }
+
+  async getCaseEvidence(caseId: string): Promise<Array<CaseEvidence & { evidence?: Evidence }>> {
+    const items = await db.select().from(caseEvidence).where(eq(caseEvidence.caseId, caseId));
+    const result = [];
+    for (const item of items) {
+      const [ev] = await db.select().from(evidence).where(eq(evidence.id, item.evidenceId));
+      result.push({ ...item, evidence: ev });
+    }
+    return result;
+  }
+
+  async createCaseAnalysis(insertAnalysis: InsertCaseAnalysis): Promise<CaseAnalysis> {
+    const existing = await this.getCaseAnalysis(insertAnalysis.caseId);
+    if (existing) {
+      const [updated] = await db.update(caseAnalysis)
+        .set({ ...insertAnalysis, generatedAt: new Date() })
+        .where(eq(caseAnalysis.caseId, insertAnalysis.caseId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(caseAnalysis).values(insertAnalysis).returning();
+    return created;
+  }
+
+  async getCaseAnalysis(caseId: string): Promise<CaseAnalysis | undefined> {
+    const [analysis] = await db.select().from(caseAnalysis).where(eq(caseAnalysis.caseId, caseId));
+    return analysis || undefined;
   }
 }
 
