@@ -51,10 +51,13 @@ export default function SiteSignagePage() {
       setIsUploading(true);
       const formData = new FormData();
       formData.append("file", file);
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/sites/${siteId}/signage/upload`, {
         method: "POST",
         body: formData,
-        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Upload failed" }));
