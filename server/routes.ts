@@ -2520,6 +2520,194 @@ export async function registerRoutes(
     }
   });
 
+  // Case-level multi-file upload - uploads all files directly to a case
+  app.post("/api/cases/:id/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
+    upload.array("files", 20)(req, res, (err: any) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ error: "File too large. Maximum size is 50MB." });
+        }
+        if (err.message === "Only images and videos are allowed") {
+          return res.status(415).json({ error: "Unsupported file type. Only images and videos allowed." });
+        }
+        return res.status(400).json({ error: err.message || "File upload error" });
+      }
+      next();
+    });
+  }, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const files = req.files as Express.Multer.File[];
+      
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+      }
+      
+      const caseData = await storage.getCaseById(caseId);
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      const { capturedAt } = req.body;
+      const capturedTimestamp = capturedAt ? new Date(capturedAt) : new Date();
+      const evidenceIds: number[] = [];
+      
+      // Process all files and link them to the case
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const hash = calculateFileHash(file.path);
+        const isImage = file.mimetype.startsWith("image/");
+        
+        // Create evidence record
+        const ev = await storage.createEvidence({
+          type: "manual",
+          uploadedBy: req.user!.id,
+          siteId: caseData.siteId,
+          imagePath: isImage ? `/uploads/${file.filename}` : null,
+          videoPath: !isImage ? `/uploads/${file.filename}` : null,
+          thumbnailPath: isImage ? `/uploads/${file.filename}` : null,
+          timestamp: new Date(capturedTimestamp.getTime() + (i * 1000)), // Offset slightly for ordering
+          sha256Hash: hash,
+          notes: `Case ${caseId} - File ${i + 1} of ${files.length}`,
+          status: "pending",
+          metadata: {
+            format: file.mimetype,
+            fileSize: file.size,
+          },
+        });
+        
+        evidenceIds.push(ev.id);
+        
+        // Link evidence to case
+        await storage.addEvidenceToCase({
+          caseId,
+          evidenceId: ev.id,
+          source: "manual",
+        });
+        
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "upload",
+          entityType: "case_evidence",
+          entityId: ev.id.toString(),
+          details: { caseId, filename: file.originalname, fileIndex: i + 1, totalFiles: files.length },
+        });
+      }
+      
+      // Update case evidence count
+      await storage.updateCaseEvidenceCount(caseId);
+      
+      const updatedCase = await storage.getCaseById(caseId);
+      const caseEvidenceItems = await storage.getCaseEvidence(caseId);
+      
+      res.status(201).json({
+        success: true,
+        case: updatedCase,
+        evidenceIds,
+        evidenceCount: caseEvidenceItems.length,
+        message: `Successfully uploaded ${files.length} file(s) to case`,
+      });
+    } catch (error: any) {
+      console.error("[Case Upload] Error:", error.message);
+      res.status(500).json({ error: "Failed to upload files to case" });
+    }
+  });
+
+  // Create case with files in one operation
+  app.post("/api/cases/upload", authenticateToken, (req: AuthRequest, res: Response, next) => {
+    upload.array("files", 20)(req, res, (err: any) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ error: "File too large. Maximum size is 50MB." });
+        }
+        if (err.message === "Only images and videos are allowed") {
+          return res.status(415).json({ error: "Unsupported file type. Only images and videos allowed." });
+        }
+        return res.status(400).json({ error: err.message || "File upload error" });
+      }
+      next();
+    });
+  }, async (req: AuthRequest, res: Response) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+      }
+      
+      const { siteId, vrm, capturedAt } = req.body;
+      const parsedSiteId = siteId ? parseInt(siteId) : null;
+      const capturedTimestamp = capturedAt ? new Date(capturedAt) : new Date();
+      
+      // Create the case first
+      const newCase = await storage.createCase({
+        siteId: parsedSiteId,
+        vrm: vrm || null,
+        createdBy: req.user!.id,
+        status: "pending",
+      });
+      
+      const evidenceIds: number[] = [];
+      
+      // Process all files and link them to the case
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const hash = calculateFileHash(file.path);
+        const isImage = file.mimetype.startsWith("image/");
+        
+        // Create evidence record
+        const ev = await storage.createEvidence({
+          type: "manual",
+          uploadedBy: req.user!.id,
+          siteId: parsedSiteId,
+          imagePath: isImage ? `/uploads/${file.filename}` : null,
+          videoPath: !isImage ? `/uploads/${file.filename}` : null,
+          thumbnailPath: isImage ? `/uploads/${file.filename}` : null,
+          timestamp: new Date(capturedTimestamp.getTime() + (i * 1000)),
+          sha256Hash: hash,
+          notes: `Case ${newCase.id} - File ${i + 1} of ${files.length}`,
+          status: "pending",
+          metadata: {
+            format: file.mimetype,
+            fileSize: file.size,
+          },
+        });
+        
+        evidenceIds.push(ev.id);
+        
+        // Link evidence to case
+        await storage.addEvidenceToCase({
+          caseId: newCase.id,
+          evidenceId: ev.id,
+          source: "manual",
+        });
+      }
+      
+      // Update case evidence count
+      await storage.updateCaseEvidenceCount(newCase.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "enforcement_case",
+        entityId: newCase.id,
+        details: { siteId: parsedSiteId, vrm, filesUploaded: files.length },
+      });
+      
+      const updatedCase = await storage.getCaseById(newCase.id);
+      
+      res.status(201).json({
+        success: true,
+        case: updatedCase,
+        evidenceIds,
+        message: `Successfully created case with ${files.length} file(s)`,
+      });
+    } catch (error: any) {
+      console.error("[Create Case Upload] Error:", error.message);
+      res.status(500).json({ error: "Failed to create case with uploads" });
+    }
+  });
+
   app.post("/api/cases/:id/analyze", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const caseData = await storage.getCaseById(req.params.id);
@@ -2585,9 +2773,73 @@ export async function registerRoutes(
         .filter(Boolean)
         .sort((a: Date, b: Date) => a.getTime() - b.getTime());
       
+      // Calculate time window with gap detection
+      let timeWindow = null;
+      if (timestamps.length > 0) {
+        const firstSeen = timestamps[0].toISOString();
+        const lastSeen = timestamps[timestamps.length - 1].toISOString();
+        const durationMinutes = Math.round((timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime()) / 60000);
+        
+        // Detect gaps > 5 minutes between consecutive evidence
+        const gaps: string[] = [];
+        const conflicts: string[] = [];
+        for (let i = 1; i < timestamps.length; i++) {
+          const gap = (timestamps[i].getTime() - timestamps[i - 1].getTime()) / 60000;
+          if (gap > 5) {
+            gaps.push(`${gap.toFixed(1)} minute gap between evidence ${i} and ${i + 1}`);
+          }
+        }
+        
+        timeWindow = { firstSeen, lastSeen, durationMinutes, gaps, conflicts };
+      }
+      
       const timelineSummary = timestamps.length > 0
         ? `Evidence spans from ${timestamps[0].toISOString()} to ${timestamps[timestamps.length - 1].toISOString()}`
         : "No timestamp data available";
+      
+      // Build merged detections from vision results
+      const mergedDetections = {
+        vehicles: [] as Array<{ type: string; confidence: number; evidenceId: number }>,
+        persons: [] as Array<{ type: string; confidence: number; evidenceId: number }>,
+        bayMarkings: [] as Array<{ type: string; confidence: number; evidenceId: number }>,
+      };
+      
+      // Track successful and failed evidence items
+      const supportingEvidenceIds: number[] = [];
+      const partialFailures: Array<{ evidenceId: number; error: string }> = [];
+      
+      visionResults.forEach((result, index) => {
+        const evidenceId = imageEvidence[index]?.evidence?.id;
+        if (result.success && result.result && evidenceId) {
+          supportingEvidenceIds.push(evidenceId);
+          if (result.result.vehicleDetected) {
+            mergedDetections.vehicles.push({
+              type: result.result.vehicleType,
+              confidence: 0.9,
+              evidenceId,
+            });
+          }
+          if (result.result.humansDetected.adult || result.result.humansDetected.child) {
+            mergedDetections.persons.push({
+              type: result.result.humansDetected.child ? "child" : "adult",
+              confidence: 0.85,
+              evidenceId,
+            });
+          }
+          if (result.result.bayTypeVisible) {
+            mergedDetections.bayMarkings.push({
+              type: result.result.bayTypeVisible,
+              confidence: 0.8,
+              evidenceId,
+            });
+          }
+        } else if (evidenceId) {
+          partialFailures.push({
+            evidenceId,
+            error: result.error || "Analysis failed",
+          });
+        }
+      });
       
       const analysis = await storage.createCaseAnalysis({
         caseId: caseData.id,
@@ -2614,6 +2866,11 @@ export async function registerRoutes(
         riskAssessment,
         recommendation,
         timelineSummary,
+        timeWindow,
+        mergedDetections,
+        modelVersions: { visionGPT: "gpt-4o" },
+        supportingEvidenceIds,
+        partialFailures: partialFailures.length > 0 ? partialFailures : null,
       });
       
       await storage.updateCaseStatus(req.params.id, "complete");
