@@ -1,0 +1,159 @@
+====================================================
+CORE OBJECTIVE
+====================================================
+
+In the Evidence → View Details screen:
+✔ Display ONLY analysis that directly impacts PCN validity
+✔ Hide internal AI reasoning, raw detections, and technical data
+✔ Maintain full analysis internally for audit, appeals, and review
+
+====================================================
+FRONTEND DISPLAY RULES (STRICT)
+====================================================
+
+The UI must show ONLY:
+
+1️⃣ Final PCN Decision
+   - ISSUE PCN / DO NOT ISSUE / REVIEW REQUIRED
+
+2️⃣ Key Rule Applied
+   - Regulation or signage rule used
+   - Source: Parking Site Signage or Parking Site Regulation
+
+3️⃣ Key Evidence Used
+   - Entry time
+   - Exit time
+   - Total duration
+   - Bay type (if relevant)
+   - Payment status (paid / unpaid / invalid)
+
+4️⃣ Compliance Result
+   - Compliant / Non-Compliant
+   - Short human-readable reason
+
+5️⃣ Confidence Level
+   - High / Medium / Low
+   - Reason for confidence score (1 line only)
+
+❌ Do NOT show:
+- AI reasoning steps
+- Object detection data
+- Image recognition output
+- Frame-by-frame timelines
+- ML confidence per image
+- Internal scoring weights
+
+====================================================
+BACKEND ANALYSIS (HIDDEN)
+====================================================
+
+Internally store:
+• Full AI reasoning
+• Signage parsing results
+• Regulation evaluation
+• Evidence extraction logs
+• Confidence calculations
+• Conflicting rule resolution
+• Error and fallback paths
+
+These must be:
+✔ Saved to database
+✔ Accessible for admin/audit/appeal
+✔ NEVER rendered in Evidence → View Details
+
+====================================================
+DATA SEPARATION RULE
+====================================================
+
+Create two outputs:
+
+1️⃣ analysis_internal (FULL)
+2️⃣ analysis_public (PCN SAFE)
+
+Only `analysis_public` is sent to the frontend.
+
+====================================================
+analysis_public STRUCTURE
+====================================================
+
+{
+  decision: "ISSUE_PCN | DO_NOT_ISSUE | REVIEW_REQUIRED",
+  rule_applied: {
+    name: "",
+    source: "SITE_SIGNAGE | SITE_REGULATION"
+  },
+  evidence_summary: {
+    entry_time: "",
+    exit_time: "",
+    duration_minutes: "",
+    bay_type: "",
+    payment_status: ""
+  },
+  compliance_status: "COMPLIANT | NON_COMPLIANT",
+  explanation: "Short, legal-safe explanation",
+  confidence: {
+    level: "HIGH | MEDIUM | LOW",
+    reason: "Single line explanation"
+  }
+}
+
+====================================================
+LEGAL & PCN SAFETY RULES
+====================================================
+
+• Language must be neutral and factual
+• No AI or model references in UI
+• No speculative wording
+• Must be readable by a motorist
+• Must be suitable for appeal review
+
+====================================================
+EXAMPLE FRONTEND OUTPUT
+====================================================
+
+Decision: ISSUE PCN
+
+Rule Applied:
+"Maximum stay exceeded (2 hours)"
+Source: Parking Site Regulation
+
+Evidence Summary:
+Entry: 10:12
+Exit: 13:05
+Duration: 173 minutes
+Payment: No valid payment
+
+Result:
+Non-Compliant
+
+Explanation:
+"Vehicle remained on site beyond the permitted stay
+as defined by site regulations."
+
+Confidence:
+High – Clear entry/exit timestamps and active regulation.
+
+====================================================
+FAIL-SAFE CONDITIONS
+====================================================
+
+If:
+- Missing signage
+- Missing regulation
+- Incomplete evidence
+
+Then:
+Decision = REVIEW_REQUIRED
+Confidence = LOW
+Explanation must clearly state missing data.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+✔ Clean Evidence → View Details UI
+✔ PCN-only relevant data shown
+✔ Full analysis preserved internally
+✔ Appeal-safe language
+✔ Site-specific rules applied
+✔ No technical noise in UI
