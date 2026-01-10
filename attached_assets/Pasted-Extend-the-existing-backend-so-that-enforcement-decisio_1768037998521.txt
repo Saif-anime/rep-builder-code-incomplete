@@ -1,0 +1,284 @@
+Extend the existing backend so that enforcement
+decisions are CONTEXT-AWARE, AUDITABLE, and
+BASED ON MULTIPLE SIGNALS — not AI guesses.
+
+====================================================
+CORE PRINCIPLE (NON-NEGOTIABLE)
+====================================================
+
+AI does NOT issue PCNs.
+AI provides evidence + recommendations.
+Final decision remains human or rule-based.
+
+====================================================
+MODULE 1: CONTEXT ENRICHMENT SERVICE
+====================================================
+
+Create backend service:
+src/services/contextEnrichment.ts
+
+Function:
+runContextEnrichment(site_id, window_start, window_end)
+
+Return structured result:
+
+{
+  weather_summary,
+  local_events_summary,
+  site_inventory_hits,
+  anomaly_summary
+}
+
+----------------------------------------------------
+PROVIDERS (INTERFACES ONLY – NO HARD CODING)
+----------------------------------------------------
+
+Define interfaces:
+
+WeatherProvider
+- getSummary(site_id, from, to)
+
+EventProvider
+- getEvents(site_id, from, to)
+
+InventoryProvider
+- getNotes(site_id)
+
+Implement MOCK providers:
+- MockWeatherProvider
+- MockEventProvider
+- MockInventoryProvider
+
+System MUST run without external API keys.
+
+----------------------------------------------------
+DATABASE
+----------------------------------------------------
+
+Create table:
+enrichment_runs
+- site_id
+- window_start
+- window_end
+- created_at
+- results JSONB
+
+----------------------------------------------------
+JOB ENDPOINT
+----------------------------------------------------
+
+POST /api/sites/:id/enrichment/run?from=&to=
+
+- Runs enrichment
+- Stores record
+- Returns stored result
+
+====================================================
+MODULE 2: OVERSTAY SPIKE DETECTION + HOLD PCN
+====================================================
+
+Implement spike detection service:
+
+Compare:
+- overstay_rate (current window)
+vs
+- baseline_rate (last 28 days, same weekday/hour band)
+
+Severity:
+- LOW
+- MEDIUM
+- HIGH
+
+Thresholds MUST be configurable.
+
+----------------------------------------------------
+DATABASE
+----------------------------------------------------
+
+Create table:
+session_flags
+- session_id
+- flag_type
+- severity
+- reason
+- evidence JSONB
+- created_at
+- status (OPEN | RESOLVED | DISMISSED)
+
+----------------------------------------------------
+FLAGGING LOGIC
+----------------------------------------------------
+
+IF:
+- spike detected
+AND
+- enrichment suggests WEATHER or ROAD_CLOSURE
+
+THEN:
+- Create flag: POSSIBLE_DISRUPTION
+- recommendation = HOLD_PCN
+
+====================================================
+MODULE 3: SITE EVENT POLICY (FOOTBALL MATCH LOGIC)
+====================================================
+
+Add table:
+site_policies
+- site_id
+- event_categories_enforce []
+- event_categories_allow_grace []
+
+Mock event provider MUST return event categories.
+
+----------------------------------------------------
+DECISION RULES
+----------------------------------------------------
+
+IF event category in enforce list:
+- Flag = PREDICTABLE_DEMAND
+- recommendation = PROCEED_PCN
+
+IF weather/road closure:
+- recommendation = HOLD_PCN
+
+Every decision MUST store:
+- explanation string
+- evidence JSON
+- enrichment reference ID
+
+====================================================
+MODULE 4: DRIVER BEHAVIOUR PROFILING
+====================================================
+
+Create table:
+driver_profiles
+- site_id
+- vrm
+- first_seen
+- last_seen
+- visits_30d
+- visits_90d
+- median_duration
+- mean_duration
+- duration_stddev
+- common_arrival_time_buckets JSONB
+- risk_score
+
+----------------------------------------------------
+CLASSIFIERS
+----------------------------------------------------
+
+COMMUTER_PATTERN:
+- frequent visits
+- same time-of-day
+- low duration variance
+- short stays (e.g. 20 mins)
+
+OCCASIONAL_PATRON:
+- low frequency
+- moderate duration
+
+FIRST_TIME_LATE:
+- first visit
+- minor overstay
+
+----------------------------------------------------
+FLAGS
+----------------------------------------------------
+
+- POSSIBLE_COMMUTER_MISUSE
+- LIKELY_FAIR_USER
+
+----------------------------------------------------
+ENDPOINTS
+----------------------------------------------------
+
+GET /api/sites/:id/drivers/:vrm/profile
+POST /api/sites/:id/drivers/recompute?from=&to=
+
+====================================================
+MODULE 5: INTEGRATION WITH EXISTING ANALYSIS STACK
+====================================================
+
+The following MUST be used as inputs:
+
+- YOLOv8 (vehicle, people, bay)
+- Vision GPT (badge, signage, visibility)
+- DVLA Vehicle API (vehicle attributes)
+- Evidence timestamps (manual + camera)
+- Evidence bundles (case-based)
+
+NO module works in isolation.
+
+====================================================
+MODULE 6: RECOMMENDATION ENGINE (FINAL OUTPUT)
+====================================================
+
+For each evidence bundle (case):
+
+Combine:
+- Evidence analysis
+- Context enrichment
+- Spike detection
+- Site policy
+- Driver behaviour profile
+
+Output:
+
+{
+  case_id,
+  recommendation: HOLD_PCN | PROCEED_PCN | REVIEW,
+  confidence,
+  explanation_plain_english,
+  evidence: {
+    ai_findings,
+    enrichment,
+    behaviour_profile,
+    policies_applied
+  }
+}
+
+Store recommendation in:
+pcn_recommendations
+- created_by = SYSTEM | USER
+- override_reason nullable
+
+====================================================
+MODULE 7: ADMIN UI (BACKEND SUPPORT)
+====================================================
+
+Expose APIs for UI:
+
+GET /api/sites/:id/flags
+GET /api/recommendations?filters
+POST /api/recommendations/:id/override
+
+Overrides MUST persist and never be overwritten.
+
+====================================================
+AUDIT & LEGAL SAFETY
+====================================================
+
+❌ No black-box decisions
+❌ No silent overrides
+❌ No missing explanations
+
+✅ Every decision explainable
+✅ Evidence retained
+✅ Deterministic rules first
+✅ AI only supports
+
+====================================================
+FINAL ACCEPTANCE
+====================================================
+
+- Enrichment runs without external APIs
+- Overstay spikes detected correctly
+- Snow vs football logic behaves differently
+- Driver misuse detected
+- UI can trust & override results
+- System is court-defensible
+
+Implement fully.
+Do not simplify.
+Do not skip audit trails.
