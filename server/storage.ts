@@ -2,6 +2,7 @@ import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
   anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
   enforcementCases, caseEvidence, caseAnalysis, evidenceBundles, caseVehicles,
+  caseAnalysisSteps, pcns, casePipelineResults,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -17,7 +18,10 @@ import {
   type PcnRecommendation, type InsertPcnRecommendation,
   type EnforcementCase, type InsertEnforcementCase, type CaseEvidence, type InsertCaseEvidence, type CaseAnalysis, type InsertCaseAnalysis,
   type EvidenceBundle, type InsertEvidenceBundle,
-  type CaseVehicle, type InsertCaseVehicle
+  type CaseVehicle, type InsertCaseVehicle,
+  type CaseAnalysisStep, type InsertCaseAnalysisStep,
+  type Pcn, type InsertPcn,
+  type CasePipelineResults, type InsertCasePipelineResults
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -211,6 +215,27 @@ export interface IStorage {
   upsertDriverProfile(profile: InsertDriverProfile): Promise<DriverProfile>;
   deleteDriverProfile(id: number): Promise<void>;
   getDriverSessionHistory(siteId: number, vrm: string, from?: Date, to?: Date): Promise<ParkingSession[]>;
+
+  // Case Analysis Pipeline Steps
+  createAnalysisStep(step: InsertCaseAnalysisStep): Promise<CaseAnalysisStep>;
+  getAnalysisStepsByCase(caseId: string): Promise<CaseAnalysisStep[]>;
+  updateAnalysisStep(id: number, update: Partial<CaseAnalysisStep>): Promise<CaseAnalysisStep | undefined>;
+  deleteAnalysisStepsByCase(caseId: string): Promise<void>;
+
+  // PCN Management
+  createPcn(pcn: InsertPcn): Promise<Pcn>;
+  getPcn(id: number): Promise<Pcn | undefined>;
+  getPcnByNumber(pcnNumber: string): Promise<Pcn | undefined>;
+  getPcnsByCase(caseId: string): Promise<Pcn[]>;
+  getPcnsBySite(siteId: number, options?: { status?: string; limit?: number }): Promise<Pcn[]>;
+  updatePcn(id: number, update: Partial<Pcn>): Promise<Pcn | undefined>;
+  issuePcn(id: number, issuedBy: string): Promise<Pcn | undefined>;
+  generatePcnNumber(siteId: number): Promise<string>;
+
+  // Case Pipeline Results
+  createCasePipelineResults(results: InsertCasePipelineResults): Promise<CasePipelineResults>;
+  getCasePipelineResults(caseId: string): Promise<CasePipelineResults | undefined>;
+  updateCasePipelineResults(caseId: string, update: Partial<CasePipelineResults>): Promise<CasePipelineResults | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1242,6 +1267,125 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCaseVehicle(id: number): Promise<void> {
     await db.delete(caseVehicles).where(eq(caseVehicles.id, id));
+  }
+
+  // Case Analysis Pipeline Steps
+  async createAnalysisStep(step: InsertCaseAnalysisStep): Promise<CaseAnalysisStep> {
+    const [created] = await db.insert(caseAnalysisSteps).values(step).returning();
+    return created;
+  }
+
+  async getAnalysisStepsByCase(caseId: string): Promise<CaseAnalysisStep[]> {
+    return await db.select().from(caseAnalysisSteps)
+      .where(eq(caseAnalysisSteps.caseId, caseId))
+      .orderBy(caseAnalysisSteps.stepOrder);
+  }
+
+  async updateAnalysisStep(id: number, update: Partial<CaseAnalysisStep>): Promise<CaseAnalysisStep | undefined> {
+    const [updated] = await db.update(caseAnalysisSteps)
+      .set(update)
+      .where(eq(caseAnalysisSteps.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteAnalysisStepsByCase(caseId: string): Promise<void> {
+    await db.delete(caseAnalysisSteps).where(eq(caseAnalysisSteps.caseId, caseId));
+  }
+
+  // PCN Management
+  async createPcn(pcn: InsertPcn): Promise<Pcn> {
+    const [created] = await db.insert(pcns).values(pcn).returning();
+    return created;
+  }
+
+  async getPcn(id: number): Promise<Pcn | undefined> {
+    const [pcn] = await db.select().from(pcns).where(eq(pcns.id, id));
+    return pcn || undefined;
+  }
+
+  async getPcnByNumber(pcnNumber: string): Promise<Pcn | undefined> {
+    const [pcn] = await db.select().from(pcns).where(eq(pcns.pcnNumber, pcnNumber));
+    return pcn || undefined;
+  }
+
+  async getPcnsByCase(caseId: string): Promise<Pcn[]> {
+    return await db.select().from(pcns)
+      .where(eq(pcns.caseId, caseId))
+      .orderBy(desc(pcns.createdAt));
+  }
+
+  async getPcnsBySite(siteId: number, options?: { status?: string; limit?: number }): Promise<Pcn[]> {
+    const conditions = [eq(pcns.siteId, siteId)];
+    if (options?.status) {
+      conditions.push(eq(pcns.status, options.status));
+    }
+    return await db.select().from(pcns)
+      .where(and(...conditions))
+      .orderBy(desc(pcns.createdAt))
+      .limit(options?.limit || 100);
+  }
+
+  async updatePcn(id: number, update: Partial<Pcn>): Promise<Pcn | undefined> {
+    const [updated] = await db.update(pcns)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(pcns.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async issuePcn(id: number, issuedBy: string): Promise<Pcn | undefined> {
+    const [updated] = await db.update(pcns)
+      .set({ 
+        status: "issued", 
+        issuedBy, 
+        issuedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(pcns.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async generatePcnNumber(siteId: number): Promise<string> {
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const count = await db.select({ count: sql<number>`count(*)` })
+      .from(pcns)
+      .where(and(
+        eq(pcns.siteId, siteId),
+        gte(pcns.createdAt, new Date(today.setHours(0, 0, 0, 0)))
+      ));
+    const sequence = (count[0]?.count || 0) + 1;
+    return `PCN-${siteId}-${dateStr}-${String(sequence).padStart(4, "0")}`;
+  }
+
+  // Case Pipeline Results
+  async createCasePipelineResults(results: InsertCasePipelineResults): Promise<CasePipelineResults> {
+    const existing = await this.getCasePipelineResults(results.caseId);
+    if (existing) {
+      const [updated] = await db.update(casePipelineResults)
+        .set({ ...results, updatedAt: new Date() })
+        .where(eq(casePipelineResults.caseId, results.caseId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(casePipelineResults).values(results).returning();
+    return created;
+  }
+
+  async getCasePipelineResults(caseId: string): Promise<CasePipelineResults | undefined> {
+    const [results] = await db.select().from(casePipelineResults)
+      .where(eq(casePipelineResults.caseId, caseId));
+    return results || undefined;
+  }
+
+  async updateCasePipelineResults(caseId: string, update: Partial<CasePipelineResults>): Promise<CasePipelineResults | undefined> {
+    const [updated] = await db.update(casePipelineResults)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(casePipelineResults.caseId, caseId))
+      .returning();
+    return updated || undefined;
   }
 }
 
