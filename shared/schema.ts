@@ -234,6 +234,56 @@ export const insertCaseAnalysisSchema = createInsertSchema(caseAnalysis).omit({
 export type InsertCaseAnalysis = z.infer<typeof insertCaseAnalysisSchema>;
 export type CaseAnalysis = typeof caseAnalysis.$inferSelect;
 
+// ==================== CASE VEHICLES (DVLA VERIFIED) ====================
+export const caseVehicles = pgTable("case_vehicles", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  registrationNumber: text("registration_number").notNull(),
+  make: text("make"),
+  model: text("model"),
+  colour: text("colour"),
+  fuelType: text("fuel_type"),
+  taxStatus: text("tax_status"),
+  taxDueDate: text("tax_due_date"),
+  motStatus: text("mot_status"),
+  motExpiryDate: text("mot_expiry_date"),
+  engineCapacity: integer("engine_capacity"),
+  co2Emissions: integer("co2_emissions"),
+  yearOfManufacture: integer("year_of_manufacture"),
+  firstRegistrationDate: text("first_registration_date"),
+  wheelplan: text("wheelplan"),
+  revenueWeight: integer("revenue_weight"),
+  euroStatus: text("euro_status"),
+  markedForExport: boolean("marked_for_export"),
+  confidenceScore: real("confidence_score").notNull(),
+  sourceEvidenceIds: jsonb("source_evidence_ids").$type<number[]>(),
+  sourceBundleIds: jsonb("source_bundle_ids").$type<number[]>(),
+  detectionMethod: text("detection_method").notNull().default("vision_gpt"), // vision_gpt, anpr, manual
+  plateReadings: jsonb("plate_readings").$type<{
+    reading: string;
+    confidence: number;
+    evidenceId?: number;
+    bundleId?: number;
+  }[]>(),
+  conflictDetected: boolean("conflict_detected").notNull().default(false),
+  conflictDetails: text("conflict_details"),
+  dvlaVerified: boolean("dvla_verified").notNull().default(false),
+  dvlaLookupError: text("dvla_lookup_error"),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCaseVehicleSchema = createInsertSchema(caseVehicles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  verifiedAt: true,
+});
+
+export type InsertCaseVehicle = z.infer<typeof insertCaseVehicleSchema>;
+export type CaseVehicle = typeof caseVehicles.$inferSelect;
+
 // ==================== EVIDENCE BUNDLES ====================
 export const evidenceBundles = pgTable("evidence_bundles", {
   id: serial("id").primaryKey(),

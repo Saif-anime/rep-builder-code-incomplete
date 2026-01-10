@@ -1,0 +1,172 @@
+Implement NUMBER PLATE ANALYSIS using:
+- Camera / manual evidence uploads
+- YOLOv8 (or ANPR OCR)
+- DVLA Vehicle Enquiry API
+
+====================================================
+PRIMARY OBJECTIVE
+====================================================
+
+Whenever evidence is uploaded (image or video):
+
+1️⃣ Detect vehicle number plate from evidence
+2️⃣ Extract registration number
+3️⃣ Call DVLA Vehicle Enquiry API
+4️⃣ Store and display full vehicle details
+5️⃣ Link results to the CASE (not individual file)
+
+====================================================
+INPUT SOURCES
+====================================================
+
+Evidence sources:
+- Manual uploads (images/videos)
+- Camera ANPR feeds
+
+====================================================
+PLATE DETECTION PIPELINE
+====================================================
+
+For EACH evidence file:
+
+IMAGES:
+- Run YOLOv8:
+  - Detect vehicle
+  - Detect number plate region
+- Crop plate region
+- Run OCR (Tesseract / PaddleOCR / EasyOCR)
+
+VIDEOS:
+- Extract frames (1 fps or motion-based)
+- Run same pipeline per frame
+- Select highest confidence plate
+
+====================================================
+PLATE NORMALISATION
+====================================================
+
+Before API call:
+- Uppercase text
+- Remove spaces
+- Remove non-alphanumeric characters
+
+Example:
+"ab cd 123 de" → "ABCD123DE"
+
+====================================================
+DVLA VEHICLE ENQUIRY API INTEGRATION
+====================================================
+
+Endpoint:
+POST https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles
+
+Headers:
+- Content-Type: application/json
+- x-api-key: eaCUyH6wP57rlkyOzk5L18ARgwJDzro3VmD0ueF3
+
+Request Body:
+{
+  "registrationNumber": "<DETECTED_PLATE>"
+}
+
+====================================================
+EXPECTED API RESPONSE (FULL HANDLING)
+====================================================
+
+Handle ALL returned fields, including:
+- registrationNumber
+- make
+- model
+- colour
+- fuelType
+- taxStatus
+- motStatus
+- engineCapacity
+- firstRegistrationDate
+- wheelplan
+- revenueWeight
+
+====================================================
+CASE-LEVEL STORAGE (MANDATORY)
+====================================================
+
+Store vehicle data under CASE, not file:
+
+CaseVehicle
+- caseId
+- registrationNumber
+- make
+- colour
+- fuelType
+- taxStatus
+- motStatus
+- confidenceScore
+- sourceEvidenceIds
+- verifiedAt
+
+====================================================
+CONFIDENCE RULES
+====================================================
+
+- If plate detected in multiple files:
+  - Require match consistency
+  - Increase confidence
+- If conflicting plates:
+  - Flag for manual review
+  - Do NOT auto-decide
+
+====================================================
+UI REQUIREMENTS
+====================================================
+
+Case View:
+- Show detected registration
+- Show vehicle details
+- Show confidence indicator
+- Show evidence thumbnails used for detection
+
+Do NOT show DVLA data per file.
+
+====================================================
+ERROR HANDLING
+====================================================
+
+If OCR fails:
+- Mark "Plate unreadable"
+
+If API fails:
+- Retry once
+- Log error
+- Show "Vehicle lookup unavailable"
+
+====================================================
+LEGAL & COMPLIANCE RULES
+====================================================
+
+❌ Do NOT infer ownership
+❌ Do NOT infer driver identity
+❌ Do NOT cache API key client-side
+
+✅ API calls ONLY from backend
+✅ Log access for audit
+
+====================================================
+SECURITY
+====================================================
+
+- Store API key in environment variable
+- Never expose API key to frontend
+- Rate-limit API calls per case
+
+====================================================
+FINAL OUTPUT
+====================================================
+
+One unified CASE result including:
+- Vehicle identification
+- DVLA-confirmed attributes
+- Confidence score
+- Supporting evidence
+
+Implement fully.
+No shortcuts.
