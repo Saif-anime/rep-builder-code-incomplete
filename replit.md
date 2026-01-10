@@ -145,6 +145,27 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
     - Full audit trail: created_by, reason, evidenceJson, timestamps
     - Philosophy: AI provides recommendations only, humans make final enforcement decisions
 
+14. **Vision GPT Image Analysis**
+    - Uses OpenAI GPT-4o for structured, court-ready image analysis
+    - Vehicle detection: type, color, VRM visibility, EV indicators
+    - Bay type identification: disabled, EV, parent-child, standard
+    - Human detection: adult, child presence, disabled badge visibility
+    - Signage analysis: visible, readable, compliant indicators
+    - Confidence notes for tribunal defense
+    - SHA-256 image hashing with in-memory caching to avoid redundant API calls
+    - Multi-image analysis with result merging for comprehensive case review
+
+15. **Enforcement Case Management**
+    - Unified case workflow: group multiple evidence items into a single case
+    - Case status workflow: pending → analysing → complete/dismissed
+    - Evidence linking: associate camera feeds, manual uploads, PDFs to cases
+    - Single-button AI analysis: analyzes all linked evidence simultaneously
+    - Merged vision results: combines findings from multiple images
+    - Automated violation detection based on bay type and visible indicators
+    - Risk assessment: Low/Medium/High based on confidence scores
+    - Recommendations: Issue PCN, Review, No Action
+    - Case-level analysis stored with full audit trail
+
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
 - `GET /api/dashboard/stats` - Dashboard statistics
@@ -189,6 +210,13 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET /api/parking-sessions/:id` - Get specific parking session by ID
 - `GET /api/sessions/:id/recommendations` - Get PCN recommendations for a session
 - `POST /api/flags/:id/override` - Override AI recommendation with manual decision
+- `POST /api/evidence/:id/vision-analyze` - Analyze evidence image with Vision GPT
+- `GET/POST /api/cases` - Enforcement case management
+- `GET /api/cases/:id` - Get specific case details
+- `POST /api/cases/:id/evidence` - Link evidence to a case
+- `GET /api/cases/:id/evidence` - Get all evidence linked to a case
+- `POST /api/cases/:id/analyze` - Run unified AI analysis on all case evidence
+- `GET /api/cases/:id/analysis` - Get case analysis results
 
 ## Design Guidelines
 - Primary Color: Blue (217 91% 35%)
