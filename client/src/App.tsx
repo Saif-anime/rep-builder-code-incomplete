@@ -18,6 +18,7 @@ import UsersPage from "@/pages/users";
 import AdminSitesPage from "@/pages/admin-sites";
 import SignageInspectionPage from "@/pages/signage-inspection";
 import FlaggedSessionsPage from "@/pages/flagged-sessions";
+import CasesPage from "@/pages/cases";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -29,6 +30,7 @@ function ProtectedRoutes() {
       <Route path="/" component={DashboardPage} />
       <Route path="/evidence" component={EvidencePage} />
       <Route path="/analysis" component={AnalysisPage} />
+      <Route path="/cases" component={CasesPage} />
       <Route path="/admin/users" component={UsersPage} />
       <Route path="/admin/sites" component={AdminSitesPage} />
       <Route path="/signage/:siteId" component={SignageInspectionPage} />
