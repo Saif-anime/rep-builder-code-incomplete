@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle } from "@shared/schema";
+import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle, CaseVehicle } from "@shared/schema";
 
 type CaseWithDetails = EnforcementCase & {
   site?: ParkingSite;
@@ -65,6 +65,7 @@ export default function CasesPage() {
   const [evidenceExpanded, setEvidenceExpanded] = useState(true);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [manualVrmLookup, setManualVrmLookup] = useState("");
 
   const { data: cases = [], isLoading: casesLoading, refetch: refetchCases } = useQuery<CaseWithDetails[]>({
     queryKey: ["/api/cases", statusFilter, siteFilter],
@@ -122,6 +123,19 @@ export default function CasesPage() {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
       });
       if (!res.ok) throw new Error("Failed to fetch bundles");
+      return res.json();
+    },
+    enabled: !!selectedCase,
+  });
+
+  const { data: caseVehicles = [], refetch: refetchVehicles } = useQuery<CaseVehicle[]>({
+    queryKey: ["/api/cases", selectedCase?.id, "vehicles"],
+    queryFn: async () => {
+      if (!selectedCase) return [];
+      const res = await fetch(`/api/cases/${selectedCase.id}/vehicles`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch case vehicles");
       return res.json();
     },
     enabled: !!selectedCase,
@@ -236,10 +250,30 @@ export default function CasesPage() {
     onSuccess: () => {
       toast({ title: "Bundle analyzed successfully" });
       refetchBundles();
+      refetchVehicles();
       refetchCases();
     },
     onError: (error: Error) => {
       toast({ title: "Bundle analysis failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const dvlaLookupMutation = useMutation({
+    mutationFn: async ({ caseId, registrationNumber }: { caseId: string; registrationNumber: string }) => {
+      return apiRequest("POST", `/api/cases/${caseId}/vehicles/lookup`, { registrationNumber });
+    },
+    onSuccess: (result: any) => {
+      if (result.success) {
+        toast({ title: "Vehicle verified", description: `${result.vehicle?.make} ${result.vehicle?.model}` });
+        refetchVehicles();
+        refetchCases();
+      } else {
+        toast({ title: "Lookup failed", description: result.error, variant: "destructive" });
+      }
+      setManualVrmLookup("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -485,6 +519,124 @@ export default function CasesPage() {
                   {getStatusBadge(selectedCase.status)}
                   {caseAnalysis?.riskAssessment && getRiskBadge(caseAnalysis.riskAssessment)}
                 </div>
+
+                {caseVehicles.length > 0 && (
+                  <>
+                    <Separator />
+                    <div>
+                      <h3 className="font-semibold flex items-center gap-2 mb-3">
+                        <Car className="h-4 w-4" />
+                        DVLA Verified Vehicle
+                      </h3>
+                      {caseVehicles.map((vehicle) => (
+                        <Card key={vehicle.id} className="border-green-500/30 bg-green-500/5" data-testid={`vehicle-card-${vehicle.id}`}>
+                          <CardContent className="pt-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="font-mono font-bold text-lg">{vehicle.registrationNumber}</span>
+                                  <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">
+                                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                                    Verified
+                                  </Badge>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                                  <div>
+                                    <span className="text-muted-foreground">Make:</span>{" "}
+                                    <span className="font-medium">{vehicle.make || "—"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Model:</span>{" "}
+                                    <span className="font-medium">{vehicle.model || "—"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Colour:</span>{" "}
+                                    <span className="font-medium">{vehicle.colour || "—"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Fuel:</span>{" "}
+                                    <span className="font-medium">{vehicle.fuelType || "—"}</span>
+                                  </div>
+                                  {vehicle.yearOfManufacture && (
+                                    <div>
+                                      <span className="text-muted-foreground">Year:</span>{" "}
+                                      <span className="font-medium">{vehicle.yearOfManufacture}</span>
+                                    </div>
+                                  )}
+                                  {vehicle.engineCapacity && (
+                                    <div>
+                                      <span className="text-muted-foreground">Engine:</span>{" "}
+                                      <span className="font-medium">{vehicle.engineCapacity}cc</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  {vehicle.taxStatus && (
+                                    <Badge variant={vehicle.taxStatus === "Taxed" ? "secondary" : "destructive"}>
+                                      Tax: {vehicle.taxStatus}
+                                    </Badge>
+                                  )}
+                                  {vehicle.motStatus && (
+                                    <Badge variant={vehicle.motStatus === "Valid" ? "secondary" : "destructive"}>
+                                      MOT: {vehicle.motStatus}
+                                    </Badge>
+                                  )}
+                                  {vehicle.co2Emissions && (
+                                    <Badge variant="outline">{vehicle.co2Emissions}g CO2</Badge>
+                                  )}
+                                </div>
+                                {vehicle.confidenceScore !== null && (
+                                  <div className="text-xs text-muted-foreground mt-2">
+                                    Detection confidence: {Math.round((vehicle.confidenceScore || 0) * 100)}%
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {caseVehicles.length === 0 && (
+                  <>
+                    <Separator />
+                    <div>
+                      <h3 className="font-semibold flex items-center gap-2 mb-3">
+                        <Car className="h-4 w-4" />
+                        Vehicle Lookup
+                      </h3>
+                      <div className="flex gap-2">
+                        <Input
+                          value={manualVrmLookup}
+                          onChange={(e) => setManualVrmLookup(e.target.value.toUpperCase())}
+                          placeholder="Enter registration (e.g. AB12 CDE)"
+                          className="font-mono"
+                          data-testid="input-manual-vrm-lookup"
+                        />
+                        <Button
+                          onClick={() => {
+                            if (selectedCase && manualVrmLookup) {
+                              dvlaLookupMutation.mutate({ caseId: selectedCase.id, registrationNumber: manualVrmLookup });
+                            }
+                          }}
+                          disabled={!manualVrmLookup || dvlaLookupMutation.isPending}
+                          data-testid="button-dvla-lookup"
+                        >
+                          {dvlaLookupMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Search className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Enter a UK registration to verify vehicle details via DVLA
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 <Separator />
 
