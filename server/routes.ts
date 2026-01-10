@@ -2927,6 +2927,172 @@ export async function registerRoutes(
     }
   });
 
+  // Direct PDF upload with automatic signage creation and extraction
+  app.post("/api/sites/:id/signage/upload", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("file"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No PDF file provided" });
+      }
+      
+      if (req.file.mimetype !== "application/pdf") {
+        return res.status(400).json({ error: "Only PDF files are accepted" });
+      }
+      
+      const crypto = await import("crypto");
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      
+      const sha256Hash = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+      
+      // Generate title from filename
+      const originalName = req.file.originalname.replace(/\.pdf$/i, "");
+      const title = originalName.replace(/[_-]/g, " ").replace(/\s+/g, " ").trim() || `Signage ${Date.now()}`;
+      
+      // Save file to disk
+      const uploadDir = path.join(process.cwd(), "uploads", "signage");
+      await fs.mkdir(uploadDir, { recursive: true });
+      
+      const fileName = `site${siteId}_${Date.now()}.pdf`;
+      const filePath = path.join(uploadDir, fileName);
+      await fs.writeFile(filePath, req.file.buffer);
+      
+      // Process PDF to extract text
+      let extractedText = "";
+      let pdfSource = "unknown";
+      try {
+        const pdfResult = await processPdf(req.file.buffer, req.file.originalname);
+        if (pdfResult.success) {
+          extractedText = pdfResult.extractedText || "";
+          pdfSource = pdfResult.source;
+        }
+      } catch (pdfError: any) {
+        console.error("[Signage Upload] PDF processing error:", pdfError.message);
+      }
+      
+      // Extract signage rules using AI
+      let extractedData: any = {
+        maxStayMinutes: null,
+        graceMinutes: null,
+        enforcementHours: null,
+        bayRestrictions: [],
+        paymentTerms: null,
+        warningLanguage: null,
+        rawTextExtracted: extractedText,
+        extractionNotes: [],
+      };
+      let confidenceScore = 0;
+      let signageType = "TERMS";
+      
+      if (extractedText) {
+        try {
+          const { extractSignageRulesFromText } = await import("./signageExtractionService");
+          const aiResult = await extractSignageRulesFromText(extractedText, "TERMS");
+          
+          if (aiResult) {
+            extractedData = {
+              ...extractedData,
+              maxStayMinutes: aiResult.maxStayMinutes || null,
+              graceMinutes: aiResult.graceMinutes || null,
+              enforcementHours: aiResult.enforcementHours || null,
+              bayRestrictions: aiResult.bayRestrictions || [],
+              paymentTerms: aiResult.paymentTerms || null,
+              warningLanguage: aiResult.warningLanguage || null,
+              extractionNotes: aiResult.extractionNotes || [],
+            };
+            confidenceScore = aiResult.confidence || 0;
+            
+            // Infer signage type from content
+            const textLower = extractedText.toLowerCase();
+            if (textLower.includes("entrance") || textLower.includes("entry")) {
+              signageType = "ENTRANCE";
+            } else if (textLower.includes("payment") || textLower.includes("tariff") || textLower.includes("charges")) {
+              signageType = "PAYMENT";
+            } else if (textLower.includes("disabled") || textLower.includes("blue badge") || textLower.includes("ev") || textLower.includes("electric")) {
+              signageType = "BAY";
+            } else if (textLower.includes("warning") || textLower.includes("pcn") || textLower.includes("penalty")) {
+              signageType = "WARNING";
+            }
+          }
+        } catch (aiError: any) {
+          console.error("[Signage Upload] AI extraction error:", aiError.message);
+          extractedData.extractionNotes.push(`AI extraction failed: ${aiError.message}`);
+        }
+      } else {
+        extractedData.extractionNotes.push("No text could be extracted from PDF");
+        confidenceScore = 0.1;
+      }
+      
+      extractedData.extractionNotes.push(`PDF processed via ${pdfSource}`);
+      
+      // Create signage record
+      const signage = await storage.createParkingSiteSignage({
+        siteId,
+        signageType,
+        title,
+        source: "PDF",
+        extractedData,
+        confidenceScore,
+        effectiveFrom: new Date(),
+        effectiveTo: null,
+        status: "ACTIVE",
+        displayPriority: signageType === "ENTRANCE" ? 5 : (signageType === "TERMS" ? 4 : 1),
+        createdBy: req.user!.id,
+      });
+      
+      // Create file record
+      await storage.createSignageRuleFile({
+        signageId: signage.id,
+        filePath: `uploads/signage/${fileName}`,
+        fileType: "pdf",
+        mimeType: req.file.mimetype,
+        sha256Hash,
+        pageNumber: 1,
+        uploadedBy: req.user!.id,
+        extractedText,
+        aiAnalysis: { detectedRules: [], ocrConfidence: confidenceScore, processingNotes: extractedData.extractionNotes || [] },
+      });
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "upload",
+        entityType: "site_signage",
+        entityId: signage.id,
+        details: { 
+          siteId, 
+          signageType, 
+          title, 
+          fileName: req.file.originalname,
+          confidenceScore,
+          extractedRules: {
+            maxStayMinutes: extractedData.maxStayMinutes,
+            graceMinutes: extractedData.graceMinutes,
+          }
+        },
+      });
+      
+      console.log(`[Signage Upload] Created signage ${signage.id} for site ${siteId} with confidence ${(confidenceScore * 100).toFixed(0)}%`);
+      
+      res.status(201).json({
+        ...signage,
+        confidenceScore,
+        message: confidenceScore >= 0.6 
+          ? "PDF processed successfully" 
+          : confidenceScore >= 0.3 
+            ? "PDF processed with low confidence - please review"
+            : "PDF processed but rules could not be reliably extracted",
+      });
+    } catch (error: any) {
+      console.error("[Signage Upload] Error:", error.message);
+      res.status(500).json({ error: "Failed to process PDF upload" });
+    }
+  });
+
   // Upload signage file and trigger extraction
   app.post("/api/signage/:id/files", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("file"), async (req: AuthRequest, res: Response) => {
     try {
