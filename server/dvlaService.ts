@@ -29,7 +29,15 @@ interface DVLALookupResult {
 }
 
 const DVLA_API_URL = "https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles";
-const DVLA_API_KEY = process.env.DVLA_API_KEY || "eaCUyH6wP57rlkyOzk5L18ARgwJDzro3VmD0ueF3";
+
+function getDVLAApiKey(): string {
+  const key = process.env.DVLA_API_KEY;
+  if (!key) {
+    console.warn("[DVLA] API key not configured - DVLA lookups will fail");
+    return "";
+  }
+  return key;
+}
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const MAX_REQUESTS_PER_CASE = 3;
@@ -78,12 +86,17 @@ export function validateUKRegistration(plate: string): boolean {
 }
 
 async function makeAPICall(registrationNumber: string): Promise<DVLALookupResult> {
+  const apiKey = getDVLAApiKey();
+  if (!apiKey) {
+    return { success: false, error: "DVLA API key not configured", errorCode: "NO_API_KEY" };
+  }
+
   try {
     const response = await fetch(DVLA_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": DVLA_API_KEY,
+        "x-api-key": apiKey,
       },
       body: JSON.stringify({ registrationNumber }),
     });

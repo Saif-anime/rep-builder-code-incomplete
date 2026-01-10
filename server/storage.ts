@@ -1,7 +1,7 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
   anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
-  enforcementCases, caseEvidence, caseAnalysis, evidenceBundles,
+  enforcementCases, caseEvidence, caseAnalysis, evidenceBundles, caseVehicles,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -16,7 +16,8 @@ import {
   type DriverProfile, type InsertDriverProfile,
   type PcnRecommendation, type InsertPcnRecommendation,
   type EnforcementCase, type InsertEnforcementCase, type CaseEvidence, type InsertCaseEvidence, type CaseAnalysis, type InsertCaseAnalysis,
-  type EvidenceBundle, type InsertEvidenceBundle
+  type EvidenceBundle, type InsertEvidenceBundle,
+  type CaseVehicle, type InsertCaseVehicle
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -1198,6 +1199,49 @@ export class DatabaseStorage implements IStorage {
     await db.update(evidenceBundles)
       .set({ fileCount: files.length })
       .where(eq(evidenceBundles.id, bundleId));
+  }
+
+  async createCaseVehicle(insertVehicle: InsertCaseVehicle): Promise<number> {
+    const [created] = await db.insert(caseVehicles).values(insertVehicle).returning();
+    return created.id;
+  }
+
+  async getCaseVehicle(id: number): Promise<CaseVehicle | undefined> {
+    const [vehicle] = await db.select().from(caseVehicles).where(eq(caseVehicles.id, id));
+    return vehicle || undefined;
+  }
+
+  async getCaseVehiclesByCase(caseId: string): Promise<CaseVehicle[]> {
+    return await db.select().from(caseVehicles)
+      .where(eq(caseVehicles.caseId, caseId))
+      .orderBy(desc(caseVehicles.createdAt));
+  }
+
+  async getCaseVehicleByPlate(caseId: string, registrationNumber: string): Promise<CaseVehicle | undefined> {
+    const [vehicle] = await db.select().from(caseVehicles)
+      .where(and(
+        eq(caseVehicles.caseId, caseId),
+        eq(caseVehicles.registrationNumber, registrationNumber)
+      ));
+    return vehicle || undefined;
+  }
+
+  async updateCaseVehicle(id: number, update: Partial<CaseVehicle>): Promise<CaseVehicle | undefined> {
+    const [updated] = await db.update(caseVehicles)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(caseVehicles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async updateCaseVehicleVerified(id: number): Promise<void> {
+    await db.update(caseVehicles)
+      .set({ verifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(caseVehicles.id, id));
+  }
+
+  async deleteCaseVehicle(id: number): Promise<void> {
+    await db.delete(caseVehicles).where(eq(caseVehicles.id, id));
   }
 }
 

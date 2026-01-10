@@ -3062,18 +3062,56 @@ export async function registerRoutes(
         analysisCompletedAt: new Date(),
       });
 
+      // If plate detected, trigger DVLA lookup
+      let vehicleLookupResult = null;
+      if (mergedVision?.numberPlateDetected) {
+        try {
+          const { lookupAndStorePlate, normalizeRegistration } = await import("./dvlaService");
+          const normalizedPlate = normalizeRegistration(mergedVision.numberPlateDetected);
+          
+          const plateReadings = successfulResults
+            .filter(r => r.numberPlateDetected)
+            .map((r, idx) => ({
+              reading: r.numberPlateDetected!,
+              confidence: r.visibilityQuality === "clear" ? 0.9 : r.visibilityQuality === "partial" ? 0.7 : 0.5,
+              bundleId,
+              evidenceId: imageFiles[idx]?.id,
+            }));
+
+          const sourceEvidenceIds = imageFiles.map(f => f.id);
+          
+          vehicleLookupResult = await lookupAndStorePlate(
+            bundle.caseId,
+            plateReadings,
+            sourceEvidenceIds,
+            [bundleId],
+            storage
+          );
+          
+          // Update case VRM if vehicle successfully verified
+          if (vehicleLookupResult.success && normalizedPlate) {
+            await storage.updateCase(bundle.caseId, { vrm: normalizedPlate });
+          }
+          
+          console.log(`[Bundle Analysis] DVLA lookup for ${normalizedPlate}: ${vehicleLookupResult.success ? 'Success' : vehicleLookupResult.error}`);
+        } catch (dvlaError: any) {
+          console.error("[Bundle Analysis] DVLA lookup failed:", dvlaError.message);
+        }
+      }
+
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "analyze",
         entityType: "evidence_bundle",
         entityId: bundleId.toString(),
-        details: { caseId: bundle.caseId, recommendation, fileCount: files.length },
+        details: { caseId: bundle.caseId, recommendation, fileCount: files.length, plateDetected: !!mergedVision?.numberPlateDetected },
       });
 
       res.json({
         bundle: updatedBundle,
         files,
         analysis: aiResult,
+        vehicleLookup: vehicleLookupResult,
       });
     } catch (error: any) {
       console.error("[Bundle Analysis] Error:", error.message);
@@ -3082,6 +3120,88 @@ export async function registerRoutes(
         analysisError: error.message,
       });
       res.status(500).json({ error: "Failed to analyze bundle" });
+    }
+  });
+
+  // ==================== CASE VEHICLES ====================
+  
+  app.get("/api/cases/:id/vehicles", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const vehicles = await storage.getCaseVehiclesByCase(req.params.id);
+      res.json(vehicles);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch case vehicles" });
+    }
+  });
+
+  app.get("/api/vehicles/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const vehicle = await storage.getCaseVehicle(parseInt(req.params.id));
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      res.json(vehicle);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch vehicle" });
+    }
+  });
+
+  app.post("/api/cases/:id/vehicles/lookup", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { registrationNumber } = req.body;
+      if (!registrationNumber) {
+        return res.status(400).json({ error: "Registration number required" });
+      }
+
+      const { lookupAndStorePlate, normalizeRegistration, validateUKRegistration } = await import("./dvlaService");
+      const normalized = normalizeRegistration(registrationNumber);
+      
+      if (!validateUKRegistration(normalized)) {
+        return res.status(400).json({ error: "Invalid UK registration format" });
+      }
+
+      const result = await lookupAndStorePlate(
+        req.params.id,
+        [{ reading: normalized, confidence: 1.0 }],
+        [],
+        [],
+        storage
+      );
+
+      if (result.success) {
+        await storage.updateCase(req.params.id, { vrm: normalized });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "dvla_lookup",
+        entityType: "case_vehicle",
+        entityId: req.params.id,
+        details: { registrationNumber: normalized, success: result.success, error: result.error },
+      });
+
+      if (result.vehicleId) {
+        const vehicle = await storage.getCaseVehicle(result.vehicleId);
+        res.json({ success: result.success, vehicle, error: result.error });
+      } else {
+        res.json({ success: false, error: result.error });
+      }
+    } catch (error: any) {
+      console.error("[DVLA Lookup] Error:", error.message);
+      res.status(500).json({ error: "Failed to lookup vehicle" });
+    }
+  });
+
+  app.delete("/api/vehicles/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      if (req.user?.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+      
+      await storage.deleteCaseVehicle(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to delete vehicle" });
     }
   });
 
