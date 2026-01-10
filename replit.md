@@ -157,14 +157,19 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 
 15. **Enforcement Case Management**
     - Unified case workflow: group multiple evidence items into a single case
+    - Case-level multi-file upload: upload multiple files directly to a case in one operation
     - Case status workflow: pending → analysing → complete/dismissed
     - Evidence linking: associate camera feeds, manual uploads, PDFs to cases
     - Single-button AI analysis: analyzes all linked evidence simultaneously
+    - Timeline reconciliation: first seen, last seen, duration, gap detection
     - Merged vision results: combines findings from multiple images
+    - Merged detections tracking: vehicles, persons, bay markings with confidence scores
     - Automated violation detection based on bay type and visible indicators
     - Risk assessment: Low/Medium/High based on confidence scores
     - Recommendations: Issue PCN, Review, No Action
+    - Model version tracking and partial failure handling
     - Case-level analysis stored with full audit trail
+    - Collapsible evidence list in UI showing all files per case
 
 ## API Endpoints
 - `POST /api/auth/login` - User authentication
@@ -215,6 +220,8 @@ A comprehensive parking enforcement system for Euro Parking Services featuring A
 - `GET /api/cases/:id` - Get specific case details
 - `POST /api/cases/:id/evidence` - Link evidence to a case
 - `GET /api/cases/:id/evidence` - Get all evidence linked to a case
+- `POST /api/cases/:id/upload` - Upload multiple files directly to a case
+- `POST /api/cases/upload` - Create a new case with uploaded files in one operation
 - `POST /api/cases/:id/analyze` - Run unified AI analysis on all case evidence
 - `GET /api/cases/:id/analysis` - Get case analysis results
 

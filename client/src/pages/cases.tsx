@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
   FolderOpen, 
   Plus, 
@@ -23,7 +24,11 @@ import {
   Shield,
   Car,
   RefreshCw,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Upload,
+  Clock,
+  FileVideo
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +58,9 @@ export default function CasesPage() {
   const [siteFilter, setSiteFilter] = useState<string>("all");
   const [addEvidenceDialogOpen, setAddEvidenceDialogOpen] = useState(false);
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<number[]>([]);
+  const [evidenceExpanded, setEvidenceExpanded] = useState(true);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: cases = [], isLoading: casesLoading, refetch: refetchCases } = useQuery<CaseWithDetails[]>({
     queryKey: ["/api/cases", statusFilter, siteFilter],
@@ -165,6 +173,48 @@ export default function CasesPage() {
       caseId: selectedCase.id,
       evidenceIds: selectedEvidenceIds,
     });
+  };
+
+  const uploadMutation = useMutation({
+    mutationFn: async ({ caseId, files }: { caseId: string; files: File[] }) => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+      
+      const response = await fetch(`/api/cases/${caseId}/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+        body: formData,
+      });
+      
+      if (response.status === 401) {
+        throw new Error("Session expired. Please log in again.");
+      }
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Upload failed");
+      }
+      
+      return response.json();
+    },
+    onSuccess: (result) => {
+      toast({ title: `Successfully uploaded ${result.evidenceIds.length} file(s)` });
+      setUploadFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      queryClient.invalidateQueries({ queryKey: ["/api/cases", selectedCase?.id, "evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cases", selectedCase?.id, "analysis"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cases"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileUpload = () => {
+    if (!selectedCase || uploadFiles.length === 0) return;
+    uploadMutation.mutate({ caseId: selectedCase.id, files: uploadFiles });
   };
 
   const getStatusBadge = (status: string) => {
@@ -393,104 +443,174 @@ export default function CasesPage() {
                 <Separator />
 
                 <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <FileImage className="h-4 w-4" />
-                      Evidence ({caseEvidence.length})
-                    </h3>
-                    <Dialog open={addEvidenceDialogOpen} onOpenChange={setAddEvidenceDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" data-testid="button-add-evidence">
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Add Evidence to Case</DialogTitle>
-                          <DialogDescription>Select evidence items to add to this case</DialogDescription>
-                        </DialogHeader>
-                        <ScrollArea className="h-[300px]">
-                          <div className="flex flex-col gap-2">
-                            {availableEvidence.length === 0 ? (
-                              <p className="text-muted-foreground text-center py-4">No available evidence</p>
-                            ) : (
-                              availableEvidence.map((ev) => (
-                                <div
-                                  key={ev.id}
-                                  className={`p-3 border rounded-md cursor-pointer transition-colors ${
-                                    selectedEvidenceIds.includes(ev.id)
-                                      ? "border-primary bg-primary/10"
-                                      : "hover:bg-muted/50"
-                                  }`}
-                                  onClick={() => {
-                                    setSelectedEvidenceIds((prev) =>
-                                      prev.includes(ev.id)
-                                        ? prev.filter((id) => id !== ev.id)
-                                        : [...prev, ev.id]
-                                    );
-                                  }}
-                                  data-testid={`evidence-select-${ev.id}`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <FileImage className="h-4 w-4 text-muted-foreground" />
-                                    <span className="text-sm truncate">{ev.imagePath || ev.notes || `Evidence #${ev.id}`}</span>
-                                  </div>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </ScrollArea>
-                        <div className="flex justify-end gap-2 pt-4">
-                          <Button variant="outline" onClick={() => setAddEvidenceDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button
-                            onClick={handleAddEvidence}
-                            disabled={selectedEvidenceIds.length === 0 || addEvidenceMutation.isPending}
-                            data-testid="button-confirm-add-evidence"
-                          >
-                            {addEvidenceMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              `Add ${selectedEvidenceIds.length} Items`
-                            )}
-                          </Button>
+                  <div className="flex flex-col gap-4">
+                    <div className="border-2 border-dashed rounded-md p-4 bg-muted/20">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-2">
+                          <Upload className="h-5 w-5 text-muted-foreground" />
+                          <span className="font-medium">Upload Evidence Files</span>
                         </div>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                  
-                  {caseEvidence.length === 0 ? (
-                    <div className="border border-dashed rounded-md p-6 text-center text-muted-foreground">
-                      <FileImage className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No evidence linked yet</p>
-                    </div>
-                  ) : (
-                    <div className="grid gap-2">
-                      {caseEvidence.map((ce) => (
-                        <div key={ce.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-md">
-                          {ce.evidence?.imagePath ? (
-                            <img
-                              src={`/${ce.evidence.imagePath}`}
-                              alt="Evidence"
-                              className="w-12 h-12 object-cover rounded"
-                            />
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          accept="image/*,video/*"
+                          onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
+                          className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                          data-testid="input-upload-files"
+                        />
+                        {uploadFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {uploadFiles.map((file, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-xs">
+                                {file.type.startsWith("video") ? <FileVideo className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
+                                {file.name.slice(0, 20)}{file.name.length > 20 && "..."}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        <Button
+                          onClick={handleFileUpload}
+                          disabled={uploadFiles.length === 0 || uploadMutation.isPending}
+                          className="w-full"
+                          data-testid="button-upload-to-case"
+                        >
+                          {uploadMutation.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Uploading {uploadFiles.length} file(s)...
+                            </>
                           ) : (
-                            <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
-                              <FileImage className="h-5 w-5 text-muted-foreground" />
-                            </div>
+                            <>
+                              <Upload className="h-4 w-4 mr-2" />
+                              Upload {uploadFiles.length > 0 ? `${uploadFiles.length} file(s)` : "Files"} to Case
+                            </>
                           )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {ce.evidence?.notes || `Evidence #${ce.evidenceId}`}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{ce.source}</p>
-                          </div>
-                        </div>
-                      ))}
+                        </Button>
+                      </div>
                     </div>
-                  )}
+                  </div>
+
+                  <Collapsible open={evidenceExpanded} onOpenChange={setEvidenceExpanded} className="mt-4">
+                    <div className="flex items-center justify-between">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="p-0 h-auto hover:bg-transparent" data-testid="button-toggle-evidence">
+                          <h3 className="font-semibold flex items-center gap-2">
+                            {evidenceExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            <FileImage className="h-4 w-4" />
+                            Evidence Files ({caseEvidence.length})
+                          </h3>
+                        </Button>
+                      </CollapsibleTrigger>
+                      <Dialog open={addEvidenceDialogOpen} onOpenChange={setAddEvidenceDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm" data-testid="button-add-evidence">
+                            <Plus className="h-4 w-4 mr-1" />
+                            Link Existing
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-lg">
+                          <DialogHeader>
+                            <DialogTitle>Link Existing Evidence</DialogTitle>
+                            <DialogDescription>Select evidence items already in the system to add to this case</DialogDescription>
+                          </DialogHeader>
+                          <ScrollArea className="h-[300px]">
+                            <div className="flex flex-col gap-2">
+                              {availableEvidence.length === 0 ? (
+                                <p className="text-muted-foreground text-center py-4">No available evidence</p>
+                              ) : (
+                                availableEvidence.map((ev) => (
+                                  <div
+                                    key={ev.id}
+                                    className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                                      selectedEvidenceIds.includes(ev.id)
+                                        ? "border-primary bg-primary/10"
+                                        : "hover:bg-muted/50"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedEvidenceIds((prev) =>
+                                        prev.includes(ev.id)
+                                          ? prev.filter((id) => id !== ev.id)
+                                          : [...prev, ev.id]
+                                      );
+                                    }}
+                                    data-testid={`evidence-select-${ev.id}`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <FileImage className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-sm truncate">{ev.imagePath || ev.notes || `Evidence #${ev.id}`}</span>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </ScrollArea>
+                          <div className="flex justify-end gap-2 pt-4">
+                            <Button variant="outline" onClick={() => setAddEvidenceDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={handleAddEvidence}
+                              disabled={selectedEvidenceIds.length === 0 || addEvidenceMutation.isPending}
+                              data-testid="button-confirm-add-evidence"
+                            >
+                              {addEvidenceMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                `Add ${selectedEvidenceIds.length} Items`
+                              )}
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                    
+                    <CollapsibleContent className="mt-3">
+                      {caseEvidence.length === 0 ? (
+                        <div className="border border-dashed rounded-md p-6 text-center text-muted-foreground">
+                          <FileImage className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p>No evidence files yet</p>
+                          <p className="text-xs mt-1">Upload files above or link existing evidence</p>
+                        </div>
+                      ) : (
+                        <div className="grid gap-2">
+                          {caseEvidence.map((ce) => (
+                            <div key={ce.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-md">
+                              {ce.evidence?.imagePath ? (
+                                <img
+                                  src={ce.evidence.imagePath}
+                                  alt="Evidence"
+                                  className="w-12 h-12 object-cover rounded"
+                                />
+                              ) : ce.evidence?.videoPath ? (
+                                <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                                  <FileVideo className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              ) : (
+                                <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                                  <FileImage className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {ce.evidence?.notes || `Evidence #${ce.evidenceId}`}
+                                </p>
+                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <Badge variant="outline" className="text-xs py-0">{ce.source}</Badge>
+                                  {ce.evidence?.timestamp && (
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="h-3 w-3" />
+                                      {new Date(ce.evidence.timestamp).toLocaleTimeString()}
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
 
                 <Separator />
@@ -554,6 +674,30 @@ export default function CasesPage() {
                         </div>
                       )}
 
+                      {(caseAnalysis as any).timeWindow && (
+                        <div>
+                          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            Time Window
+                          </h4>
+                          <div className="text-sm text-muted-foreground space-y-1 bg-muted/50 p-3 rounded-md">
+                            <p>First seen: {new Date((caseAnalysis as any).timeWindow.firstSeen).toLocaleString()}</p>
+                            <p>Last seen: {new Date((caseAnalysis as any).timeWindow.lastSeen).toLocaleString()}</p>
+                            <p>Duration: {(caseAnalysis as any).timeWindow.durationMinutes} minutes</p>
+                            {(caseAnalysis as any).timeWindow.gaps?.length > 0 && (
+                              <div className="mt-2">
+                                <span className="text-yellow-600 dark:text-yellow-400 font-medium">Gaps detected:</span>
+                                <ul className="list-disc list-inside text-xs">
+                                  {(caseAnalysis as any).timeWindow.gaps.map((gap: string, i: number) => (
+                                    <li key={i}>{gap}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {caseAnalysis.violations && Array.isArray(caseAnalysis.violations) && caseAnalysis.violations.length > 0 && (
                         <div>
                           <h4 className="text-sm font-medium mb-2">Detected Violations</h4>
@@ -586,6 +730,18 @@ export default function CasesPage() {
                               <Badge variant="outline" className="mt-1">EV Indicators</Badge>
                             )}
                           </div>
+                        </div>
+                      )}
+
+                      {(caseAnalysis as any).modelVersions && (
+                        <div className="text-xs text-muted-foreground border-t pt-2 mt-4">
+                          Model: Vision GPT ({(caseAnalysis as any).modelVersions.visionGPT})
+                          {(caseAnalysis as any).supportingEvidenceIds && (
+                            <span> | {(caseAnalysis as any).supportingEvidenceIds.length} files analyzed</span>
+                          )}
+                          {(caseAnalysis as any).partialFailures?.length > 0 && (
+                            <span className="text-yellow-600"> | {(caseAnalysis as any).partialFailures.length} partial failures</span>
+                          )}
                         </div>
                       )}
                     </div>
