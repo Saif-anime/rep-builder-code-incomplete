@@ -2994,16 +2994,16 @@ export async function registerRoutes(
           const { extractSignageRulesFromText } = await import("./signageExtractionService");
           const aiResult = await extractSignageRulesFromText(extractedText, "TERMS");
           
-          if (aiResult) {
+          if (aiResult && aiResult.success && aiResult.extractedData) {
             extractedData = {
               ...extractedData,
-              maxStayMinutes: aiResult.maxStayMinutes || null,
-              graceMinutes: aiResult.graceMinutes || null,
-              enforcementHours: aiResult.enforcementHours || null,
-              bayRestrictions: aiResult.bayRestrictions || [],
-              paymentTerms: aiResult.paymentTerms || null,
-              warningLanguage: aiResult.warningLanguage || null,
-              extractionNotes: aiResult.extractionNotes || [],
+              maxStayMinutes: aiResult.extractedData.maxStayMinutes || null,
+              graceMinutes: aiResult.extractedData.graceMinutes || null,
+              enforcementHours: aiResult.extractedData.enforcementHours || null,
+              bayRestrictions: aiResult.extractedData.bayRestrictions || [],
+              paymentTerms: aiResult.extractedData.paymentTerms || null,
+              warningLanguage: aiResult.extractedData.warningLanguage || null,
+              extractionNotes: aiResult.extractedData.extractionNotes || [],
             };
             confidenceScore = aiResult.confidence || 0;
             
