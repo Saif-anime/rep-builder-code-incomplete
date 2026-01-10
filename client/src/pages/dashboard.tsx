@@ -54,15 +54,15 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-xl sm:text-2xl font-semibold">Dashboard</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">
           Overview of parking enforcement activity
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Pending Review"
           value={stats?.pendingReview || 0}
@@ -92,86 +92,87 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-3">
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-500/10">
-                <MapPin className="h-5 w-5 text-blue-500" />
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-md bg-blue-500/10 shrink-0">
+                <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
               </div>
-              <div>
-                <p className="text-2xl font-bold">{stats?.totalSites || 0}</p>
-                <p className="text-xs text-muted-foreground">Active Sites</p>
+              <div className="min-w-0">
+                <p className="text-lg sm:text-2xl font-bold">{stats?.totalSites || 0}</p>
+                <p className="text-xs text-muted-foreground truncate">Sites</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-purple-500/10">
-                <HardDrive className="h-5 w-5 text-purple-500" />
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-md bg-purple-500/10 shrink-0">
+                <HardDrive className="h-4 w-4 sm:h-5 sm:w-5 text-purple-500" />
               </div>
-              <div>
-                <p className="text-2xl font-bold">{stats?.storageUsed || "0 GB"}</p>
-                <p className="text-xs text-muted-foreground">Storage Used</p>
+              <div className="min-w-0">
+                <p className="text-lg sm:text-2xl font-bold truncate">{stats?.storageUsed || "0 GB"}</p>
+                <p className="text-xs text-muted-foreground truncate">Storage</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-green-500/10">
-                <Car className="h-5 w-5 text-green-500" />
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-md bg-green-500/10 shrink-0">
+                <Car className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" />
               </div>
-              <div>
-                <p className="text-2xl font-bold">
+              <div className="min-w-0">
+                <p className="text-lg sm:text-2xl font-bold">
                   {(stats?.recentEvents?.length || 0) > 0 ? stats?.recentEvents.length : 0}
                 </p>
-                <p className="text-xs text-muted-foreground">Recent ANPR Captures</p>
+                <p className="text-xs text-muted-foreground truncate">ANPR</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <FileText className="h-5 w-5" />
+          <CardHeader className="pb-3 px-3 sm:px-6">
+            <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
+              <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
               Recent Violations
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 sm:px-6">
             {stats?.recentEvents && stats.recentEvents.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {stats.recentEvents.slice(0, 5).map((event) => (
                   <div
                     key={event.id}
-                    className="flex items-center justify-between gap-4 rounded-md border p-3"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 rounded-md border p-2 sm:p-3"
                     data-testid={`event-item-${event.id}`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-                        <Car className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-md bg-muted shrink-0">
+                        <Car className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-sm">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-xs sm:text-sm">
                             {event.plateText}
                           </span>
                           <ViolationBadge type={event.violationType} showIcon={false} />
                         </div>
-                        <span className="font-mono text-xs text-muted-foreground">
+                        <span className="font-mono text-[10px] sm:text-xs text-muted-foreground">
                           {format(new Date(event.timestamp), "dd/MM/yyyy HH:mm")}
                         </span>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center sm:flex-col gap-2 sm:items-end ml-10 sm:ml-0">
                       <Badge
                         variant={event.status === "confirmed" ? "default" : "secondary"}
+                        className="text-[10px] sm:text-xs"
                       >
                         {event.status}
                       </Badge>
@@ -179,7 +180,7 @@ export default function DashboardPage() {
                         value={event.confidence}
                         showLabel={false}
                         size="sm"
-                        className="w-16"
+                        className="w-12 sm:w-16"
                       />
                     </div>
                   </div>
@@ -195,13 +196,13 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <Clock className="h-5 w-5" />
+          <CardHeader className="pb-3 px-3 sm:px-6">
+            <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
+              <Clock className="h-4 w-4 sm:h-5 sm:w-5" />
               Recent Activity
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 sm:px-6">
             {stats?.recentActivity && stats.recentActivity.length > 0 ? (
               <div className="divide-y">
                 {stats.recentActivity.slice(0, 6).map((activity) => (

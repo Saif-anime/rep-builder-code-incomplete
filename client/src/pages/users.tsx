@@ -235,11 +235,11 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-semibold">User Management</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             Manage system users and their access roles
           </p>
         </div>
@@ -390,7 +390,7 @@ export default function UsersPage() {
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative flex-1 sm:max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search users..."
@@ -418,92 +418,139 @@ export default function UsersPage() {
           </div>
         </Card>
       ) : filteredUsers && filteredUsers.length > 0 ? (
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Login</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.map((user) => (
-                <TableRow key={user.id} data-testid={`user-row-${user.id}`}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-9 w-9">
-                        <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                          {user.fullName
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium text-sm">{user.fullName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {user.email}
-                        </p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={getRoleBadgeVariant(user.role)}>
-                      {formatRole(user.role)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={user.isActive ? "default" : "secondary"}>
-                      {user.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {user.lastLogin
-                        ? format(new Date(user.lastLogin), "dd/MM/yyyy HH:mm")
-                        : "Never"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          data-testid={`button-user-actions-${user.id}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleEdit(user)}
-                          data-testid={`menu-edit-user-${user.id}`}
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => setDeletingUser(user)}
-                          disabled={user.id === currentUser?.id}
-                          data-testid={`menu-delete-user-${user.id}`}
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+        <>
+          <Card className="hidden sm:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden md:table-cell">Last Login</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((user) => (
+                  <TableRow key={user.id} data-testid={`user-row-${user.id}`}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9">
+                          <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                            {user.fullName
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium text-sm">{user.fullName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {user.email}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getRoleBadgeVariant(user.role)}>
+                        {formatRole(user.role)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={user.isActive ? "default" : "secondary"}>
+                        {user.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {user.lastLogin
+                          ? format(new Date(user.lastLogin), "dd/MM/yyyy HH:mm")
+                          : "Never"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            data-testid={`button-user-actions-${user.id}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleEdit(user)}
+                            data-testid={`menu-edit-user-${user.id}`}
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => setDeletingUser(user)}
+                            disabled={user.id === currentUser?.id}
+                            data-testid={`menu-delete-user-${user.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          
+          <div className="flex flex-col gap-3 sm:hidden">
+            {filteredUsers.map((user) => (
+              <Card key={user.id} className="p-3" data-testid={`user-card-${user.id}`}>
+                <div className="flex items-start gap-3">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                      {user.fullName.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-sm truncate">{user.fullName}</p>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" data-testid={`button-user-actions-mobile-${user.id}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleEdit(user)}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => setDeletingUser(user)} disabled={user.id === currentUser?.id}>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <Badge variant={getRoleBadgeVariant(user.role)} className="text-[10px]">
+                        {formatRole(user.role)}
+                      </Badge>
+                      <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px]">
+                        {user.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
       ) : (
         <EmptyState
           icon={Users}

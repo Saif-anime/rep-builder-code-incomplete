@@ -5,9 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ResponsiveHeader } from "@/components/responsive-header";
 import { Loader2 } from "lucide-react";
 
 import LoginPage from "@/pages/login";
@@ -68,11 +68,8 @@ function AppLayout() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <SidebarInset className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex h-14 items-center justify-between gap-4 border-b px-4 shrink-0">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <ThemeToggle />
-          </header>
-          <main className="flex-1 overflow-auto p-6">
+          <ResponsiveHeader />
+          <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6">
             <ProtectedRoutes />
           </main>
         </SidebarInset>

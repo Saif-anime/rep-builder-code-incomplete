@@ -292,23 +292,23 @@ export default function FlaggedSessionsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Flagged Sessions Review</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-xl sm:text-2xl font-semibold">Flagged Sessions Review</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">
           Review AI recommendations and make enforcement decisions
         </p>
       </div>
 
       <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base flex items-center gap-2">
+        <CardHeader className="pb-4 px-3 sm:px-6">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <Filter className="h-4 w-4" />
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <CardContent className="px-3 sm:px-6">
+          <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             <div className="space-y-2">
               <Label htmlFor="site-filter">Site</Label>
               <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>

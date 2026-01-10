@@ -1,0 +1,172 @@
+Refactor the existing React admin UI of the
+Euro Parking Enforcement System so it is:
+
+✅ Fully responsive
+✅ Mobile-first
+✅ Works on all screen sizes
+✅ Clean, professional, and accessible
+❌ Without changing backend APIs or business logic
+
+====================================================
+DESIGN PRINCIPLES (MANDATORY)
+====================================================
+
+1️⃣ Mobile-first layout
+2️⃣ Progressive enhancement for tablets & desktops
+3️⃣ No horizontal scrolling
+4️⃣ Touch-friendly interactions
+5️⃣ Readable typography at all sizes
+
+====================================================
+TECH STACK (ASSUME EXISTING)
+====================================================
+
+- React
+- Tailwind CSS
+- shadcn/ui components
+- Lucide icons
+- Framer Motion (if used)
+
+====================================================
+LAYOUT RESTRUCTURE
+====================================================
+
+----------------------------------------------------
+SIDEBAR
+----------------------------------------------------
+
+Desktop (≥1024px):
+- Fixed sidebar
+- Icons + labels visible
+
+Tablet (768px–1023px):
+- Collapsed sidebar
+- Icons only
+- Expand on hover / tap
+
+Mobile (<768px):
+- Sidebar hidden by default
+- Hamburger menu
+- Slide-in drawer
+- Overlay background
+
+----------------------------------------------------
+TOP BAR
+----------------------------------------------------
+
+- Sticky header
+- Hamburger on mobile
+- Page title centered
+- User menu collapses into icon
+
+====================================================
+CONTENT GRID SYSTEM
+====================================================
+
+Use responsive grid:
+
+- 1 column on mobile
+- 2 columns on tablet
+- 3–4 columns on desktop
+
+Example:
+grid-cols-1 md:grid-cols-2 xl:grid-cols-4
+
+====================================================
+EVIDENCE UI (CRITICAL)
+====================================================
+
+Evidence Bundles:
+- Stack vertically on mobile
+- Expandable accordions
+- Thumbnail carousel for multiple files
+- Swipe support on mobile
+
+Analysis Report:
+- Summary cards stack vertically
+- Tables collapse into key-value rows
+- Long JSON shown in expandable panels
+
+====================================================
+TABLE RESPONSIVENESS
+====================================================
+
+For ALL tables:
+
+Mobile:
+- Convert rows → cards
+- Show only key fields
+- Expand for details
+
+Desktop:
+- Full table with columns
+
+====================================================
+FORMS & UPLOADS
+====================================================
+
+- Full-width inputs on mobile
+- Group fields vertically
+- Large tap targets
+- Drag-and-drop fallback to button
+
+====================================================
+MODALS & DRAWERS
+====================================================
+
+Mobile:
+- Bottom sheet style
+- Full width
+
+Desktop:
+- Centered modal
+
+====================================================
+TYPOGRAPHY & SPACING
+====================================================
+
+- Base font: 14–16px mobile, 16–18px desktop
+- Use Tailwind spacing scale
+- Avoid dense layouts
+
+====================================================
+ACCESSIBILITY (REQUIRED)
+====================================================
+
+- Keyboard navigation
+- Focus states
+- ARIA labels for buttons
+- Color contrast AA compliant
+
+====================================================
+PERFORMANCE
+====================================================
+
+- Avoid large images on mobile
+- Lazy load evidence thumbnails
+- Avoid reflows on resize
+
+====================================================
+TESTING CHECKLIST
+====================================================
+
+Ensure UI works on:
+- 320px width (small phones)
+- 375px / 414px phones
+- iPad portrait & landscape
+- Laptop 1366px
+- Large desktop 1920px+
+
+====================================================
+FINAL DELIVERABLE
+====================================================
+
+- One responsive UI codebase
+- No duplicated components
+- No separate mobile app
+- Seamless resizing
+- Professional admin experience
+
+Implement fully.
+Do not simplify.
+Do not break existing features.

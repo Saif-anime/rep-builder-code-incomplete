@@ -189,11 +189,11 @@ export default function EvidencePage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-4 sm:gap-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Evidence</h1>
-          <p className="text-muted-foreground">View and analyze evidence bundles from cameras and manual uploads</p>
+          <h1 className="text-xl sm:text-2xl font-bold">Evidence</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">View and analyze evidence bundles</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => refetch()} data-testid="button-refresh-evidence">
@@ -201,9 +201,9 @@ export default function EvidencePage() {
           </Button>
           <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-upload-evidence">
+              <Button data-testid="button-upload-evidence" className="flex-1 sm:flex-none">
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Evidence
+                <span className="sm:inline">Upload</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
@@ -284,32 +284,32 @@ export default function EvidencePage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <CardTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5" />
+        <CardHeader className="pb-3 px-3 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Filter className="h-4 w-4 sm:h-5 sm:w-5" />
               Filter Bundles
             </CardTitle>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant={sourceFilter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("all")} data-testid="filter-all">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Badge variant={sourceFilter === "all" ? "default" : "outline"} className="cursor-pointer text-[10px] sm:text-xs" onClick={() => setSourceFilter("all")} data-testid="filter-all">
                 All ({bundles.length})
               </Badge>
-              <Badge variant={sourceFilter === "camera" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("camera")} data-testid="filter-camera">
+              <Badge variant={sourceFilter === "camera" ? "default" : "outline"} className="cursor-pointer text-[10px] sm:text-xs" onClick={() => setSourceFilter("camera")} data-testid="filter-camera">
                 <Camera className="h-3 w-3 mr-1" />
-                Camera ({cameraCount})
+                <span className="hidden sm:inline">Camera </span>({cameraCount})
               </Badge>
-              <Badge variant={sourceFilter === "manual" ? "default" : "outline"} className="cursor-pointer" onClick={() => setSourceFilter("manual")} data-testid="filter-manual">
+              <Badge variant={sourceFilter === "manual" ? "default" : "outline"} className="cursor-pointer text-[10px] sm:text-xs" onClick={() => setSourceFilter("manual")} data-testid="filter-manual">
                 <FileImage className="h-3 w-3 mr-1" />
-                Manual ({manualCount})
+                <span className="hidden sm:inline">Manual </span>({manualCount})
               </Badge>
-              <Separator orientation="vertical" className="h-6" />
-              <Badge variant={statusFilter === "pending" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === "pending" ? "all" : "pending")} data-testid="filter-pending">
+              <Separator orientation="vertical" className="h-4 sm:h-6 hidden sm:block" />
+              <Badge variant={statusFilter === "pending" ? "default" : "outline"} className="cursor-pointer text-[10px] sm:text-xs" onClick={() => setStatusFilter(statusFilter === "pending" ? "all" : "pending")} data-testid="filter-pending">
                 <Clock className="h-3 w-3 mr-1" />
-                Pending ({pendingCount})
+                <span className="hidden sm:inline">Pending </span>({pendingCount})
               </Badge>
-              <Badge variant={statusFilter === "completed" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")} data-testid="filter-completed">
+              <Badge variant={statusFilter === "completed" ? "default" : "outline"} className="cursor-pointer text-[10px] sm:text-xs" onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")} data-testid="filter-completed">
                 <CheckCircle2 className="h-3 w-3 mr-1" />
-                Completed ({completedCount})
+                <span className="hidden sm:inline">Done </span>({completedCount})
               </Badge>
             </div>
           </div>
@@ -329,30 +329,30 @@ export default function EvidencePage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:gap-4">
           {filteredBundles.map((bundle) => (
-            <Card key={bundle.id} className="hover-elevate cursor-pointer" data-testid={`bundle-card-${bundle.id}`}>
+            <Card key={bundle.id} className="hover-elevate cursor-pointer overflow-hidden" data-testid={`bundle-card-${bundle.id}`}>
               <Collapsible open={expandedBundles.has(bundle.id)} onOpenChange={() => toggleBundle(bundle.id)}>
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
+                  <CardHeader className="pb-3 px-3 sm:px-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+                      <div className="flex items-center gap-2 sm:gap-3">
                         {expandedBundles.has(bundle.id) ? (
-                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
                         ) : (
-                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                          <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
                         )}
-                        <div>
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            {bundle.siteName}
+                        <div className="min-w-0">
+                          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                            <span className="truncate">{bundle.siteName}</span>
                           </CardTitle>
-                          <CardDescription className="flex items-center gap-2 mt-1">
-                            <span className="font-mono text-xs">REF: {bundle.caseReference.substring(0, 8)}</span>
+                          <CardDescription className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="font-mono text-[10px] sm:text-xs">REF: {bundle.caseReference.substring(0, 8)}</span>
                             {bundle.vrm && (
                               <>
-                                <Separator orientation="vertical" className="h-3" />
-                                <span className="font-mono text-xs flex items-center gap-1">
+                                <Separator orientation="vertical" className="h-3 hidden sm:block" />
+                                <span className="font-mono text-[10px] sm:text-xs flex items-center gap-1">
                                   <Car className="h-3 w-3" />
                                   {bundle.vrm}
                                 </span>
@@ -361,13 +361,13 @@ export default function EvidencePage() {
                           </CardDescription>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline">
+                      <div className="flex items-center gap-2 sm:gap-3 ml-6 sm:ml-0 flex-wrap">
+                        <Badge variant="outline" className="text-[10px] sm:text-xs">
                           {bundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
-                          {bundle.evidenceCount} file{bundle.evidenceCount !== 1 ? "s" : ""}
+                          {bundle.evidenceCount}
                         </Badge>
                         {getStatusBadge(bundle.status)}
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[10px] sm:text-xs text-muted-foreground hidden sm:inline">
                           {new Date(bundle.createdAt).toLocaleDateString()}
                         </span>
                       </div>

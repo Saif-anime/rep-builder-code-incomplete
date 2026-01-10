@@ -15,6 +15,13 @@ The system employs a full-stack architecture consisting of a React frontend, an 
 - **Typography:** Uses Inter for UI text and JetBrains Mono for code and number plate displays.
 - **Theming:** Supports both dark and light modes.
 - **Design Philosophy:** Focuses on professional enforcement styling, providing clear information and intuitive workflows for operators and administrators.
+- **Mobile-First Responsive Design:** Full responsive layout using Tailwind breakpoints (sm:, md:, lg:). Key patterns:
+  - Stat cards use responsive grid: `grid-cols-2 lg:grid-cols-4`
+  - Tables convert to card layouts on mobile via conditional rendering (`hidden sm:block` / `sm:hidden`)
+  - Sidebar collapses to sheet on mobile (built-in Shadcn sidebar behavior)
+  - Form controls stack vertically on mobile, horizontal on desktop
+  - Text sizes scale with breakpoints: `text-xs sm:text-sm md:text-base`
+  - Touch-friendly padding and spacing on mobile devices
 
 **Technical Implementations:**
 - **Backend:** Express.js with TypeScript for a scalable and maintainable API.

@@ -156,23 +156,23 @@ export default function RecommendationsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-4 sm:gap-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Brain className="h-6 w-6" />
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <Brain className="h-5 w-5 sm:h-6 sm:w-6" />
             AI Analysis Reports
           </h1>
-          <p className="text-muted-foreground">View context-aware enforcement recommendations with full evidence breakdown</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">Context-aware enforcement recommendations</p>
         </div>
         <Button variant="outline" size="icon" onClick={() => refetch()} data-testid="button-refresh">
           <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-          <SelectTrigger className="w-[280px]" data-testid="select-site">
+          <SelectTrigger className="w-full sm:w-[280px]" data-testid="select-site">
             <SelectValue placeholder="Select a site" />
           </SelectTrigger>
           <SelectContent>
@@ -188,7 +188,7 @@ export default function RecommendationsPage() {
         </Select>
 
         <Select value={actionFilter} onValueChange={setActionFilter}>
-          <SelectTrigger className="w-[180px]" data-testid="select-action-filter">
+          <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-action-filter">
             <SelectValue placeholder="Filter by action" />
           </SelectTrigger>
           <SelectContent>
@@ -202,35 +202,35 @@ export default function RecommendationsPage() {
       </div>
 
       {selectedSiteId && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4">
           <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold">{stats.total}</p>
-              <p className="text-sm text-muted-foreground">Total</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Total</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-red-600">{stats.proceed}</p>
-              <p className="text-sm text-muted-foreground">Issue PCN</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.proceed}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Issue</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-amber-600">{stats.hold}</p>
-              <p className="text-sm text-muted-foreground">Hold</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-amber-600">{stats.hold}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Hold</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{stats.review}</p>
-              <p className="text-sm text-muted-foreground">Review</p>
+          <Card className="hidden sm:block">
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.review}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Review</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{stats.dismissed}</p>
-              <p className="text-sm text-muted-foreground">Dismissed</p>
+          <Card className="hidden sm:block">
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.dismissed}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Dismissed</p>
             </CardContent>
           </Card>
         </div>
@@ -260,42 +260,42 @@ export default function RecommendationsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3 sm:gap-4">
           {recommendations.map((rec) => {
             const evidence = rec.evidenceJson as RecommendationEvidence | null;
             return (
               <Card 
                 key={rec.id} 
-                className="hover-elevate cursor-pointer"
+                className="hover-elevate cursor-pointer overflow-hidden"
                 onClick={() => setSelectedRecommendation(rec)}
                 data-testid={`recommendation-card-${rec.id}`}
               >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center gap-2 flex-wrap">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-start justify-between gap-2 sm:gap-4">
+                    <div className="flex-1 min-w-0 space-y-2 sm:space-y-3">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                         {getActionBadge(rec.action)}
-                        {getSourceBadge(rec.source, rec.isOverride || false)}
-                        <Badge variant="outline" className="font-mono">
+                        <span className="hidden sm:inline">{getSourceBadge(rec.source, rec.isOverride || false)}</span>
+                        <Badge variant="outline" className="font-mono text-[10px] sm:text-xs">
                           <Car className="h-3 w-3 mr-1" />
                           {rec.vrm}
                         </Badge>
-                        <Badge variant="outline">
-                          {Math.round((rec.confidence || 0) * 100)}% Confidence
+                        <Badge variant="outline" className="text-[10px] sm:text-xs">
+                          {Math.round((rec.confidence || 0) * 100)}%
                         </Badge>
                       </div>
                       
-                      <p className="text-sm">{rec.reasonPlain}</p>
+                      <p className="text-xs sm:text-sm line-clamp-2">{rec.reasonPlain}</p>
                       
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-muted-foreground flex-wrap">
                         {evidence?.sessionDetails && (
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            Duration: {formatDuration(evidence.sessionDetails.durationMinutes)}
+                            {formatDuration(evidence.sessionDetails.durationMinutes)}
                           </span>
                         )}
                         {evidence?.weatherConditions && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 hidden sm:flex">
                             <CloudRain className="h-3 w-3" />
                             {evidence.weatherConditions}
                           </span>
@@ -307,14 +307,14 @@ export default function RecommendationsPage() {
                           </span>
                         )}
                         {evidence?.driverProfile && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 hidden sm:flex">
                             <User className="h-3 w-3" />
                             {evidence.driverProfile.classification}
                           </span>
                         )}
                       </div>
                     </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
                   </div>
                 </CardContent>
               </Card>
