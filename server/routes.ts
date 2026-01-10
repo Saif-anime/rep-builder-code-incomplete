@@ -3913,6 +3913,260 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== CASE ANALYSIS PIPELINE ====================
+  
+  // Trigger the 6-step analysis pipeline for a case
+  app.post("/api/cases/:id/pipeline/run", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const caseData = await storage.getCaseById(caseId);
+      
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      const { runCaseAnalysisPipeline } = await import("./caseAnalysisPipeline");
+      
+      const result = await runCaseAnalysisPipeline(caseId, req.user?.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "run_pipeline",
+        entityType: "enforcement_case",
+        entityId: caseId,
+        details: { 
+          decision: result.decision?.status === "PCN_ELIGIBLE" ? "issue" : "no_issue",
+          confidence: result.decision?.overallConfidence 
+        },
+      });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Pipeline] Error running analysis pipeline:", error);
+      res.status(500).json({ error: "Failed to run analysis pipeline", details: error.message });
+    }
+  });
+  
+  // Get pipeline step status for a case
+  app.get("/api/cases/:id/pipeline/steps", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const steps = await storage.getAnalysisStepsByCase(caseId);
+      res.json(steps);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch pipeline steps" });
+    }
+  });
+  
+  // Get stored pipeline results for a case
+  app.get("/api/cases/:id/pipeline/results", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const results = await storage.getCasePipelineResults(caseId);
+      if (!results) {
+        return res.status(404).json({ error: "No pipeline results found for this case" });
+      }
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch pipeline results" });
+    }
+  });
+  
+  // Get structured analysis report (WHAT/HOW/WHY)
+  app.get("/api/cases/:id/pipeline/report", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      
+      const { getAnalysisReport } = await import("./caseAnalysisPipeline");
+      
+      const report = await getAnalysisReport(caseId);
+      
+      if (!report) {
+        return res.status(404).json({ error: "No analysis report available for this case" });
+      }
+      
+      res.json(report);
+    } catch (error: any) {
+      console.error("[Pipeline] Error fetching analysis report:", error);
+      res.status(500).json({ error: "Failed to fetch analysis report" });
+    }
+  });
+  
+  // Issue a PCN based on pipeline analysis
+  app.post("/api/cases/:id/pipeline/issue-pcn", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      
+      const pipelineResults = await storage.getCasePipelineResults(caseId);
+      if (!pipelineResults) {
+        return res.status(400).json({ error: "No pipeline analysis found. Run the pipeline first." });
+      }
+      
+      const decision = pipelineResults.decision as any;
+      if (!decision) {
+        return res.status(400).json({ error: "No decision available from pipeline" });
+      }
+      
+      // Check eligibility gates
+      const gates = decision.eligibilityGates || {
+        regulationBreach: false,
+        signageCompliant: false,
+        confidenceThresholdMet: false,
+      };
+      
+      if (!gates.regulationBreach) {
+        return res.status(400).json({ 
+          error: "PCN cannot be issued: No regulation breach confirmed",
+          gate: "regulationBreach"
+        });
+      }
+      
+      if (!gates.signageCompliant) {
+        return res.status(400).json({ 
+          error: "PCN cannot be issued: Signage is not compliant or not verified",
+          gate: "signageCompliant"
+        });
+      }
+      
+      if (!gates.confidenceThresholdMet) {
+        return res.status(400).json({ 
+          error: "PCN cannot be issued: Confidence threshold not met (minimum 70%)",
+          gate: "confidenceThresholdMet"
+        });
+      }
+      
+      // All gates passed, issue PCN
+      const caseData = await storage.getCaseById(caseId);
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
+      const regEval = pipelineResults.regulationEvaluation as any;
+      const dvlaData = pipelineResults.dvlaData as any;
+      
+      const pcn = await storage.createPcn({
+        caseId,
+        pcnNumber: await storage.generatePcnNumber(caseData.siteId || 0),
+        vrm: caseData.vrm || dvlaData?.vrm || "UNKNOWN",
+        siteId: caseData.siteId || 0,
+        eligibility: "eligible",
+        status: "issued",
+        regulationBreached: regEval?.evaluation?.breachType || "OVERSTAY",
+        breachDetails: {
+          actualDuration: regEval?.evaluation?.actualDurationMinutes || 0,
+          allowedDuration: regEval?.evaluation?.allowedDurationMinutes || 0,
+          enforcementWindow: { start: "00:00", end: "23:59" },
+          breachTime: new Date().toISOString(),
+          ruleDescription: regEval?.evaluation?.breachExplanation || "",
+        },
+        signageCompliant: gates.signageCompliant,
+        amount: 100,
+        analysisSnapshot: {
+          evidenceTimeline: pipelineResults.evidenceTimeline,
+          visionResults: pipelineResults.visionResults,
+          dvlaData: pipelineResults.dvlaData,
+          regulationEvaluation: pipelineResults.regulationEvaluation,
+          signageCompliance: pipelineResults.signageCompliance,
+          decision: pipelineResults.decision,
+          confidence: decision.overallConfidence || 0.7,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Update with issued details (these fields are omitted from insert schema)
+      await storage.issuePcn(pcn.id, req.user!.id);
+      
+      // Update case status
+      await storage.updateCaseStatus(caseId, "pcn_issued");
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "issue_pcn",
+        entityType: "pcn",
+        entityId: String(pcn.id),
+        details: { 
+          caseId, 
+          pcnNumber: pcn.pcnNumber,
+          vrm: pcn.vrm,
+          regulationBreached: pcn.regulationBreached,
+        },
+      });
+      
+      res.status(201).json(pcn);
+    } catch (error: any) {
+      console.error("[Pipeline] Error issuing PCN:", error);
+      res.status(500).json({ error: "Failed to issue PCN", details: error.message });
+    }
+  });
+  
+  // Get PCN by case ID
+  app.get("/api/cases/:id/pcn", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const pcns = await storage.getPcnsByCase(caseId);
+      if (!pcns || pcns.length === 0) {
+        return res.status(404).json({ error: "No PCN found for this case" });
+      }
+      res.json(pcns[0]);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch PCN" });
+    }
+  });
+  
+  // Get all PCNs with optional filtering by site
+  app.get("/api/pcns", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const { status, siteId, limit = 50 } = req.query;
+      if (!siteId) {
+        return res.status(400).json({ error: "siteId query parameter is required" });
+      }
+      const pcns = await storage.getPcnsBySite(parseInt(siteId as string), {
+        status: status as string | undefined,
+        limit: parseInt(limit as string),
+      });
+      res.json(pcns);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch PCNs" });
+    }
+  });
+  
+  // Update PCN status
+  app.patch("/api/pcns/:id", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const pcnId = parseInt(req.params.id);
+      if (isNaN(pcnId)) {
+        return res.status(400).json({ error: "Invalid PCN ID" });
+      }
+      
+      const { status, overrideReason } = req.body;
+      const updateData: any = { status };
+      if (overrideReason) {
+        updateData.overrideReason = overrideReason;
+        updateData.overrideBy = req.user!.id;
+        updateData.overrideAt = new Date();
+      }
+      
+      const pcn = await storage.updatePcn(pcnId, updateData);
+      
+      if (!pcn) {
+        return res.status(404).json({ error: "PCN not found" });
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "pcn",
+        entityId: String(pcnId),
+        details: { status, overrideReason },
+      });
+      
+      res.json(pcn);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update PCN" });
+    }
+  });
+
   // Serve uploaded files
   app.use("/uploads", (req, res, next) => {
     res.setHeader("Cache-Control", "public, max-age=31536000");

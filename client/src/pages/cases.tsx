@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { PipelineAnalysisReport } from "@/components/pipeline-analysis-report";
 import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle, CaseVehicle } from "@shared/schema";
 
 type CaseWithDetails = EnforcementCase & {
@@ -1116,6 +1117,21 @@ export default function CasesPage() {
                       <p className="text-xs mt-1">Add evidence and run analysis</p>
                     </div>
                   )}
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold flex items-center gap-2 mb-4">
+                    <Shield className="h-4 w-4" />
+                    6-Step Pipeline Analysis
+                  </h3>
+                  <PipelineAnalysisReport 
+                    caseId={selectedCase.id} 
+                    onPcnIssued={() => {
+                      refetchCases();
+                    }}
+                  />
                 </div>
               </div>
             </>
