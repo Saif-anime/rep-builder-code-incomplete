@@ -100,7 +100,14 @@ interface EvidenceTimelineResult {
   }>;
   entryWindow: { start: string; end: string; confidence: number } | null;
   exitWindow: { start: string; end: string; confidence: number } | null;
-  timeRange: { first: string; last: string; durationMinutes: number };
+  timeRange: { 
+    first: string; 
+    last: string; 
+    durationMinutes: number;
+    rawDurationMinutes?: number;
+    timestampQuality?: "high" | "medium" | "low" | "invalid";
+    validationIssue?: string | null;
+  };
 }
 
 interface VisionResultsOutput {
@@ -165,12 +172,15 @@ interface RegulationEvaluationOutput {
   };
   evaluation: {
     actualDurationMinutes: number;
+    effectiveDurationMinutes?: number;
     allowedDurationMinutes: number | null;
     withinEnforcementHours: boolean;
     breachDetected: boolean;
     breachType: string | null;
     breachExplanation: string | null;
     numericComparison: string;
+    complianceResult?: "OK" | "OVERSTAY" | "UNKNOWN";
+    ruleSource?: "site_policy" | "signage" | "unknown";
   };
 }
 
@@ -369,9 +379,47 @@ async function stepEvidenceNormalisation(
     
     const first = timestamps[0]?.timestamp || new Date().toISOString();
     const last = timestamps[timestamps.length - 1]?.timestamp || first;
-    const durationMinutes = Math.round(
+    let rawDurationMinutes = Math.round(
       (new Date(last).getTime() - new Date(first).getTime()) / (1000 * 60)
     );
+    
+    // Validate duration - flag unreasonable values
+    const MAX_REASONABLE_DURATION_MINUTES = 24 * 60; // 24 hours
+    const MIN_REASONABLE_DURATION_MINUTES = 0;
+    let durationValidationIssue: string | null = null;
+    let timestampQuality: "high" | "medium" | "low" | "invalid" = "high";
+    
+    // Check timestamp source quality
+    const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= 0.8);
+    const lowConfidenceCount = timestamps.filter(t => t.source === "upload_time").length;
+    
+    if (timestamps.length === 0) {
+      timestampQuality = "invalid";
+      durationValidationIssue = "No timestamps available";
+    } else if (timestamps.length === 1) {
+      timestampQuality = "low";
+      durationValidationIssue = "Only one timestamp - cannot calculate duration accurately";
+      rawDurationMinutes = 0;
+    } else if (lowConfidenceCount === timestamps.length) {
+      timestampQuality = "low";
+      durationValidationIssue = "All timestamps derived from upload time - duration may be inaccurate";
+    } else if (highConfidenceTimestamps.length < 2) {
+      timestampQuality = "medium";
+    }
+    
+    if (rawDurationMinutes > MAX_REASONABLE_DURATION_MINUTES) {
+      durationValidationIssue = `Calculated duration of ${Math.floor(rawDurationMinutes / 60)}h ${rawDurationMinutes % 60}m exceeds 24 hours - likely timestamp error`;
+      timestampQuality = "invalid";
+    } else if (rawDurationMinutes < MIN_REASONABLE_DURATION_MINUTES) {
+      durationValidationIssue = "Negative duration calculated - timestamp order error";
+      timestampQuality = "invalid";
+      rawDurationMinutes = 0;
+    }
+    
+    // Use validated duration (cap at reasonable max for display, but flag the issue)
+    const durationMinutes = timestampQuality === "invalid" 
+      ? 0 
+      : rawDurationMinutes;
     
     let entryWindow: EvidenceTimelineResult["entryWindow"] = null;
     let exitWindow: EvidenceTimelineResult["exitWindow"] = null;
@@ -396,7 +444,14 @@ async function stepEvidenceNormalisation(
       timestamps,
       entryWindow,
       exitWindow,
-      timeRange: { first, last, durationMinutes },
+      timeRange: { 
+        first, 
+        last, 
+        durationMinutes,
+        rawDurationMinutes,
+        timestampQuality,
+        validationIssue: durationValidationIssue,
+      },
     };
     
     await createOrUpdateStep(ctx.caseId, "evidence_normalisation", "completed", {
@@ -653,7 +708,8 @@ async function stepRegulationEvaluation(
   ctx: PipelineContext,
   site: ParkingSite,
   siteRules: SiteRule | undefined,
-  durationMinutes: number
+  durationMinutes: number,
+  timestampQuality?: "high" | "medium" | "low" | "invalid"
 ): Promise<RegulationEvaluationOutput> {
   const step = await createOrUpdateStep(ctx.caseId, "regulation_evaluation", "running", {
     startedAt: new Date(),
@@ -683,14 +739,12 @@ async function stepRegulationEvaluation(
     let breachDetected = false;
     let breachType: string | null = null;
     let breachExplanation: string | null = null;
+    let complianceResult: "OK" | "OVERSTAY" | "UNKNOWN" = "UNKNOWN";
     
-    const effectiveAllowedDuration = maxStayMinutes ? maxStayMinutes + gracePeriodMinutes : null;
-    
-    if (maxStayMinutes && durationMinutes > effectiveAllowedDuration!) {
-      breachDetected = true;
-      breachType = "OVERSTAY";
-      breachExplanation = `Vehicle parked for ${durationMinutes} minutes, exceeding maximum stay of ${maxStayMinutes} minutes (plus ${gracePeriodMinutes}min grace period).`;
-    }
+    // Determine rule source
+    const ruleSource: "site_policy" | "signage" | "unknown" = siteRules?.maxStayMinutes 
+      ? "site_policy" 
+      : "unknown";
     
     const formatDuration = (mins: number) => {
       const h = Math.floor(mins / 60);
@@ -698,9 +752,41 @@ async function stepRegulationEvaluation(
       return h > 0 ? `${h}h ${m}m` : `${m}m`;
     };
     
-    const numericComparison = maxStayMinutes 
-      ? `${formatDuration(durationMinutes)} vs ${formatDuration(maxStayMinutes)} allowed`
-      : `${formatDuration(durationMinutes)} (no max stay limit)`;
+    const effectiveAllowedDuration = maxStayMinutes ? maxStayMinutes + gracePeriodMinutes : null;
+    
+    // Calculate effective duration (after grace period)
+    const effectiveDurationMinutes = Math.max(0, durationMinutes - gracePeriodMinutes);
+    
+    // Determine compliance result
+    if (timestampQuality === "invalid" || durationMinutes === 0) {
+      complianceResult = "UNKNOWN";
+      breachExplanation = "Cannot determine compliance - timestamp data is invalid or missing.";
+    } else if (maxStayMinutes === null) {
+      complianceResult = "UNKNOWN";
+      breachExplanation = "Maximum stay limit not configured for this site. Manual review required.";
+    } else if (durationMinutes > effectiveAllowedDuration!) {
+      breachDetected = true;
+      breachType = "OVERSTAY";
+      complianceResult = "OVERSTAY";
+      const overstayAmount = durationMinutes - effectiveAllowedDuration!;
+      breachExplanation = `Vehicle parked for ${formatDuration(durationMinutes)}. Maximum stay per ${ruleSource.replace("_", " ")}: ${formatDuration(maxStayMinutes)}. Grace period: ${gracePeriodMinutes}m. Effective duration: ${formatDuration(effectiveDurationMinutes)}. Result: Overstay by ${formatDuration(overstayAmount)}.`;
+    } else {
+      complianceResult = "OK";
+      breachExplanation = `Vehicle parked for ${formatDuration(durationMinutes)}. Maximum stay: ${formatDuration(maxStayMinutes)}. Within allowed limits.`;
+    }
+    
+    // Build numeric comparison string with full time math
+    let numericComparison: string;
+    if (maxStayMinutes) {
+      const overstayAmount = Math.max(0, durationMinutes - effectiveAllowedDuration!);
+      if (complianceResult === "OVERSTAY") {
+        numericComparison = `${formatDuration(durationMinutes)} parked | ${formatDuration(maxStayMinutes)} max stay | ${gracePeriodMinutes}m grace | Overstay: ${formatDuration(overstayAmount)}`;
+      } else {
+        numericComparison = `${formatDuration(durationMinutes)} parked | ${formatDuration(maxStayMinutes)} max stay | ${gracePeriodMinutes}m grace | OK`;
+      }
+    } else {
+      numericComparison = `${formatDuration(durationMinutes)} parked | Max stay: UNKNOWN | Review required`;
+    }
     
     const result: RegulationEvaluationOutput = {
       siteId: site.id,
@@ -715,12 +801,15 @@ async function stepRegulationEvaluation(
       },
       evaluation: {
         actualDurationMinutes: durationMinutes,
+        effectiveDurationMinutes,
         allowedDurationMinutes: maxStayMinutes,
         withinEnforcementHours,
         breachDetected,
         breachType,
         breachExplanation,
         numericComparison,
+        complianceResult,
+        ruleSource,
       },
     };
     
@@ -1226,6 +1315,30 @@ function stepDecisionEngine(
     };
   }
   
+  // Check if compliance result is UNKNOWN (missing max stay or invalid timestamps)
+  const complianceResult = regulationEval.evaluation.complianceResult;
+  if (complianceResult === "UNKNOWN") {
+    blockers.push("Compliance cannot be determined - max stay unknown or timestamp data invalid");
+    
+    return {
+      status: "REVIEW_REQUIRED",
+      eligibilityGates: {
+        regulationBreach: false,
+        signageCompliant,
+        confidenceThresholdMet,
+        noHoldFlags,
+        riskAcceptable,
+        bayRuleAllowsPCN,
+      },
+      overallConfidence: 0.3,
+      legalRisk: "high",
+      recommendation: "Manual review required - unable to calculate overstay",
+      reasoning: regulationEval.evaluation.breachExplanation || "Duration or max stay data is invalid or missing.",
+      plainEnglishExplanation: `This case requires manual review because ${regulationEval.evaluation.breachExplanation || "the system could not determine if a parking violation occurred. The maximum stay limit may not be configured for this site, or the timestamp data in the evidence is unreliable."}`,
+      blockers,
+    };
+  }
+  
   const allGatesPassed = regulationBreach && signageCompliant && confidenceThresholdMet && noHoldFlags && riskAcceptable && bayRuleAllowsPCN;
   
   if (allGatesPassed) {
@@ -1410,9 +1523,10 @@ export async function runCaseAnalysisPipeline(
     
     const siteRules = await storage.getSiteRules(caseData.siteId);
     const durationMinutes = ctx.evidenceTimeline.timeRange.durationMinutes;
+    const timestampQuality = ctx.evidenceTimeline.timeRange.timestampQuality;
     
-    console.log(`[Pipeline] Step 4: Regulation Evaluation`);
-    ctx.regulationEvaluation = await stepRegulationEvaluation(ctx, site, siteRules, durationMinutes);
+    console.log(`[Pipeline] Step 4: Regulation Evaluation (duration: ${durationMinutes}m, quality: ${timestampQuality || "unknown"})`);
+    ctx.regulationEvaluation = await stepRegulationEvaluation(ctx, site, siteRules, durationMinutes, timestampQuality);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       currentStep: "signage_compliance",
       completedSteps: 4,

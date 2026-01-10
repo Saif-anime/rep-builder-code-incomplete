@@ -148,6 +148,17 @@ interface AnalysisStep {
   errors: string[] | null;
 }
 
+// Helper function to format duration from minutes
+function formatDurationFromMinutes(minutes: number | undefined | null): string {
+  if (minutes == null || isNaN(minutes)) return "—";
+  if (minutes === 0) return "0m";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
 export function EvidenceAnalysisReport({
   bundleId,
   caseReference,
@@ -543,25 +554,59 @@ export function EvidenceAnalysisReport({
           <CollapsibleContent>
             <CardContent className="pt-0">
               <div className="space-y-3">
-                {/* Max Stay Rule */}
-                <div className={`p-3 rounded-md border ${regulations?.evaluation?.breachDetected ? 'bg-destructive/10 border-destructive/20' : 'bg-muted/50'}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">Maximum Stay</span>
-                    {regulations?.evaluation?.breachDetected ? (
-                      <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Breached</Badge>
+                {/* Max Stay Rule with Time Math */}
+                <div className={`p-3 rounded-md border ${
+                  regulations?.evaluation?.complianceResult === "OVERSTAY" 
+                    ? 'bg-destructive/10 border-destructive/20' 
+                    : regulations?.evaluation?.complianceResult === "UNKNOWN"
+                    ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700'
+                    : 'bg-muted/50'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-sm">Maximum Stay Compliance</span>
+                    {regulations?.evaluation?.complianceResult === "OVERSTAY" ? (
+                      <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Overstay</Badge>
+                    ) : regulations?.evaluation?.complianceResult === "UNKNOWN" ? (
+                      <Badge variant="secondary"><AlertTriangle className="h-3 w-3 mr-1" />Review Required</Badge>
                     ) : (
                       <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
                         <CheckCircle2 className="h-3 w-3 mr-1" />OK
                       </Badge>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {regulations?.evaluation?.numericComparison || 
-                      `Duration: ${regulations?.evaluation?.actualDurationMinutes || "?"} min / Allowed: ${regulations?.rules?.maxStayMinutes || "No limit"}`
-                    }
-                  </p>
+                  
+                  {/* Time Calculation Display */}
+                  <div className="grid grid-cols-2 gap-2 text-sm mb-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Parked:</span>
+                      <span className="font-medium">{formatDurationFromMinutes(regulations?.evaluation?.actualDurationMinutes)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Max Stay:</span>
+                      <span className="font-medium">{regulations?.evaluation?.allowedDurationMinutes != null ? formatDurationFromMinutes(regulations.evaluation.allowedDurationMinutes) : "Unknown"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Grace Period:</span>
+                      <span className="font-medium">{regulations?.rules?.gracePeriodMinutes ?? 0} min</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Effective Duration:</span>
+                      <span className="font-medium">{formatDurationFromMinutes(regulations?.evaluation?.effectiveDurationMinutes)}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Rule Source */}
+                  {regulations?.evaluation?.ruleSource && (
+                    <div className="text-xs text-muted-foreground border-t pt-1 mt-1">
+                      Source: {regulations.evaluation.ruleSource === "site_policy" ? "Site Policy" : regulations.evaluation.ruleSource === "signage" ? "Signage" : "Unknown"}
+                    </div>
+                  )}
+                  
+                  {/* Explanation */}
                   {regulations?.evaluation?.breachExplanation && (
-                    <p className="text-xs text-destructive mt-1">{regulations.evaluation.breachExplanation}</p>
+                    <p className={`text-xs mt-2 ${regulations?.evaluation?.complianceResult === "OVERSTAY" ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {regulations.evaluation.breachExplanation}
+                    </p>
                   )}
                 </div>
 

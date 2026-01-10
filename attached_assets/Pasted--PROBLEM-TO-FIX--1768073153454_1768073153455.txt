@@ -1,0 +1,168 @@
+====================================================
+PROBLEM TO FIX
+====================================================
+
+The analysis report is currently showing INCORRECT maximum stay
+(e.g. “267h 48m (no max stay limit)”).
+
+This is unacceptable for enforcement and must be corrected.
+
+====================================================
+GOAL
+====================================================
+
+1. Correctly calculate ACTUAL PARKING DURATION
+2. Apply SITE REGULATIONS + SIGNAGE RULES accurately
+3. Show exact time math in the analysis report
+4. Ensure PCN decisions are based ONLY on validated timing logic
+
+====================================================
+SOURCE OF TRUTH (ORDER OF PRECEDENCE)
+====================================================
+
+1️⃣ Signage data (imported from PDF or manually entered)
+2️⃣ Site regulation configuration
+3️⃣ System defaults (only if signage missing)
+
+Never invent a “no max stay” rule unless explicitly stated.
+
+====================================================
+TIME CALCULATION LOGIC (MANDATORY)
+====================================================
+
+For every case:
+
+• Entry Time = earliest verified timestamp
+• Exit Time = latest verified timestamp
+• Parking Duration = Exit − Entry
+
+Rules:
+- Ignore gaps unless evidence shows vehicle left site
+- Use multiple images to confirm continuity
+- All timestamps must be normalized to site timezone
+
+Example:
+Entry: 10:12:08
+Exit: 12:03:42
+Duration: 1h 51m 34s
+
+====================================================
+MAXIMUM STAY RESOLUTION
+====================================================
+
+Resolve maximum stay as follows:
+
+IF signage specifies max stay:
+  use signage.max_stay_minutes
+
+ELSE IF site regulations specify max stay:
+  use site.max_stay_minutes
+
+ELSE:
+  mark max stay as UNKNOWN
+  enforcement_decision = REVIEW_REQUIRED
+
+Never display:
+- absurd durations
+- system uptime values
+- placeholder math
+
+====================================================
+GRACE PERIOD APPLICATION
+====================================================
+
+If grace period exists:
+effective_duration = parking_duration − grace_period
+
+Grace period source:
+- signage.grace_period
+- else site.grace_period
+
+====================================================
+ENFORCEMENT HOURS VALIDATION
+====================================================
+
+If parking occurs outside enforcement hours:
+- Do NOT count time outside enforcement window
+- Adjust duration accordingly
+- Explain adjustment in report
+
+====================================================
+SIGNAGE + REGULATION CROSS-CHECK
+====================================================
+
+For each rule applied, verify:
+- Signage visibility = known / unknown / poor
+- Regulation source = signage | site | default
+
+If signage is UNKNOWN or unreadable:
+- Reduce confidence score
+- Allow enforcement ONLY if site rules explicitly permit
+
+====================================================
+ANALYSIS REPORT OUTPUT (REQUIRED FORMAT)
+====================================================
+
+Section: Parking Time Analysis
+
+Display:
+- Entry Time
+- Exit Time
+- Total Duration
+- Grace Period Applied
+- Effective Duration
+- Maximum Stay Allowed
+- Source of Rule (Signage / Site Policy)
+- Compliance Result: OK / OVERSTAY / UNKNOWN
+
+Example:
+
+"Vehicle parked for 1h 51m.
+Maximum stay per signage: 1h 30m.
+Grace period: 10m.
+Effective duration: 1h 41m.
+Result: Overstay by 11m."
+
+====================================================
+CONFIDENCE SCORING
+====================================================
+
+Confidence must decrease if:
+- signage unreadable
+- missing timestamps
+- conflicting rules
+
+Do NOT show a confidence score without explanation.
+
+====================================================
+PCN DECISION RULE
+====================================================
+
+PCN can be recommended ONLY if:
+- Duration calculation is valid
+- Max stay rule source is known
+- Overstay is clearly proven
+- Confidence ≥ threshold
+
+Otherwise:
+Decision = REVIEW_REQUIRED
+
+====================================================
+UI REQUIREMENTS
+====================================================
+
+In Evidence → Analysis:
+- Remove vague text like “no max stay limit”
+- Show explicit numbers and calculations
+- Highlight which rule caused enforcement
+
+====================================================
+ACCEPTANCE CHECKS
+====================================================
+
+✔ No absurd duration values
+✔ Signage overrides site defaults
+✔ Time math shown clearly
+✔ Grace period applied correctly
+✔ Enforcement explainable in plain English
+✔ PCN decisions legally defensible
