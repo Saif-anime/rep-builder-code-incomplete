@@ -403,7 +403,7 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
   pipelineStatus: text("pipeline_status").notNull().default("pending"), // pending, running, completed, failed, partial
   currentStep: text("current_step"),
   completedSteps: integer("completed_steps").notNull().default(0),
-  totalSteps: integer("total_steps").notNull().default(8),
+  totalSteps: integer("total_steps").notNull().default(9),
   
   // Step 1: Evidence Normalisation
   evidenceTimeline: jsonb("evidence_timeline").$type<{
@@ -561,15 +561,40 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
     aggravatingFactors: string[];
   }>(),
   
-  // Step 8: Decision Engine
+  // Step 8: Bay Rule Evaluation
+  bayRuleEvaluation: jsonb("bay_rule_evaluation").$type<{
+    bayId: number | null;
+    bayType: "disabled" | "ev" | "parent_child" | "standard" | "loading" | "permit" | null;
+    bayName: string | null;
+    ruleApplied: string;
+    detections: {
+      badgeVisible: boolean | null;
+      badgeConfidence: number | null;
+      evDetected: boolean | null;
+      evConfidence: number | null;
+      childDetected: boolean | null;
+      childConfidence: number | null;
+    };
+    decision: "ISSUE_PCN" | "NO_PCN" | "REVIEW_REQUIRED";
+    explanation: string;
+    evidenceUsed: Array<{
+      evidenceId: number;
+      timestamp: string;
+      contribution: string;
+    }>;
+    confidenceScore: number;
+  }>(),
+  
+  // Step 9: Decision Engine
   decision: jsonb("decision").$type<{
-    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN" | "BLOCKED_BY_BAY_RULE";
     eligibilityGates: {
       regulationBreach: boolean;
       signageCompliant: boolean;
       confidenceThresholdMet: boolean;
       noHoldFlags: boolean;
       riskAcceptable: boolean;
+      bayRuleAllowsPCN: boolean;
     };
     overallConfidence: number;
     legalRisk: "low" | "medium" | "high";

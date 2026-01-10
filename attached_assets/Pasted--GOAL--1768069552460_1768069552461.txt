@@ -1,0 +1,180 @@
+====================================================
+GOAL
+====================================================
+
+Extend the evidence analysis engine so that
+FINAL PCN decisions depend on the PARKING BAY TYPE
+configured for the site.
+
+Bay-based logic must be:
+- Deterministic
+- Auditable
+- Clearly explained in the analysis report
+- Used BEFORE PCN generation
+
+====================================================
+BAY TYPES SUPPORTED
+====================================================
+
+Enum (already exists or must exist):
+- DISABLED
+- EV
+- PARENT_CHILD
+- STANDARD
+
+Each evidence session must be linked to:
+- site_id
+- bay_type (resolved from camera → bay mapping)
+
+====================================================
+CORE ANALYSIS PIPELINE (DO NOT SKIP)
+====================================================
+
+For each evidence bundle (camera + manual uploads):
+
+1. Vision AI (YOLOv8 + Vision GPT):
+   - vehicle type (car, van, EV, non-EV)
+   - visible disabled badge (yes/no/uncertain)
+   - human presence detection
+   - child detection (height, posture, size, movement)
+   - timestamps per frame
+
+2. Merge results across all evidence in the same case
+3. Resolve bay-specific enforcement rules (below)
+4. Generate a single FINAL ANALYSIS REPORT
+5. Generate PCN recommendation ONLY after bay logic
+
+====================================================
+BAY-SPECIFIC ENFORCEMENT RULES
+====================================================
+
+----------------------------------
+1️⃣ DISABLED BADGE BAY
+----------------------------------
+
+Detection:
+- Look for visible disabled badge on dashboard or windscreen
+- Confidence score required
+
+Decision:
+- If badge visible → NO PCN
+- If badge NOT visible → ISSUE PCN
+- If unclear → REVIEW REQUIRED (not auto PCN)
+
+Report must include:
+- Badge detection result
+- Frames used
+- Confidence score
+- Explanation in plain English
+
+----------------------------------
+2️⃣ EV CHARGING BAY
+----------------------------------
+
+Detection:
+- Identify if vehicle is EV (model, charging port, badge)
+- Optionally detect charging cable presence (if visible)
+
+Decision:
+- If vehicle is NOT EV → ISSUE PCN
+- If vehicle IS EV → NO PCN
+
+Report must include:
+- Vehicle classification
+- EV confidence score
+- Reasoning for decision
+
+----------------------------------
+3️⃣ PARENT & CHILD BAY
+----------------------------------
+
+Detection:
+- Detect if a CHILD exits or enters the vehicle
+- Use multiple frames (before & after parking)
+- Child definition: small stature, dependent behaviour
+
+Decision:
+- If child exits vehicle → NO PCN
+- If NO child detected → ISSUE PCN
+- If uncertain → REVIEW REQUIRED
+
+Report must include:
+- Child detection result
+- Time window analysed
+- Frames used
+- Confidence score
+
+----------------------------------
+4️⃣ STANDARD BAY
+----------------------------------
+
+Proceed with existing rules (time, signage, overstay, etc.)
+
+====================================================
+PCN GENERATION RULE (CRITICAL)
+====================================================
+
+PCN can be generated ONLY if:
+- Bay logic explicitly allows PCN
+- No "REVIEW REQUIRED" status exists
+- Decision confidence ≥ configured threshold
+
+If bay logic blocks PCN:
+- PCN status = BLOCKED_BY_BAY_RULE
+- Store reason in audit log
+
+====================================================
+ANALYSIS REPORT OUTPUT (MANDATORY)
+====================================================
+
+Every analysis must return:
+
+{
+  bay_type,
+  bay_rule_applied,
+  detections: {
+    badge_visible,
+    ev_detected,
+    child_detected
+  },
+  confidence_scores,
+  decision: ISSUE_PCN | NO_PCN | REVIEW_REQUIRED,
+  explanation_plain_english,
+  evidence_used: [image_ids, timestamps]
+}
+
+This report must be shown in the Evidence UI.
+
+====================================================
+UI REQUIREMENTS
+====================================================
+
+In Evidence → Analysis section:
+- Show Bay Type clearly
+- Show rule applied (e.g. "Disabled bay rule")
+- Show why PCN was allowed or blocked
+- No generic AI wording
+- No “AI model used” section
+
+====================================================
+ACCEPTANCE CHECKS
+====================================================
+
+✔ Disabled bay + badge visible → NO PCN
+✔ Disabled bay + no badge → PCN
+✔ EV bay + non-EV → PCN
+✔ EV bay + EV → NO PCN
+✔ Parent & child bay + child exits → NO PCN
+✔ Parent & child bay + no child → PCN
+✔ All decisions explainable and auditable
+✔ Single final decision per case
+
+====================================================
+IMPORTANT CONSTRAINT
+====================================================
+
+This system is a recommendation engine.
+Do NOT auto-issue PCNs without storing:
+- Evidence
+- Rule used
+- Human-readable explanation

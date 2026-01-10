@@ -71,6 +71,7 @@ export type PipelineStepName =
   | "signage_compliance"
   | "context_enrichment"
   | "behaviour_profiling"
+  | "bay_rule_evaluation"
   | "decision_engine";
 
 const STEP_ORDER: Record<PipelineStepName, number> = {
@@ -81,7 +82,8 @@ const STEP_ORDER: Record<PipelineStepName, number> = {
   signage_compliance: 5,
   context_enrichment: 6,
   behaviour_profiling: 7,
-  decision_engine: 8,
+  bay_rule_evaluation: 8,
+  decision_engine: 9,
 };
 
 const CONFIDENCE_THRESHOLD = 0.7;
