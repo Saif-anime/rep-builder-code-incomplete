@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { analyzeImageWithVision, mergeVisionResults, type VisionAnalysisResult } from "./visionAnalysis";
 import { lookupVehicle, normalizeRegistration } from "./dvlaService";
+import crypto from "crypto";
 import type { 
   Evidence, 
   CasePipelineResults, 
@@ -10,6 +11,57 @@ import type {
   SiteRule,
   SignageInspection
 } from "@shared/schema";
+
+// Store hashes of recent analysis results to detect duplicates
+const recentAnalysisHashes = new Map<string, { caseId: string; timestamp: Date }>();
+const MAX_HASH_HISTORY = 100;
+
+function computeDecisionHash(decision: DecisionOutput, caseContext: { siteId: number; evidenceCount: number; durationMinutes: number }): string {
+  const hashInput = JSON.stringify({
+    status: decision.status,
+    reasoning: decision.reasoning,
+    plainEnglishExplanation: decision.plainEnglishExplanation,
+    eligibilityGates: decision.eligibilityGates,
+    siteId: caseContext.siteId,
+    evidenceCount: caseContext.evidenceCount,
+    durationMinutes: caseContext.durationMinutes,
+  });
+  return crypto.createHash("sha256").update(hashInput).digest("hex").slice(0, 16);
+}
+
+function checkForDuplicateAnalysis(
+  caseId: string,
+  decision: DecisionOutput,
+  caseContext: { siteId: number; evidenceCount: number; durationMinutes: number }
+): { isDuplicate: boolean; duplicateOf?: string; warning?: string } {
+  const hash = computeDecisionHash(decision, caseContext);
+  
+  // Check if this exact analysis has been produced for a different case
+  const entries = Array.from(recentAnalysisHashes.entries());
+  for (let i = 0; i < entries.length; i++) {
+    const [existingHash, data] = entries[i];
+    if (existingHash === hash && data.caseId !== caseId) {
+      console.warn(`[Pipeline] WARNING: Case ${caseId} produced identical analysis to case ${data.caseId}`);
+      return {
+        isDuplicate: true,
+        duplicateOf: data.caseId,
+        warning: `Analysis result matches case ${data.caseId.substring(0, 8)}... - verify this is expected`,
+      };
+    }
+  }
+  
+  // Store this hash
+  recentAnalysisHashes.set(hash, { caseId, timestamp: new Date() });
+  
+  // Clean old entries
+  if (recentAnalysisHashes.size > MAX_HASH_HISTORY) {
+    const allEntries = Array.from(recentAnalysisHashes.entries());
+    allEntries.sort((a, b) => a[1].timestamp.getTime() - b[1].timestamp.getTime());
+    recentAnalysisHashes.delete(allEntries[0][0]);
+  }
+  
+  return { isDuplicate: false };
+}
 
 export type PipelineStepName = 
   | "evidence_normalisation"
@@ -484,14 +536,13 @@ async function stepVisionAnalysis(
       timestampExtractions,
       bestVrmFrame,
       overallConfidence,
-      modelVersions: { visionGpt: "gpt-4o" },
+      modelVersions: { visionGpt: "automated_vision" },
     };
     
     await createOrUpdateStep(ctx.caseId, "vision_analysis", "completed", {
       completedAt: new Date(),
       durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
       outputData: result,
-      modelVersion: "gpt-4o",
     });
     
     return result;
@@ -1159,10 +1210,23 @@ export async function runCaseAnalysisPipeline(
       ctx.behaviourProfiling
     );
     
+    // Check for duplicate analysis results
+    const duplicateCheck = checkForDuplicateAnalysis(caseId, ctx.decision, {
+      siteId: ctx.siteId,
+      evidenceCount: evidenceItems.length,
+      durationMinutes: ctx.evidenceTimeline.timeRange.durationMinutes,
+    });
+    
+    if (duplicateCheck.isDuplicate) {
+      console.warn(`[Pipeline] Duplicate analysis detected: ${duplicateCheck.warning}`);
+      // Add warning to decision blockers
+      ctx.decision.blockers.push(`WARNING: ${duplicateCheck.warning}`);
+    }
+    
     await createOrUpdateStep(caseId, "decision_engine", "completed", {
       completedAt: new Date(),
       durationMs: Date.now() - (decisionStep.startedAt?.getTime() || Date.now()),
-      outputData: ctx.decision,
+      outputData: { ...ctx.decision, duplicateWarning: duplicateCheck.warning || null },
     });
     
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
@@ -1234,7 +1298,7 @@ export async function getAnalysisReport(caseId: string) {
       imageCount: pipelineResults.evidenceTimeline?.imageCount || 0,
       videoCount: pipelineResults.evidenceTimeline?.videoCount || 0,
       timeRange: pipelineResults.evidenceTimeline?.timeRange,
-      visionModelsUsed: pipelineResults.visionResults?.modelVersions || {},
+      analysisComponents: ["Image Interpretation", "Object Detection", pipelineResults.dvlaData?.verified ? "Vehicle Registry" : null].filter(Boolean),
       externalServicesUsed: pipelineResults.dvlaData?.verified ? ["DVLA"] : [],
     },
     howItWasMeasured: {
@@ -1258,7 +1322,6 @@ export async function getAnalysisReport(caseId: string) {
         startedAt: s.startedAt,
         completedAt: s.completedAt,
         durationMs: s.durationMs,
-        modelVersion: s.modelVersion,
         errorMessage: s.errorMessage,
       })),
       analysisStartedAt: pipelineResults.analysisStartedAt,

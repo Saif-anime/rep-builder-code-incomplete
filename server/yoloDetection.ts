@@ -119,11 +119,11 @@ export async function runYoloDetection(imagePath: string): Promise<YoloResult> {
   }
 }
 
-export function mapYoloToVehicleType(detections: YoloDetection[]): "car" | "van" | "motorcycle" | "truck" | "unknown" {
-  const vehicleMap: Record<string, "car" | "van" | "motorcycle" | "truck"> = {
+export function mapYoloToVehicleType(detections: YoloDetection[]): "car" | "van" | "motorcycle" | "unknown" {
+  const vehicleMap: Record<string, "car" | "van" | "motorcycle"> = {
     car: "car",
-    truck: "truck",
-    bus: "truck",
+    truck: "van",
+    bus: "van",
     motorcycle: "motorcycle",
   };
   

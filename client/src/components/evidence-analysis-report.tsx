@@ -426,11 +426,11 @@ export function EvidenceAnalysisReport({
                 </div>
                 <Separator />
                 <div>
-                  <p className="text-sm font-medium mb-2">AI Models Used:</p>
+                  <p className="text-sm font-medium mb-2">Analysis Components:</p>
                   <div className="flex gap-2 flex-wrap">
-                    <Badge variant="outline">GPT-4.1 (Violation Analysis)</Badge>
-                    <Badge variant="outline">GPT-4o Vision (Image Detection)</Badge>
-                    {dvla?.verified && <Badge variant="outline">DVLA API (Vehicle Data)</Badge>}
+                    <Badge variant="outline">Image Interpretation</Badge>
+                    <Badge variant="outline">Object Detection</Badge>
+                    {dvla?.verified && <Badge variant="outline">Vehicle Registry Lookup</Badge>}
                   </div>
                 </div>
               </div>
@@ -1045,8 +1045,8 @@ export function EvidenceAnalysisReport({
                       </div>
                       <div className="p-2 rounded-md bg-muted/50 text-sm">
                         <div className="flex items-center justify-between">
-                          <span>AI Model</span>
-                          <span className="text-muted-foreground">GPT-4.1 + GPT-4o Vision</span>
+                          <span>Analysis Method</span>
+                          <span className="text-muted-foreground">Automated Vision + Object Detection</span>
                         </div>
                       </div>
                       {vehicles.length > 0 && vehicles[0].verifiedAt && (

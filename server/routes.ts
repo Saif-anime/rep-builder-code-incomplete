@@ -977,9 +977,7 @@ export async function registerRoutes(
           plate: vehicleDetails[0]?.registration || null,
           evIndicators: vehicleDetails[0]?.fuelType === "ELECTRICITY",
         } : null,
-        modelVersions: {
-          visionGPT: "gpt-4o",
-        },
+        modelVersions: { visionGPT: "automated_vision" },
       });
       
       await storage.updateCaseStatus(caseId, "complete");
@@ -3392,7 +3390,7 @@ export async function registerRoutes(
         timelineSummary,
         timeWindow,
         mergedDetections,
-        modelVersions: { visionGPT: "gpt-4o" },
+        modelVersions: { visionGPT: "automated_vision" },
         supportingEvidenceIds,
         partialFailures: partialFailures.length > 0 ? partialFailures : null,
       });
@@ -3576,7 +3574,7 @@ export async function registerRoutes(
         confidenceScore,
         riskAssessment,
         recommendation,
-        modelVersion: "gpt-4o",
+        modelVersion: "automated_vision",
       };
 
       // Update bundle with AI result

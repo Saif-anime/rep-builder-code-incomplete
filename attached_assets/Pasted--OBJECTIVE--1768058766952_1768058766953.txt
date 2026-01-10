@@ -1,0 +1,166 @@
+====================================================
+OBJECTIVE
+====================================================
+
+Fix the analysis system so that:
+
+1) The UI and reports NEVER show:
+   - AI model names
+   - Model versions
+   - “AI model used” sections
+
+2) Each evidence case is analysed independently.
+   - NO shared results
+   - NO reused outputs
+   - NO cached AI responses across cases
+
+3) Analysis results MUST differ when:
+   - Evidence differs
+   - Site differs
+   - Time window differs
+   - Signage differs
+   - Context differs
+
+====================================================
+PART 1 – REMOVE “AI MODEL USED” FROM UI
+====================================================
+
+REMOVE from frontend:
+- Any section titled:
+  “AI Model Used”
+  “Model Information”
+  “Powered by AI”
+- Any display of:
+  YOLO version
+  GPT / Vision GPT references
+  Confidence attributed to model name
+
+UPDATE UI language to:
+- “Vision analysis”
+- “Image interpretation”
+- “Automated assessment”
+
+The system must explain WHAT was analysed,
+not WHICH model analysed it.
+
+====================================================
+PART 2 – ROOT CAUSE: SAME ANALYSIS FOR ALL CASES
+====================================================
+
+INVESTIGATE and FIX these common causes:
+
+❌ Global/shared analysis state
+❌ Cached AI responses reused across requests
+❌ Static prompt reused without case context
+❌ Case ID not passed into analysis pipeline
+❌ Evidence list not scoped by case_id
+❌ Background worker overwriting results
+
+====================================================
+PART 3 – ENFORCE CASE-SCOPED ANALYSIS
+====================================================
+
+MANDATORY RULES:
+
+1. Every analysis run MUST receive:
+   - case_id
+   - site_id
+   - evidence_ids[]
+   - start_time
+   - end_time
+
+2. Analysis results MUST be stored as:
+   analysis_results.case_id (UNIQUE)
+
+3. Before running analysis:
+   - Clear in-memory context
+   - Disable shared caches
+   - Disable global variables
+
+====================================================
+PART 4 – ANALYSIS PIPELINE FIX
+====================================================
+
+Refactor analysis into a pure, deterministic function:
+
+analyseCase({
+  case_id,
+  site_id,
+  evidence[],
+  signage_data,
+  site_rules,
+  context_data
+})
+
+DO NOT allow:
+- Default fallbacks
+- Placeholder responses
+- “Example” outputs
+
+If required data is missing:
+→ return explicit “INSUFFICIENT_EVIDENCE” state
+
+====================================================
+PART 5 – FORCE UNIQUE PROMPT CONTEXT
+====================================================
+
+For Vision + AI analysis:
+
+Each request MUST include:
+- Case reference
+- Site name
+- Evidence timestamps
+- Bay type
+- Signage compliance
+- Duration calculation
+
+NEVER reuse prompts between cases.
+
+====================================================
+PART 6 – VALIDATION SAFETY CHECK
+====================================================
+
+Before saving analysis:
+
+Compare current result hash vs previous case hashes.
+
+If identical:
+- Log warning
+- Mark analysis as INVALID
+- Force re-run with stricter inputs
+
+====================================================
+PART 7 – UI: CLEAR, CASE-SPECIFIC REPORT
+====================================================
+
+Analysis Report MUST show:
+
+✔ What evidence was used
+✔ How duration was calculated
+✔ Which rules were applied
+✔ Why this case differs from others
+✔ Confidence & risk (numeric)
+✔ Recommendation (HOLD / PROCEED)
+
+WITHOUT mentioning:
+- AI models
+- Algorithms
+- Training data
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+✔ Two different cases → different reports
+✔ Same site, different time → different outcome
+✔ Same evidence reused → flagged explicitly
+✔ No “AI model used” visible anywhere
+✔ Operators trust results
+
+====================================================
+NON-NEGOTIABLE
+====================================================
+
+Analysis correctness > speed
+Explainability > automation
+Evidence > assumptions

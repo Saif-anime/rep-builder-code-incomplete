@@ -55,7 +55,9 @@ export interface VisionAnalysisResponse {
   cached?: boolean;
 }
 
-const analysisCache = new Map<string, VisionAnalysisResult>();
+// DISABLED: Global cache was causing shared results across cases
+// Each analysis must be run fresh per case to ensure unique results
+// const analysisCache = new Map<string, VisionAnalysisResult>();
 
 function computeImageHash(imagePath: string): string {
   try {
@@ -132,10 +134,8 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     return { success: false, error: "Could not read or hash image file" };
   }
   
-  if (analysisCache.has(imageHash)) {
-    console.log("[Vision] Returning cached result for:", imageHash);
-    return { success: true, result: analysisCache.get(imageHash)!, cached: true };
-  }
+  // Cache disabled to ensure each case gets fresh analysis
+  // Results must be unique per case, not shared across cases
   
   const base64Image = imageToBase64(input.imagePath);
   if (!base64Image) {
@@ -236,7 +236,8 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       }
     }
     
-    const modelVersion = yoloResult?.success ? "gpt-4o+yolov8n" : "gpt-4o";
+    // Internal model tracking (not exposed to UI)
+    const detectionMethod = yoloResult?.success ? "hybrid" : "vision";
     
     const result: VisionAnalysisResult = {
       vehicleDetected,
@@ -251,7 +252,7 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       numberPlateDetected: parsed.numberPlateDetected || undefined,
       timestampOverlay: parsed.timestampOverlay || undefined,
       analysedAt: new Date().toISOString(),
-      modelVersion,
+      modelVersion: detectionMethod,
       imageHash,
     };
     
@@ -259,8 +260,8 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       console.log("[Vision] Extracted timestamp from overlay:", result.timestampOverlay);
     }
     
-    analysisCache.set(imageHash, result);
-    console.log(`[Vision] Analysis complete (${modelVersion}):`, result.vehicleDetected ? "Vehicle detected" : "No vehicle");
+    // Cache disabled - each case gets fresh analysis
+    console.log(`[Vision] Analysis complete (${detectionMethod}):`, result.vehicleDetected ? "Vehicle detected" : "No vehicle");
     
     return { success: true, result };
   } catch (error: any) {
@@ -302,7 +303,7 @@ export function mergeVisionResults(results: VisionAnalysisResult[]): VisionAnaly
     visibilityQuality: "partial",
     confidenceNotes: "",
     analysedAt: new Date().toISOString(),
-    modelVersion: "gpt-4o-merged",
+    modelVersion: "merged",
     imageHash: results.map(r => r.imageHash).join("-"),
   };
   

@@ -1098,11 +1098,10 @@ export default function CasesPage() {
                         </div>
                       )}
 
-                      {(caseAnalysis as any).modelVersions && (
+                      {((caseAnalysis as any).supportingEvidenceIds || (caseAnalysis as any).partialFailures?.length > 0) && (
                         <div className="text-xs text-muted-foreground border-t pt-2 mt-4">
-                          Model: Vision GPT ({(caseAnalysis as any).modelVersions.visionGPT})
                           {(caseAnalysis as any).supportingEvidenceIds && (
-                            <span> | {(caseAnalysis as any).supportingEvidenceIds.length} files analyzed</span>
+                            <span>{(caseAnalysis as any).supportingEvidenceIds.length} files analyzed</span>
                           )}
                           {(caseAnalysis as any).partialFailures?.length > 0 && (
                             <span className="text-yellow-600"> | {(caseAnalysis as any).partialFailures.length} partial failures</span>
