@@ -98,14 +98,33 @@ interface PipelineResults {
     mitigatingFactors: string[];
     aggravatingFactors: string[];
   } | null;
+  bayRuleEvaluation: {
+    bayId: number | null;
+    bayType: "disabled" | "ev" | "parent_child" | "standard" | "loading" | "permit" | null;
+    bayName: string | null;
+    ruleApplied: string;
+    detections: {
+      badgeVisible: boolean | null;
+      badgeConfidence: number | null;
+      evDetected: boolean | null;
+      evConfidence: number | null;
+      childDetected: boolean | null;
+      childConfidence: number | null;
+    };
+    decision: "ISSUE_PCN" | "NO_PCN" | "REVIEW_REQUIRED";
+    explanation: string;
+    evidenceUsed: Array<{ evidenceId: number; timestamp: string; contribution: string }>;
+    confidenceScore: number;
+  } | null;
   decision: {
-    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN" | "BLOCKED_BY_BAY_RULE";
     eligibilityGates: {
       regulationBreach: boolean;
       signageCompliant: boolean;
       confidenceThresholdMet: boolean;
       noHoldFlags: boolean;
       riskAcceptable: boolean;
+      bayRuleAllowsPCN: boolean;
     };
     overallConfidence: number;
     legalRisk: "low" | "medium" | "high";
@@ -143,7 +162,7 @@ export function EvidenceAnalysisReport({
 }: EvidenceAnalysisReportProps) {
   const { toast } = useToast();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(["summary", "evidence", "measurements", "regulations", "signage", "context", "risk", "explanation", "audit"])
+    new Set(["summary", "evidence", "measurements", "regulations", "signage", "bayRule", "context", "risk", "explanation", "audit"])
   );
 
   const { data: pipelineResults, isLoading: loadingPipeline } = useQuery<PipelineResults>({
@@ -212,6 +231,7 @@ export function EvidenceAnalysisReport({
   const decision = pipelineResults?.decision;
   const regulations = pipelineResults?.regulationEvaluation;
   const signage = pipelineResults?.signageCompliance;
+  const bayRuleEvaluation = pipelineResults?.bayRuleEvaluation;
   const vision = pipelineResults?.visionResults;
   const dvla = pipelineResults?.dvlaData;
   const evidence = pipelineResults?.evidenceTimeline;
@@ -695,6 +715,184 @@ export function EvidenceAnalysisReport({
         </Card>
       </Collapsible>
 
+      {/* Section 6: Bay Rule Evaluation */}
+      <Collapsible open={expandedSections.has("bayRule")} onOpenChange={() => toggleSection("bayRule")}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover-elevate">
+              <CardTitle className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <Car className="h-4 w-4" />
+                  Section 6: Bay Type Enforcement
+                </span>
+                {expandedSections.has("bayRule") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="space-y-4">
+                {bayRuleEvaluation ? (
+                  <>
+                    {/* Bay Type and Rule Applied */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 rounded-md border bg-muted/50">
+                        <span className="text-sm font-medium">Bay Type</span>
+                        <div className="mt-1 flex items-center gap-2">
+                          <Badge variant="outline" className="capitalize">
+                            {bayRuleEvaluation.bayType?.replace(/_/g, " ") || "Standard"}
+                          </Badge>
+                          {bayRuleEvaluation.bayName && (
+                            <span className="text-xs text-muted-foreground">{bayRuleEvaluation.bayName}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-md border bg-muted/50">
+                        <span className="text-sm font-medium">Rule Applied</span>
+                        <p className="text-xs text-muted-foreground mt-1">{bayRuleEvaluation.ruleApplied}</p>
+                      </div>
+                    </div>
+
+                    {/* Detections */}
+                    <div className="p-3 rounded-md border bg-muted/50">
+                      <span className="text-sm font-medium mb-2 block">Bay-Specific Detections</span>
+                      <div className="grid grid-cols-3 gap-3">
+                        {bayRuleEvaluation.bayType === "disabled" && (
+                          <div className="p-2 rounded border bg-background">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs">Blue Badge</span>
+                              {bayRuleEvaluation.detections.badgeVisible === true ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" /> Visible
+                                </Badge>
+                              ) : bayRuleEvaluation.detections.badgeVisible === false ? (
+                                <Badge variant="outline" className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
+                                  <XCircle className="h-3 w-3 mr-1" /> Not Visible
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                                  <AlertTriangle className="h-3 w-3 mr-1" /> Uncertain
+                                </Badge>
+                              )}
+                            </div>
+                            {bayRuleEvaluation.detections.badgeConfidence != null && (
+                              <div className="mt-1">
+                                <ConfidenceMeter value={bayRuleEvaluation.detections.badgeConfidence} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {bayRuleEvaluation.bayType === "ev" && (
+                          <div className="p-2 rounded border bg-background">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs">Electric Vehicle</span>
+                              {bayRuleEvaluation.detections.evDetected === true ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" /> Confirmed EV
+                                </Badge>
+                              ) : bayRuleEvaluation.detections.evDetected === false ? (
+                                <Badge variant="outline" className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
+                                  <XCircle className="h-3 w-3 mr-1" /> Not EV
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                                  <AlertTriangle className="h-3 w-3 mr-1" /> Uncertain
+                                </Badge>
+                              )}
+                            </div>
+                            {bayRuleEvaluation.detections.evConfidence != null && (
+                              <div className="mt-1">
+                                <ConfidenceMeter value={bayRuleEvaluation.detections.evConfidence} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {bayRuleEvaluation.bayType === "parent_child" && (
+                          <div className="p-2 rounded border bg-background">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs">Child Present</span>
+                              {bayRuleEvaluation.detections.childDetected === true ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" /> Detected
+                                </Badge>
+                              ) : bayRuleEvaluation.detections.childDetected === false ? (
+                                <Badge variant="outline" className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
+                                  <XCircle className="h-3 w-3 mr-1" /> Not Detected
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                                  <AlertTriangle className="h-3 w-3 mr-1" /> Uncertain
+                                </Badge>
+                              )}
+                            </div>
+                            {bayRuleEvaluation.detections.childConfidence != null && (
+                              <div className="mt-1">
+                                <ConfidenceMeter value={bayRuleEvaluation.detections.childConfidence} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {(bayRuleEvaluation.bayType === "standard" || bayRuleEvaluation.bayType === "loading" || bayRuleEvaluation.bayType === "permit") && (
+                          <div className="p-2 rounded border bg-background col-span-3">
+                            <span className="text-xs text-muted-foreground">Standard time and permit restrictions apply. No special bay-type detections required.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Decision */}
+                    <div className={`p-3 rounded-md border ${
+                      bayRuleEvaluation.decision === "NO_PCN" 
+                        ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700'
+                        : bayRuleEvaluation.decision === "ISSUE_PCN"
+                        ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700'
+                        : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-sm">Bay Rule Decision</span>
+                        <Badge variant={
+                          bayRuleEvaluation.decision === "NO_PCN" ? "outline" : 
+                          bayRuleEvaluation.decision === "ISSUE_PCN" ? "destructive" : "secondary"
+                        }>
+                          {bayRuleEvaluation.decision === "NO_PCN" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                          {bayRuleEvaluation.decision === "ISSUE_PCN" && <XCircle className="h-3 w-3 mr-1" />}
+                          {bayRuleEvaluation.decision === "REVIEW_REQUIRED" && <AlertTriangle className="h-3 w-3 mr-1" />}
+                          {bayRuleEvaluation.decision.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      <p className="text-sm">{bayRuleEvaluation.explanation}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-muted-foreground">Confidence</span>
+                        <ConfidenceMeter value={bayRuleEvaluation.confidenceScore} className="w-32" />
+                      </div>
+                    </div>
+
+                    {/* Evidence Used */}
+                    {bayRuleEvaluation.evidenceUsed?.length > 0 && (
+                      <div className="p-3 rounded-md border bg-muted/50">
+                        <span className="text-sm font-medium">Evidence Used for Bay Evaluation</span>
+                        <div className="mt-2 space-y-1">
+                          {bayRuleEvaluation.evidenceUsed.map((ev, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">{ev.contribution}</span>
+                              <span className="text-muted-foreground">Evidence #{ev.evidenceId}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="p-3 rounded-md border bg-muted/50 text-center">
+                    <p className="text-sm text-muted-foreground">No bay-specific evaluation performed. Standard rules apply.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
       <Collapsible open={expandedSections.has("context")} onOpenChange={() => toggleSection("context")}>
         <Card>
           <CollapsibleTrigger asChild>
@@ -702,7 +900,7 @@ export function EvidenceAnalysisReport({
               <CardTitle className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2">
                   <Cloud className="h-4 w-4" />
-                  Section 6: Context Signals
+                  Section 7: Context Signals
                 </span>
                 {expandedSections.has("context") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </CardTitle>

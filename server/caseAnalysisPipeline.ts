@@ -242,14 +242,38 @@ interface BehaviourProfilingOutput {
   aggravatingFactors: string[];
 }
 
+interface BayRuleEvaluationOutput {
+  bayId: number | null;
+  bayType: "disabled" | "ev" | "parent_child" | "standard" | "loading" | "permit" | null;
+  bayName: string | null;
+  ruleApplied: string;
+  detections: {
+    badgeVisible: boolean | null;
+    badgeConfidence: number | null;
+    evDetected: boolean | null;
+    evConfidence: number | null;
+    childDetected: boolean | null;
+    childConfidence: number | null;
+  };
+  decision: "ISSUE_PCN" | "NO_PCN" | "REVIEW_REQUIRED";
+  explanation: string;
+  evidenceUsed: Array<{
+    evidenceId: number;
+    timestamp: string;
+    contribution: string;
+  }>;
+  confidenceScore: number;
+}
+
 interface DecisionOutput {
-  status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+  status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN" | "BLOCKED_BY_BAY_RULE";
   eligibilityGates: {
     regulationBreach: boolean;
     signageCompliant: boolean;
     confidenceThresholdMet: boolean;
     noHoldFlags: boolean;
     riskAcceptable: boolean;
+    bayRuleAllowsPCN: boolean;
   };
   overallConfidence: number;
   legalRisk: "low" | "medium" | "high";
@@ -270,6 +294,7 @@ export interface PipelineContext {
   signageCompliance?: SignageComplianceOutput;
   contextEnrichment?: ContextEnrichmentOutput;
   behaviourProfiling?: BehaviourProfilingOutput;
+  bayRuleEvaluation?: BayRuleEvaluationOutput;
   decision?: DecisionOutput;
 }
 
@@ -907,13 +932,196 @@ function stepBehaviourProfiling(
   };
 }
 
+async function stepBayRuleEvaluation(
+  ctx: PipelineContext,
+  evidenceItems: Evidence[],
+  visionResults: VisionResultsOutput,
+  dvlaData: DVLADataOutput | undefined
+): Promise<BayRuleEvaluationOutput> {
+  // Try to find bay from camera -> bay mapping
+  let bay: { id: number; name: string; type: string } | null = null;
+  
+  // Check if any evidence has a camera with a bay mapping
+  for (const ev of evidenceItems) {
+    if (ev.cameraId) {
+      const bayFromCamera = await storage.getBayByCamera(ev.cameraId);
+      if (bayFromCamera) {
+        bay = { id: bayFromCamera.id, name: bayFromCamera.name, type: bayFromCamera.type };
+        break;
+      }
+    }
+    if (ev.bayId) {
+      const directBay = await storage.getBay(ev.bayId);
+      if (directBay) {
+        bay = { id: directBay.id, name: directBay.name, type: directBay.type };
+        break;
+      }
+    }
+  }
+  
+  // Default to standard if no bay found
+  const bayType = (bay?.type?.toLowerCase() as BayRuleEvaluationOutput["bayType"]) || "standard";
+  const bayId = bay?.id || null;
+  const bayName = bay?.name || null;
+  
+  // Extract detection data from vision results and DVLA data
+  const detections: BayRuleEvaluationOutput["detections"] = {
+    badgeVisible: null,
+    badgeConfidence: null,
+    evDetected: null,
+    evConfidence: null,
+    childDetected: null,
+    childConfidence: null,
+  };
+  
+  // Evidence used tracking
+  const evidenceUsed: BayRuleEvaluationOutput["evidenceUsed"] = [];
+  
+  // Check DVLA fuel type for EV detection
+  if (dvlaData?.vehicleData?.fuelType) {
+    const fuelType = dvlaData.vehicleData.fuelType.toUpperCase();
+    const isEV = fuelType === "ELECTRIC" || fuelType === "ELECTRICITY" || fuelType.includes("ELECTRIC");
+    detections.evDetected = isEV;
+    detections.evConfidence = dvlaData.verified ? 0.95 : 0.6;
+  }
+  
+  // Check vision results for vehicle type (EV indicators)
+  for (const detection of visionResults.vehicleDetections) {
+    if (detection.detected) {
+      const vehicleType = detection.type.toLowerCase();
+      if (vehicleType.includes("electric") || vehicleType.includes("ev") || vehicleType.includes("tesla")) {
+        detections.evDetected = true;
+        detections.evConfidence = Math.max(detections.evConfidence || 0, detection.confidence);
+      }
+      evidenceUsed.push({
+        evidenceId: detection.evidenceId,
+        timestamp: ctx.evidenceTimeline?.timestamps.find(t => t.evidenceId === detection.evidenceId)?.timestamp || new Date().toISOString(),
+        contribution: `Vehicle detection: ${detection.type}`,
+      });
+    }
+  }
+  
+  // Check bay usage detections for badge/child/EV indicators
+  for (const bayDetection of visionResults.bayUsageDetections) {
+    const bayInfo = bayDetection.bayType.toLowerCase();
+    
+    if (bayInfo.includes("badge") || bayInfo.includes("disabled")) {
+      if (bayInfo.includes("visible") || bayInfo.includes("present")) {
+        detections.badgeVisible = true;
+        detections.badgeConfidence = Math.max(detections.badgeConfidence || 0, bayDetection.confidence);
+      } else if (bayInfo.includes("not visible") || bayInfo.includes("absent") || bayInfo.includes("no badge")) {
+        detections.badgeVisible = false;
+        detections.badgeConfidence = Math.max(detections.badgeConfidence || 0, bayDetection.confidence);
+      }
+    }
+    
+    if (bayInfo.includes("child") || bayInfo.includes("minor")) {
+      if (bayInfo.includes("detected") || bayInfo.includes("visible") || bayInfo.includes("present") || bayInfo.includes("exits")) {
+        detections.childDetected = true;
+        detections.childConfidence = Math.max(detections.childConfidence || 0, bayDetection.confidence);
+      } else if (bayInfo.includes("not detected") || bayInfo.includes("absent") || bayInfo.includes("no child")) {
+        detections.childDetected = false;
+        detections.childConfidence = Math.max(detections.childConfidence || 0, bayDetection.confidence);
+      }
+    }
+    
+    evidenceUsed.push({
+      evidenceId: bayDetection.evidenceId,
+      timestamp: ctx.evidenceTimeline?.timestamps.find(t => t.evidenceId === bayDetection.evidenceId)?.timestamp || new Date().toISOString(),
+      contribution: `Bay analysis: ${bayDetection.bayType}`,
+    });
+  }
+  
+  // Apply bay-specific rules
+  let decision: BayRuleEvaluationOutput["decision"];
+  let explanation: string;
+  let ruleApplied: string;
+  let confidenceScore = 0.5;
+  
+  switch (bayType) {
+    case "disabled":
+      ruleApplied = "Disabled Bay Rule - Blue badge verification required";
+      if (detections.badgeVisible === true) {
+        decision = "NO_PCN";
+        explanation = `Disabled badge was detected on the vehicle dashboard/windscreen. The vehicle is entitled to park in this disabled bay.`;
+        confidenceScore = detections.badgeConfidence || 0.8;
+      } else if (detections.badgeVisible === false) {
+        decision = "ISSUE_PCN";
+        explanation = `No disabled badge was detected on the vehicle. The vehicle appears to be parked in a disabled bay without displaying a valid blue badge.`;
+        confidenceScore = detections.badgeConfidence || 0.7;
+      } else {
+        decision = "REVIEW_REQUIRED";
+        explanation = `Unable to determine if a disabled badge is displayed. Manual review required to verify badge presence before issuing PCN.`;
+        confidenceScore = 0.4;
+      }
+      break;
+      
+    case "ev":
+      ruleApplied = "EV Charging Bay Rule - Electric vehicle verification required";
+      if (detections.evDetected === true) {
+        decision = "NO_PCN";
+        explanation = `Vehicle confirmed as electric (fuel type: ${dvlaData?.vehicleData?.fuelType || 'Electric'}). The vehicle is entitled to use this EV charging bay.`;
+        confidenceScore = detections.evConfidence || 0.85;
+      } else if (detections.evDetected === false) {
+        decision = "ISSUE_PCN";
+        explanation = `Vehicle is not electric (fuel type: ${dvlaData?.vehicleData?.fuelType || 'Non-electric'}). Non-electric vehicles are not permitted in EV charging bays.`;
+        confidenceScore = detections.evConfidence || 0.8;
+      } else {
+        decision = "REVIEW_REQUIRED";
+        explanation = `Unable to determine if vehicle is electric. Manual review required to verify vehicle type before issuing PCN.`;
+        confidenceScore = 0.4;
+      }
+      break;
+      
+    case "parent_child":
+      ruleApplied = "Parent & Child Bay Rule - Child presence verification required";
+      if (detections.childDetected === true) {
+        decision = "NO_PCN";
+        explanation = `A child was detected exiting or entering the vehicle. The vehicle is entitled to use this Parent & Child bay.`;
+        confidenceScore = detections.childConfidence || 0.75;
+      } else if (detections.childDetected === false) {
+        decision = "ISSUE_PCN";
+        explanation = `No child was detected with the vehicle. Parent & Child bays are reserved for vehicles with children.`;
+        confidenceScore = detections.childConfidence || 0.7;
+      } else {
+        decision = "REVIEW_REQUIRED";
+        explanation = `Unable to determine if a child was present with the vehicle. Manual review of evidence frames required before issuing PCN.`;
+        confidenceScore = 0.4;
+      }
+      break;
+      
+    case "standard":
+    case "loading":
+    case "permit":
+    default:
+      ruleApplied = `Standard Bay Rule - Time/permit restrictions apply`;
+      decision = "ISSUE_PCN"; // Allow normal regulation evaluation to proceed
+      explanation = `Standard parking bay rules apply. PCN eligibility determined by time restrictions and site regulations.`;
+      confidenceScore = 0.9;
+      break;
+  }
+  
+  return {
+    bayId,
+    bayType,
+    bayName,
+    ruleApplied,
+    detections,
+    decision,
+    explanation,
+    evidenceUsed,
+    confidenceScore,
+  };
+}
+
 function stepDecisionEngine(
   ctx: PipelineContext,
   regulationEval: RegulationEvaluationOutput,
   signageCompliance: SignageComplianceOutput,
   visionConfidence: number,
   contextEnrichment: ContextEnrichmentOutput,
-  behaviourProfiling: BehaviourProfilingOutput
+  behaviourProfiling: BehaviourProfilingOutput,
+  bayRuleEvaluation: BayRuleEvaluationOutput
 ): DecisionOutput {
   const regulationBreach = regulationEval.evaluation.breachDetected;
   const signageCompliant = signageCompliance.overallCompliance === "pass";
@@ -925,6 +1133,10 @@ function stepDecisionEngine(
   
   const riskScore = behaviourProfiling.driverProfile?.riskScore || 0.5;
   const riskAcceptable = riskScore <= 0.8;
+  
+  // Bay rule gate - check if bay-specific rules allow PCN issuance
+  const bayRuleAllowsPCN = bayRuleEvaluation.decision === "ISSUE_PCN";
+  const bayRuleRequiresReview = bayRuleEvaluation.decision === "REVIEW_REQUIRED";
   
   const blockers: string[] = [];
   
@@ -943,6 +1155,12 @@ function stepDecisionEngine(
   if (!riskAcceptable) {
     blockers.push("Risk score exceeds acceptable threshold");
   }
+  if (!bayRuleAllowsPCN && !bayRuleRequiresReview) {
+    blockers.push(`Bay rule blocked: ${bayRuleEvaluation.explanation}`);
+  }
+  if (bayRuleRequiresReview) {
+    blockers.push(`Bay rule requires review: ${bayRuleEvaluation.explanation}`);
+  }
   
   for (const factor of behaviourProfiling.mitigatingFactors) {
     blockers.push(`Mitigating: ${factor}`);
@@ -954,7 +1172,61 @@ function stepDecisionEngine(
   let reasoning: string;
   let plainEnglishExplanation: string;
   
-  const allGatesPassed = regulationBreach && signageCompliant && confidenceThresholdMet && noHoldFlags && riskAcceptable;
+  // Check if bay rule explicitly blocks PCN (e.g., badge visible, child detected, EV verified)
+  if (bayRuleEvaluation.decision === "NO_PCN") {
+    status = "BLOCKED_BY_BAY_RULE";
+    legalRisk = "low";
+    recommendation = `No PCN - ${bayRuleEvaluation.ruleApplied}`;
+    reasoning = bayRuleEvaluation.explanation;
+    plainEnglishExplanation = bayRuleEvaluation.explanation;
+    
+    return {
+      status,
+      eligibilityGates: {
+        regulationBreach,
+        signageCompliant,
+        confidenceThresholdMet,
+        noHoldFlags,
+        riskAcceptable,
+        bayRuleAllowsPCN: false,
+      },
+      overallConfidence: bayRuleEvaluation.confidenceScore,
+      legalRisk,
+      recommendation,
+      reasoning,
+      plainEnglishExplanation,
+      blockers,
+    };
+  }
+  
+  // Check if bay rule requires manual review
+  if (bayRuleRequiresReview) {
+    status = "REVIEW_REQUIRED";
+    legalRisk = "medium";
+    recommendation = `Manual review required - ${bayRuleEvaluation.ruleApplied}`;
+    reasoning = bayRuleEvaluation.explanation;
+    plainEnglishExplanation = bayRuleEvaluation.explanation;
+    
+    return {
+      status,
+      eligibilityGates: {
+        regulationBreach,
+        signageCompliant,
+        confidenceThresholdMet,
+        noHoldFlags,
+        riskAcceptable,
+        bayRuleAllowsPCN: false,
+      },
+      overallConfidence: bayRuleEvaluation.confidenceScore,
+      legalRisk,
+      recommendation,
+      reasoning,
+      plainEnglishExplanation,
+      blockers,
+    };
+  }
+  
+  const allGatesPassed = regulationBreach && signageCompliant && confidenceThresholdMet && noHoldFlags && riskAcceptable && bayRuleAllowsPCN;
   
   if (allGatesPassed) {
     status = "PCN_ELIGIBLE";
@@ -1004,6 +1276,7 @@ function stepDecisionEngine(
       confidenceThresholdMet,
       noHoldFlags,
       riskAcceptable,
+      bayRuleAllowsPCN,
     },
     overallConfidence,
     legalRisk,
@@ -1038,7 +1311,7 @@ export async function runCaseAnalysisPipeline(
     pipelineStatus: "running",
     currentStep: "evidence_normalisation",
     completedSteps: 0,
-    totalSteps: 8,
+    totalSteps: 9,
     analysisStartedAt: new Date(),
     triggeredBy: userId,
   });
@@ -1193,12 +1466,31 @@ export async function runCaseAnalysisPipeline(
     });
     
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
-      currentStep: "decision_engine",
+      currentStep: "bay_rule_evaluation",
       completedSteps: 7,
       behaviourProfiling: ctx.behaviourProfiling,
     }) as CasePipelineResults;
     
-    console.log(`[Pipeline] Step 8: Decision Engine`);
+    console.log(`[Pipeline] Step 8: Bay Rule Evaluation`);
+    const bayRuleStep = await createOrUpdateStep(caseId, "bay_rule_evaluation", "running", {
+      startedAt: new Date(),
+    });
+    
+    ctx.bayRuleEvaluation = await stepBayRuleEvaluation(ctx, evidenceItems, ctx.visionResults, ctx.dvlaData);
+    
+    await createOrUpdateStep(caseId, "bay_rule_evaluation", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (bayRuleStep.startedAt?.getTime() || Date.now()),
+      outputData: ctx.bayRuleEvaluation,
+    });
+    
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "decision_engine",
+      completedSteps: 8,
+      bayRuleEvaluation: ctx.bayRuleEvaluation,
+    }) as CasePipelineResults;
+    
+    console.log(`[Pipeline] Step 9: Decision Engine`);
     const decisionStep = await createOrUpdateStep(caseId, "decision_engine", "running", {
       startedAt: new Date(),
     });
@@ -1209,7 +1501,8 @@ export async function runCaseAnalysisPipeline(
       ctx.signageCompliance,
       ctx.visionResults.overallConfidence,
       ctx.contextEnrichment,
-      ctx.behaviourProfiling
+      ctx.behaviourProfiling,
+      ctx.bayRuleEvaluation
     );
     
     // Check for duplicate analysis results
@@ -1234,7 +1527,7 @@ export async function runCaseAnalysisPipeline(
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       pipelineStatus: "completed",
       currentStep: null,
-      completedSteps: 8,
+      completedSteps: 9,
       decision: ctx.decision,
       analysisCompletedAt: new Date(),
     }) as CasePipelineResults;
@@ -1249,6 +1542,9 @@ export async function runCaseAnalysisPipeline(
         break;
       case "NO_PCN":
         caseStatus = "ANALYSED";
+        break;
+      case "BLOCKED_BY_BAY_RULE":
+        caseStatus = "BLOCKED_BY_BAY_RULE";
         break;
       default:
         caseStatus = "ANALYSED";
@@ -1311,6 +1607,16 @@ export async function getAnalysisReport(caseId: string) {
     },
     regulationsApplied: pipelineResults.regulationEvaluation,
     signageAssessment: pipelineResults.signageCompliance,
+    bayRuleEvaluation: pipelineResults.bayRuleEvaluation ? {
+      bayType: pipelineResults.bayRuleEvaluation.bayType,
+      bayName: pipelineResults.bayRuleEvaluation.bayName,
+      ruleApplied: pipelineResults.bayRuleEvaluation.ruleApplied,
+      detections: pipelineResults.bayRuleEvaluation.detections,
+      decision: pipelineResults.bayRuleEvaluation.decision,
+      explanation: pipelineResults.bayRuleEvaluation.explanation,
+      confidenceScore: pipelineResults.bayRuleEvaluation.confidenceScore,
+      evidenceUsed: pipelineResults.bayRuleEvaluation.evidenceUsed,
+    } : null,
     riskAndConfidence: {
       overallConfidence: pipelineResults.decision?.overallConfidence || 0,
       legalRisk: pipelineResults.decision?.legalRisk || "unknown",

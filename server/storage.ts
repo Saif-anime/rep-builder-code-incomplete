@@ -44,6 +44,7 @@ export interface IStorage {
 
   // Bays
   getBay(id: number): Promise<Bay | undefined>;
+  getBayByCamera(cameraId: number): Promise<Bay | undefined>;
   getAllBays(): Promise<Bay[]>;
   createBay(bay: InsertBay): Promise<Bay>;
   updateBay(id: number, bay: Partial<InsertBay>): Promise<Bay | undefined>;
@@ -311,6 +312,11 @@ export class DatabaseStorage implements IStorage {
   // Bays
   async getBay(id: number): Promise<Bay | undefined> {
     const [bay] = await db.select().from(bays).where(eq(bays.id, id));
+    return bay || undefined;
+  }
+
+  async getBayByCamera(cameraId: number): Promise<Bay | undefined> {
+    const [bay] = await db.select().from(bays).where(eq(bays.cameraId, cameraId));
     return bay || undefined;
   }
 
