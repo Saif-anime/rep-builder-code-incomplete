@@ -1410,8 +1410,7 @@ export class DatabaseStorage implements IStorage {
   }>> {
     const results = await db.select({
       caseId: enforcementCases.id,
-      caseReference: enforcementCases.caseReference,
-      siteId: enforcementCases.siteId,
+      siteIdVal: enforcementCases.siteId,
       vrm: enforcementCases.vrm,
       evidenceCount: enforcementCases.evidenceCount,
       siteName: parkingSites.siteName,
@@ -1431,16 +1430,16 @@ export class DatabaseStorage implements IStorage {
     let filtered = results;
     if (options?.action && options.action !== "all") {
       filtered = results.filter(r => {
-        const decision = r.pipelineResults.decisionEngine as any;
+        const decision = (r.pipelineResults as any).decisionEngine;
         return decision?.status === options.action;
       });
     }
 
     return filtered.map(r => ({
       caseId: r.caseId,
-      caseReference: r.caseReference,
+      caseReference: r.caseId,
       siteName: r.siteName,
-      siteId: r.siteId,
+      siteId: r.siteIdVal || siteId,
       vrm: r.vrm,
       evidenceCount: r.evidenceCount || 0,
       analysisTimestamp: r.pipelineResults.updatedAt || r.pipelineResults.createdAt,
