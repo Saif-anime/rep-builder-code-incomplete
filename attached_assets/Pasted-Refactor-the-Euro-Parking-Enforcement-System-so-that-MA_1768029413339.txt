@@ -1,0 +1,199 @@
+Refactor the Euro Parking Enforcement System so that
+MANUAL uploads are handled at CASE LEVEL, not FILE LEVEL.
+
+====================================================
+PRIMARY GOAL
+====================================================
+
+When multiple manual evidence files are uploaded
+for the SAME CASE:
+
+✅ Save them as ONE grouped case
+✅ Analyse ALL files together
+✅ Produce ONE final analysis report
+❌ Do NOT analyse files individually
+❌ Do NOT clutter evidence list
+
+====================================================
+CASE-FIRST DATA MODEL (MANDATORY)
+====================================================
+
+ManualCase
+- id (caseId)
+- siteId
+- cameraId (optional)
+- createdBy
+- status: pending | analysing | completed
+- createdAt
+
+ManualEvidence
+- id
+- caseId
+- type: image | video
+- fileUrl
+- capturedAt (EXIF / filename / user input)
+- source = "manual"
+- metadata
+
+ManualCaseAnalysis
+- caseId
+- timelineSummary
+- mergedDetections
+- finalDecision
+- confidenceScore
+- modelVersions
+- analysedAt
+
+====================================================
+UPLOAD FLOW (FRONTEND)
+====================================================
+
+1️⃣ User clicks "Upload Manual Evidence"
+2️⃣ User selects MULTIPLE files
+3️⃣ User selects or creates CASE
+4️⃣ Files upload together
+5️⃣ UI shows ONE case card
+   (not multiple evidence cards)
+
+====================================================
+BACKEND UPLOAD LOGIC
+====================================================
+
+- Accept multiple files in ONE request
+- Require caseId
+- Assign all files → same caseId
+- Save files individually
+- DO NOT trigger analysis per file
+
+====================================================
+ANALYSIS TRIGGER
+====================================================
+
+Trigger analysis ONLY when:
+- User clicks "Analyse Case"
+OR
+- Auto-trigger after upload finishes
+
+====================================================
+ANALYSIS PIPELINE (STRICT ORDER)
+====================================================
+
+FOR EACH FILE:
+--------------------------------
+Images:
+- Run YOLOv8:
+   - vehicle
+   - person
+   - bay markings
+- Run Vision GPT:
+   - badge visibility
+   - signage
+   - bay confirmation
+   - visibility quality
+
+Videos:
+- Extract keyframes (1 fps or motion-based)
+- Apply same pipeline per frame
+
+--------------------------------
+MERGING LOGIC:
+--------------------------------
+- Merge detections across all files
+- Align by timestamp
+- Remove duplicates
+- Resolve conflicts conservatively
+- Prefer strongest confidence only
+
+====================================================
+TIMELINE RECONCILIATION
+====================================================
+
+Determine:
+- First seen timestamp
+- Last seen timestamp
+- Duration of stay
+- Consistency across files
+
+Flag:
+- Time gaps
+- Out-of-order captures
+- Conflicting timestamps
+
+====================================================
+FINAL CASE ANALYSIS OUTPUT (ONE ONLY)
+====================================================
+
+{
+  caseId,
+  siteName,
+  evidenceCount,
+  timeWindow,
+  vehicle: {
+    detected,
+    type,
+    plate (if any)
+  },
+  bayType,
+  signageVisible,
+  humanFactors: {
+    childDetected,
+    disabledIndicators
+  },
+  violationDecision,
+  confidenceScore,
+  supportingEvidence: [evidenceIds],
+  modelVersions: {
+    yolo: "v8",
+    visionGPT: "vX"
+  }
+}
+
+====================================================
+UI REQUIREMENTS
+====================================================
+
+Evidence Section:
+- Show CASE cards, not file cards
+- Expand case → see files inside
+- ONE "Analyse Case" button
+- ONE final result panel
+
+====================================================
+ERROR HANDLING
+====================================================
+
+- If one file fails → continue analysis
+- Log partial failures
+- Still generate final report
+
+====================================================
+LEGAL & SAFETY RULES
+====================================================
+
+❌ Never infer disability
+❌ Never guess badge presence
+❌ Never assume intent
+
+✅ Conservative conclusions
+✅ Evidence-backed only
+
+====================================================
+PERFORMANCE
+====================================================
+
+- Parallel file processing (safe limits)
+- Cache Vision GPT results
+- Avoid reprocessing unchanged files
+
+====================================================
+FINAL DELIVERABLE
+====================================================
+
+- Manual uploads grouped by case
+- One unified analysis per case
+- YOLOv8 + Vision GPT combined
+- Clean UI, zero confusion
+- Court-ready output
+
+Implement fully.
+Do not simplify.

@@ -205,6 +205,23 @@ export const caseAnalysis = pgTable("case_analysis", {
   riskAssessment: text("risk_assessment"), // Low, Medium, High
   recommendation: text("recommendation"), // Issue PCN, Review, No Action
   timelineSummary: text("timeline_summary"),
+  timeWindow: jsonb("time_window").$type<{
+    firstSeen: string;
+    lastSeen: string;
+    durationMinutes: number;
+    gaps: string[];
+    conflicts: string[];
+  }>(),
+  mergedDetections: jsonb("merged_detections").$type<{
+    vehicles: Array<{ type: string; confidence: number; evidenceId: number }>;
+    persons: Array<{ type: string; confidence: number; evidenceId: number }>;
+    bayMarkings: Array<{ type: string; confidence: number; evidenceId: number }>;
+  }>(),
+  modelVersions: jsonb("model_versions").$type<{
+    visionGPT: string;
+  }>(),
+  supportingEvidenceIds: jsonb("supporting_evidence_ids").$type<number[]>(),
+  partialFailures: jsonb("partial_failures").$type<Array<{ evidenceId: number; error: string }>>(),
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
 });
 
