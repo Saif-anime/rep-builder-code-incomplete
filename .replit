@@ -1,10 +1,10 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "postgresql-16", "python-3.11"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["libuuid", "cairo", "pango", "libjpeg", "giflib", "pixman", "freetype", "pkg-config", "libpng"]
+packages = ["cairo", "freetype", "giflib", "lcms2", "libimagequant", "libjpeg", "libjpeg_turbo", "libpng", "libtiff", "libuuid", "libwebp", "libxcrypt", "oneDNN", "openjpeg", "pango", "pixman", "pkg-config", "re2", "tcl", "tk", "which", "zlib"]
 
 [[ports]]
 localPort = 5000

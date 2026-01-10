@@ -2,8 +2,19 @@ import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { runYoloDetection, isYoloAvailable, mapYoloToVehicleType, hasPersonsDetected, type YoloResult } from "./yoloDetection";
 
 const openai = new OpenAI();
+
+let yoloStatus: "checking" | "available" | "unavailable" = "checking";
+
+async function initYoloStatus() {
+  const available = await isYoloAvailable();
+  yoloStatus = available ? "available" : "unavailable";
+  console.log(`[Vision] YOLOv8 status: ${yoloStatus}`);
+}
+
+initYoloStatus();
 
 export interface VisionAnalysisInput {
   imagePath: string;
@@ -114,7 +125,7 @@ Return ONLY valid JSON in this exact format:
 }`;
 
 export async function analyzeImageWithVision(input: VisionAnalysisInput): Promise<VisionAnalysisResponse> {
-  console.log("[Vision GPT] Analyzing image:", input.imagePath);
+  console.log("[Vision] Analyzing image:", input.imagePath);
   
   const imageHash = computeImageHash(input.imagePath);
   if (!imageHash) {
@@ -122,7 +133,7 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
   }
   
   if (analysisCache.has(imageHash)) {
-    console.log("[Vision GPT] Returning cached result for:", imageHash);
+    console.log("[Vision] Returning cached result for:", imageHash);
     return { success: true, result: analysisCache.get(imageHash)!, cached: true };
   }
   
@@ -131,14 +142,39 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     return { success: false, error: "Could not load image file" };
   }
   
-  const contextInfo = [
+  // Run YOLOv8 detection if available (non-blocking, for enhanced accuracy)
+  let yoloResult: YoloResult | null = null;
+  if (yoloStatus === "available") {
+    try {
+      console.log("[YOLO] Running object detection...");
+      yoloResult = await runYoloDetection(input.imagePath);
+      if (yoloResult.success) {
+        console.log(`[YOLO] Found: ${yoloResult.vehicles.length} vehicles, ${yoloResult.persons.length} persons`);
+      }
+    } catch (e: any) {
+      console.log("[YOLO] Detection skipped:", e.message);
+    }
+  }
+  
+  // Build context with YOLO pre-detection hints
+  const contextParts = [
     input.siteName ? `Site: ${input.siteName}` : null,
     input.bayTypeExpected ? `Expected bay type: ${input.bayTypeExpected}` : null,
     input.violationType ? `Suspected violation: ${input.violationType}` : null,
     input.timestamp ? `Timestamp: ${input.timestamp}` : null,
     input.cameraName ? `Camera: ${input.cameraName}` : null,
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean);
   
+  // Add YOLO hints to help GPT-4o focus
+  if (yoloResult?.success && yoloResult.vehicles.length > 0) {
+    const vehicleTypes = yoloResult.vehicles.map(v => `${v.class} (${Math.round(v.confidence * 100)}%)`).join(", ");
+    contextParts.push(`Pre-detection hint: YOLOv8 detected vehicles: ${vehicleTypes}`);
+  }
+  if (yoloResult?.success && yoloResult.persons.length > 0) {
+    contextParts.push(`Pre-detection hint: YOLOv8 detected ${yoloResult.persons.length} person(s)`);
+  }
+  
+  const contextInfo = contextParts.join("\n");
   const userPrompt = contextInfo 
     ? `Context:\n${contextInfo}\n\nAnalyze this parking enforcement evidence image.`
     : "Analyze this parking enforcement evidence image.";
@@ -175,32 +211,56 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     
     const parsed = JSON.parse(jsonMatch[0]);
     
+    // Merge YOLO detections with GPT-4o analysis for higher accuracy
+    let vehicleDetected = Boolean(parsed.vehicleDetected);
+    let vehicleType: VisionAnalysisResult["vehicleType"] = parsed.vehicleType || "unknown";
+    let humansDetected: HumanDetection = {
+      adult: Boolean(parsed.humansDetected?.adult),
+      child: Boolean(parsed.humansDetected?.child),
+    };
+    
+    // Trust YOLO for object detection when it has high confidence
+    if (yoloResult?.success) {
+      if (yoloResult.vehicles.length > 0) {
+        const bestVehicle = yoloResult.vehicles.sort((a, b) => b.confidence - a.confidence)[0];
+        if (bestVehicle.confidence > 0.5) {
+          vehicleDetected = true;
+          vehicleType = mapYoloToVehicleType(yoloResult.vehicles);
+        }
+      }
+      if (yoloResult.persons.length > 0) {
+        const personConf = yoloResult.persons.sort((a, b) => b.confidence - a.confidence)[0];
+        if (personConf.confidence > 0.5) {
+          humansDetected = hasPersonsDetected(yoloResult.persons);
+        }
+      }
+    }
+    
+    const modelVersion = yoloResult?.success ? "gpt-4o+yolov8n" : "gpt-4o";
+    
     const result: VisionAnalysisResult = {
-      vehicleDetected: Boolean(parsed.vehicleDetected),
-      vehicleType: parsed.vehicleType || "unknown",
+      vehicleDetected,
+      vehicleType,
       bayTypeVisible: parsed.bayTypeVisible || "unclear",
       evIndicators: Boolean(parsed.evIndicators),
       disabledBadgeVisible: Boolean(parsed.disabledBadgeVisible),
-      humansDetected: {
-        adult: Boolean(parsed.humansDetected?.adult),
-        child: Boolean(parsed.humansDetected?.child),
-      },
+      humansDetected,
       signageVisible: Boolean(parsed.signageVisible),
       visibilityQuality: parsed.visibilityQuality || "partial",
       confidenceNotes: parsed.confidenceNotes || "",
       numberPlateDetected: parsed.numberPlateDetected || undefined,
       timestampOverlay: parsed.timestampOverlay || undefined,
       analysedAt: new Date().toISOString(),
-      modelVersion: "gpt-4o",
+      modelVersion,
       imageHash,
     };
     
     if (result.timestampOverlay) {
-      console.log("[Vision GPT] Extracted timestamp from overlay:", result.timestampOverlay);
+      console.log("[Vision] Extracted timestamp from overlay:", result.timestampOverlay);
     }
     
     analysisCache.set(imageHash, result);
-    console.log("[Vision GPT] Analysis complete:", result.vehicleDetected ? "Vehicle detected" : "No vehicle");
+    console.log(`[Vision] Analysis complete (${modelVersion}):`, result.vehicleDetected ? "Vehicle detected" : "No vehicle");
     
     return { success: true, result };
   } catch (error: any) {
