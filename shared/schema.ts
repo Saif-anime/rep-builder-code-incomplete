@@ -139,7 +139,7 @@ export const enforcementCases = pgTable("enforcement_cases", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   siteId: integer("site_id").references(() => parkingSites.id),
   vrm: text("vrm"),
-  status: text("status").notNull().default("pending"), // pending, analysing, complete, dismissed
+  status: text("status").notNull().default("NEW"), // NEW, ANALYSING, ANALYSED, REVIEW_REQUIRED, PCN_ELIGIBLE, PCN_ISSUED, FAILED
   evidenceCount: integer("evidence_count").notNull().default(0),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -403,7 +403,7 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
   pipelineStatus: text("pipeline_status").notNull().default("pending"), // pending, running, completed, failed, partial
   currentStep: text("current_step"),
   completedSteps: integer("completed_steps").notNull().default(0),
-  totalSteps: integer("total_steps").notNull().default(6),
+  totalSteps: integer("total_steps").notNull().default(8),
   
   // Step 1: Evidence Normalisation
   evidenceTimeline: jsonb("evidence_timeline").$type<{
@@ -503,18 +503,79 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
     issues: string[];
   }>(),
   
-  // Step 6: Decision Engine
+  // Step 6: Context Enrichment
+  contextEnrichment: jsonb("context_enrichment").$type<{
+    weather: {
+      conditions: string;
+      temperature?: number;
+      visibility?: string;
+      precipitation?: boolean;
+      dataSource: string;
+      timestamp: string;
+    } | null;
+    events: Array<{
+      name: string;
+      type: string;
+      distance?: string;
+      impact: "low" | "medium" | "high";
+    }>;
+    roadworks: Array<{
+      location: string;
+      type: string;
+      impact: "low" | "medium" | "high";
+    }>;
+    spikeDetection: {
+      isSpike: boolean;
+      baselineOccupancy: number;
+      currentOccupancy: number;
+      deviationPercent: number;
+      recommendation: "HOLD_PCN" | "PROCEED_PCN" | "REVIEW_REQUIRED" | null;
+    } | null;
+    anomalies: string[];
+    confidenceAdjustment: number;
+  }>(),
+  
+  // Step 7: Behaviour Profiling
+  behaviourProfiling: jsonb("behaviour_profiling").$type<{
+    driverProfile: {
+      vrm: string;
+      visitCount: number;
+      averageDurationMinutes: number;
+      overstayCount: number;
+      lastVisit: string | null;
+      classification: "FAIR_USER" | "COMMUTER_MISUSE" | "FIRST_TIME_LATE" | "REPEAT_OFFENDER" | "UNKNOWN";
+      riskScore: number;
+    } | null;
+    siteHistory: {
+      totalVisits: number;
+      complianceRate: number;
+      lastCompliantVisit: string | null;
+    } | null;
+    patternAnalysis: {
+      typicalArrivalTime: string | null;
+      typicalDuration: number | null;
+      weekdayPattern: boolean;
+      weekendPattern: boolean;
+    } | null;
+    mitigatingFactors: string[];
+    aggravatingFactors: string[];
+  }>(),
+  
+  // Step 8: Decision Engine
   decision: jsonb("decision").$type<{
     status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
     eligibilityGates: {
       regulationBreach: boolean;
       signageCompliant: boolean;
       confidenceThresholdMet: boolean;
+      noHoldFlags: boolean;
+      riskAcceptable: boolean;
     };
     overallConfidence: number;
     legalRisk: "low" | "medium" | "high";
     recommendation: string;
     reasoning: string;
+    plainEnglishExplanation: string;
     blockers: string[];
   }>(),
   

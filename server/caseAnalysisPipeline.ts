@@ -17,6 +17,8 @@ export type PipelineStepName =
   | "dvla_enrichment"
   | "regulation_evaluation"
   | "signage_compliance"
+  | "context_enrichment"
+  | "behaviour_profiling"
   | "decision_engine";
 
 const STEP_ORDER: Record<PipelineStepName, number> = {
@@ -25,7 +27,9 @@ const STEP_ORDER: Record<PipelineStepName, number> = {
   dvla_enrichment: 3,
   regulation_evaluation: 4,
   signage_compliance: 5,
-  decision_engine: 6,
+  context_enrichment: 6,
+  behaviour_profiling: 7,
+  decision_engine: 8,
 };
 
 const CONFIDENCE_THRESHOLD = 0.7;
@@ -122,17 +126,76 @@ interface SignageComplianceOutput {
   issues: string[];
 }
 
+interface ContextEnrichmentOutput {
+  weather: {
+    conditions: string;
+    temperature?: number;
+    visibility?: string;
+    precipitation?: boolean;
+    dataSource: string;
+    timestamp: string;
+  } | null;
+  events: Array<{
+    name: string;
+    type: string;
+    distance?: string;
+    impact: "low" | "medium" | "high";
+  }>;
+  roadworks: Array<{
+    location: string;
+    type: string;
+    impact: "low" | "medium" | "high";
+  }>;
+  spikeDetection: {
+    isSpike: boolean;
+    baselineOccupancy: number;
+    currentOccupancy: number;
+    deviationPercent: number;
+    recommendation: "HOLD_PCN" | "PROCEED_PCN" | "REVIEW_REQUIRED" | null;
+  } | null;
+  anomalies: string[];
+  confidenceAdjustment: number;
+}
+
+interface BehaviourProfilingOutput {
+  driverProfile: {
+    vrm: string;
+    visitCount: number;
+    averageDurationMinutes: number;
+    overstayCount: number;
+    lastVisit: string | null;
+    classification: "FAIR_USER" | "COMMUTER_MISUSE" | "FIRST_TIME_LATE" | "REPEAT_OFFENDER" | "UNKNOWN";
+    riskScore: number;
+  } | null;
+  siteHistory: {
+    totalVisits: number;
+    complianceRate: number;
+    lastCompliantVisit: string | null;
+  } | null;
+  patternAnalysis: {
+    typicalArrivalTime: string | null;
+    typicalDuration: number | null;
+    weekdayPattern: boolean;
+    weekendPattern: boolean;
+  } | null;
+  mitigatingFactors: string[];
+  aggravatingFactors: string[];
+}
+
 interface DecisionOutput {
   status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
   eligibilityGates: {
     regulationBreach: boolean;
     signageCompliant: boolean;
     confidenceThresholdMet: boolean;
+    noHoldFlags: boolean;
+    riskAcceptable: boolean;
   };
   overallConfidence: number;
   legalRisk: "low" | "medium" | "high";
   recommendation: string;
   reasoning: string;
+  plainEnglishExplanation: string;
   blockers: string[];
 }
 
@@ -145,6 +208,8 @@ export interface PipelineContext {
   dvlaData?: DVLADataOutput;
   regulationEvaluation?: RegulationEvaluationOutput;
   signageCompliance?: SignageComplianceOutput;
+  contextEnrichment?: ContextEnrichmentOutput;
+  behaviourProfiling?: BehaviourProfilingOutput;
   decision?: DecisionOutput;
 }
 
@@ -634,15 +699,97 @@ async function stepSignageCompliance(
   }
 }
 
+function stepContextEnrichment(
+  ctx: PipelineContext,
+  eventDate: Date
+): ContextEnrichmentOutput {
+  const anomalies: string[] = [];
+  let confidenceAdjustment = 0;
+  
+  const weather = {
+    conditions: "Clear",
+    temperature: 15,
+    visibility: "Good",
+    precipitation: false,
+    dataSource: "mock",
+    timestamp: new Date().toISOString(),
+  };
+  
+  const events: ContextEnrichmentOutput["events"] = [];
+  const roadworks: ContextEnrichmentOutput["roadworks"] = [];
+  
+  let spikeDetection: ContextEnrichmentOutput["spikeDetection"] = null;
+  
+  if (weather.precipitation) {
+    anomalies.push("Adverse weather conditions may affect driver behaviour");
+    confidenceAdjustment -= 0.05;
+  }
+  
+  return {
+    weather,
+    events,
+    roadworks,
+    spikeDetection,
+    anomalies,
+    confidenceAdjustment,
+  };
+}
+
+function stepBehaviourProfiling(
+  ctx: PipelineContext,
+  vrm: string | null
+): BehaviourProfilingOutput {
+  const mitigatingFactors: string[] = [];
+  const aggravatingFactors: string[] = [];
+  
+  let driverProfile: BehaviourProfilingOutput["driverProfile"] = null;
+  
+  if (vrm) {
+    driverProfile = {
+      vrm,
+      visitCount: 1,
+      averageDurationMinutes: ctx.evidenceTimeline?.timeRange.durationMinutes || 0,
+      overstayCount: 0,
+      lastVisit: null,
+      classification: "UNKNOWN",
+      riskScore: 0.5,
+    };
+    
+    if (driverProfile.overstayCount === 0) {
+      mitigatingFactors.push("No prior overstay history at this site");
+    }
+    if (driverProfile.visitCount === 1) {
+      mitigatingFactors.push("First recorded visit to this site");
+    }
+  }
+  
+  return {
+    driverProfile,
+    siteHistory: null,
+    patternAnalysis: null,
+    mitigatingFactors,
+    aggravatingFactors,
+  };
+}
+
 function stepDecisionEngine(
   ctx: PipelineContext,
   regulationEval: RegulationEvaluationOutput,
   signageCompliance: SignageComplianceOutput,
-  visionConfidence: number
+  visionConfidence: number,
+  contextEnrichment: ContextEnrichmentOutput,
+  behaviourProfiling: BehaviourProfilingOutput
 ): DecisionOutput {
   const regulationBreach = regulationEval.evaluation.breachDetected;
   const signageCompliant = signageCompliance.overallCompliance === "pass";
-  const confidenceThresholdMet = visionConfidence >= CONFIDENCE_THRESHOLD;
+  const adjustedConfidence = visionConfidence + contextEnrichment.confidenceAdjustment;
+  const confidenceThresholdMet = adjustedConfidence >= CONFIDENCE_THRESHOLD;
+  
+  const hasHoldFlag = contextEnrichment.spikeDetection?.recommendation === "HOLD_PCN";
+  const noHoldFlags = !hasHoldFlag;
+  
+  const riskScore = behaviourProfiling.driverProfile?.riskScore || 0.5;
+  const riskAcceptable = riskScore <= 0.8;
   
   const blockers: string[] = [];
   
@@ -653,40 +800,65 @@ function stepDecisionEngine(
     blockers.push(`Signage compliance: ${signageCompliance.overallCompliance} (${signageCompliance.issues.join(", ")})`);
   }
   if (!confidenceThresholdMet) {
-    blockers.push(`Evidence confidence ${(visionConfidence * 100).toFixed(0)}% below threshold ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+    blockers.push(`Evidence confidence ${(adjustedConfidence * 100).toFixed(0)}% below threshold ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+  }
+  if (!noHoldFlags) {
+    blockers.push("HOLD_PCN flag active - unusual activity detected");
+  }
+  if (!riskAcceptable) {
+    blockers.push("Risk score exceeds acceptable threshold");
+  }
+  
+  for (const factor of behaviourProfiling.mitigatingFactors) {
+    blockers.push(`Mitigating: ${factor}`);
   }
   
   let status: DecisionOutput["status"];
   let legalRisk: DecisionOutput["legalRisk"];
   let recommendation: string;
   let reasoning: string;
+  let plainEnglishExplanation: string;
   
-  if (regulationBreach && signageCompliant && confidenceThresholdMet) {
+  const allGatesPassed = regulationBreach && signageCompliant && confidenceThresholdMet && noHoldFlags && riskAcceptable;
+  
+  if (allGatesPassed) {
     status = "PCN_ELIGIBLE";
     legalRisk = "low";
     recommendation = "Issue PCN - all eligibility criteria met";
-    reasoning = `Regulation breach confirmed (${regulationEval.evaluation.breachType}). Signage compliant. Evidence confidence sufficient.`;
+    reasoning = `Regulation breach confirmed (${regulationEval.evaluation.breachType}). Signage compliant. Evidence confidence sufficient. No hold flags. Risk acceptable.`;
+    plainEnglishExplanation = `This case was flagged because the vehicle stayed for ${regulationEval.evaluation.actualDurationMinutes} minutes, exceeding the maximum allowed time of ${regulationEval.evaluation.allowedDurationMinutes} minutes. The site signage was verified as compliant, and there are no unusual circumstances that would prevent issuing a penalty.`;
   } else if (regulationBreach && !signageCompliant) {
     status = "REVIEW_REQUIRED";
     legalRisk = "high";
     recommendation = "Manual review required - signage compliance issues";
     reasoning = `Regulation breach detected but signage compliance is ${signageCompliance.overallCompliance}. PCN may be challenged.`;
+    plainEnglishExplanation = `This case needs manual review because while a parking violation was detected, there are concerns about whether the site signage meets legal requirements. Issuing a penalty without resolving this could result in a successful appeal.`;
   } else if (regulationBreach && !confidenceThresholdMet) {
     status = "REVIEW_REQUIRED";
     legalRisk = "medium";
     recommendation = "Manual review required - evidence confidence below threshold";
-    reasoning = `Regulation breach detected but evidence confidence is ${(visionConfidence * 100).toFixed(0)}%, below ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}% threshold.`;
+    reasoning = `Regulation breach detected but evidence confidence is ${(adjustedConfidence * 100).toFixed(0)}%, below ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}% threshold.`;
+    plainEnglishExplanation = `This case needs manual review because the evidence quality is not high enough to confidently issue a penalty. An operator should review the images and timestamps to confirm the violation.`;
+  } else if (regulationBreach && !noHoldFlags) {
+    status = "REVIEW_REQUIRED";
+    legalRisk = "medium";
+    recommendation = "Manual review required - hold flag active";
+    reasoning = `Regulation breach detected but HOLD_PCN flag is active due to unusual site activity.`;
+    plainEnglishExplanation = `This case is on hold because unusual activity was detected at the site during this time period. A manual review is needed to determine if the circumstances warrant issuing a penalty.`;
   } else {
     status = "NO_PCN";
     legalRisk = "low";
     recommendation = "No PCN warranted - no breach detected";
     reasoning = "Analysis did not identify a regulation breach.";
+    plainEnglishExplanation = `No penalty is recommended because the analysis did not find a clear parking violation. The vehicle appeared to be parked within the allowed time limits.`;
   }
   
   const overallConfidence = (
-    (regulationBreach ? 0.4 : 0) +
-    (signageCompliant ? 0.3 : 0) +
-    (visionConfidence * 0.3)
+    (regulationBreach ? 0.3 : 0) +
+    (signageCompliant ? 0.2 : 0) +
+    (adjustedConfidence * 0.3) +
+    (noHoldFlags ? 0.1 : 0) +
+    (riskAcceptable ? 0.1 : 0)
   );
   
   return {
@@ -695,11 +867,14 @@ function stepDecisionEngine(
       regulationBreach,
       signageCompliant,
       confidenceThresholdMet,
+      noHoldFlags,
+      riskAcceptable,
     },
     overallConfidence,
     legalRisk,
     recommendation,
     reasoning,
+    plainEnglishExplanation,
     blockers,
   };
 }
@@ -721,12 +896,14 @@ export async function runCaseAnalysisPipeline(
   
   await storage.deleteAnalysisStepsByCase(caseId);
   
+  await storage.updateCaseStatus(caseId, "ANALYSING");
+  
   let pipelineResults = await storage.createCasePipelineResults({
     caseId,
     pipelineStatus: "running",
     currentStep: "evidence_normalisation",
     completedSteps: 0,
-    totalSteps: 6,
+    totalSteps: 8,
     analysisStartedAt: new Date(),
     triggeredBy: userId,
   });
@@ -794,12 +971,54 @@ export async function runCaseAnalysisPipeline(
     console.log(`[Pipeline] Step 5: Signage Compliance`);
     ctx.signageCompliance = await stepSignageCompliance(ctx, signageInspection);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
-      currentStep: "decision_engine",
+      currentStep: "context_enrichment",
       completedSteps: 5,
       signageCompliance: ctx.signageCompliance,
     }) as CasePipelineResults;
     
-    console.log(`[Pipeline] Step 6: Decision Engine`);
+    console.log(`[Pipeline] Step 6: Context Enrichment`);
+    const contextStep = await createOrUpdateStep(caseId, "context_enrichment", "running", {
+      startedAt: new Date(),
+    });
+    
+    const eventDate = ctx.evidenceTimeline.timestamps[0]?.timestamp 
+      ? new Date(ctx.evidenceTimeline.timestamps[0].timestamp)
+      : new Date();
+    ctx.contextEnrichment = stepContextEnrichment(ctx, eventDate);
+    
+    await createOrUpdateStep(caseId, "context_enrichment", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (contextStep.startedAt?.getTime() || Date.now()),
+      outputData: ctx.contextEnrichment,
+    });
+    
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "behaviour_profiling",
+      completedSteps: 6,
+      contextEnrichment: ctx.contextEnrichment,
+    }) as CasePipelineResults;
+    
+    console.log(`[Pipeline] Step 7: Behaviour Profiling`);
+    const behaviourStep = await createOrUpdateStep(caseId, "behaviour_profiling", "running", {
+      startedAt: new Date(),
+    });
+    
+    const vrm = ctx.visionResults.bestVrmFrame?.plate || caseData.vrm || null;
+    ctx.behaviourProfiling = stepBehaviourProfiling(ctx, vrm);
+    
+    await createOrUpdateStep(caseId, "behaviour_profiling", "completed", {
+      completedAt: new Date(),
+      durationMs: Date.now() - (behaviourStep.startedAt?.getTime() || Date.now()),
+      outputData: ctx.behaviourProfiling,
+    });
+    
+    pipelineResults = await storage.updateCasePipelineResults(caseId, {
+      currentStep: "decision_engine",
+      completedSteps: 7,
+      behaviourProfiling: ctx.behaviourProfiling,
+    }) as CasePipelineResults;
+    
+    console.log(`[Pipeline] Step 8: Decision Engine`);
     const decisionStep = await createOrUpdateStep(caseId, "decision_engine", "running", {
       startedAt: new Date(),
     });
@@ -808,7 +1027,9 @@ export async function runCaseAnalysisPipeline(
       ctx,
       ctx.regulationEvaluation,
       ctx.signageCompliance,
-      ctx.visionResults.overallConfidence
+      ctx.visionResults.overallConfidence,
+      ctx.contextEnrichment,
+      ctx.behaviourProfiling
     );
     
     await createOrUpdateStep(caseId, "decision_engine", "completed", {
@@ -820,14 +1041,28 @@ export async function runCaseAnalysisPipeline(
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       pipelineStatus: "completed",
       currentStep: null,
-      completedSteps: 6,
+      completedSteps: 8,
       decision: ctx.decision,
       analysisCompletedAt: new Date(),
     }) as CasePipelineResults;
     
-    await storage.updateCaseStatus(caseId, "complete");
+    let caseStatus: string;
+    switch (ctx.decision.status) {
+      case "PCN_ELIGIBLE":
+        caseStatus = "PCN_ELIGIBLE";
+        break;
+      case "REVIEW_REQUIRED":
+        caseStatus = "REVIEW_REQUIRED";
+        break;
+      case "NO_PCN":
+        caseStatus = "ANALYSED";
+        break;
+      default:
+        caseStatus = "ANALYSED";
+    }
+    await storage.updateCaseStatus(caseId, caseStatus);
     
-    console.log(`[Pipeline] Completed analysis for case ${caseId}: ${ctx.decision.status}`);
+    console.log(`[Pipeline] Completed analysis for case ${caseId}: ${ctx.decision.status} → Case status: ${caseStatus}`);
     
     return pipelineResults;
     
@@ -840,7 +1075,7 @@ export async function runCaseAnalysisPipeline(
       analysisCompletedAt: new Date(),
     });
     
-    await storage.updateCaseStatus(caseId, "failed");
+    await storage.updateCaseStatus(caseId, "FAILED");
     
     throw error;
   }

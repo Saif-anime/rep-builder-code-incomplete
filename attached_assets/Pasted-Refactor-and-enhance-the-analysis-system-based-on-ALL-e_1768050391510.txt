@@ -1,0 +1,184 @@
+Refactor and enhance the analysis system based on ALL existing requirements,
+ensuring the result is legally defensible, explainable, scalable, and trusted
+by operators.
+
+==================================================
+CORE PRINCIPLE (DO NOT VIOLATE)
+==================================================
+
+Analysis must:
+- Never auto-issue PCNs
+- Always explain WHY in plain English
+- Be case-centric, not file-centric
+- Combine all AI + rule logic into ONE pipeline
+- Produce an auditable decision report
+
+==================================================
+1. ANALYSIS RE-DESIGN (EVIDENCE-FIRST)
+==================================================
+
+Refactor analysis so it runs ONLY from Evidence cases.
+
+Rules:
+- Multiple evidence files = ONE case
+- Manual + camera evidence can coexist
+- All analysis results are attached to the case
+
+Add case states:
+NEW → ANALYSED → REVIEW_REQUIRED → PCN_ELIGIBLE → PCN_ISSUED
+
+==================================================
+2. UNIFIED ANALYSIS PIPELINE
+==================================================
+
+When “Analyse Case” is clicked:
+
+A. Evidence Normalisation
+- Merge all files
+- Extract timestamps via:
+  - EXIF
+  - Video overlay OCR
+  - Filename fallback
+- Build a verified timeline window
+
+B. Vision Analysis
+- YOLOv8:
+  - Vehicle presence
+  - Bay type (disabled / EV / parent)
+  - Vehicle type & orientation
+- Vision GPT:
+  - Interpret unclear frames
+  - Describe ambiguity
+  - Generate human-readable explanations
+
+C. ANPR + DVLA
+- Confidence-weighted VRM selection
+- DVLA lookup
+- Store response as evidence (not truth)
+
+D. Site Regulations Engine
+- Apply:
+  - Max stay
+  - Grace periods
+  - Enforcement hours
+  - Bay-specific rules
+  - Site overrides
+
+E. Signage Compliance Engine (CRITICAL)
+- Use PDF-derived signage inspection data
+- Validate:
+  - Entrance signage presence
+  - Terms visibility
+  - Legibility distance
+- Compute signage confidence %
+- Block PCN if signage fails threshold
+
+F. Context Enrichment
+- Weather
+- Events
+- Road closures
+- Overstay spikes
+- Site policy overrides
+
+G. Behaviour Profiling
+- Driver patterns:
+  - Commuter misuse
+  - Fair user
+  - First-time late
+- Store driver profile per site
+
+==================================================
+3. EXPLAINABLE ANALYSIS REPORT (UI)
+==================================================
+
+Inside Evidence → Case Drawer show:
+
+1. Summary
+- VRM
+- Site
+- Duration vs allowed
+- Recommendation badge
+
+2. Evidence Used
+- File list
+- Camera/manual source
+- Timestamp coverage
+
+3. How Duration Was Calculated
+- Entry method
+- Exit method
+- Confidence score
+
+4. Rules Applied
+- Each rule checked
+- Pass/Fail per rule
+- Numeric comparisons
+
+5. Signage Assessment
+- Entrance signage
+- T&Cs visibility
+- Confidence %
+
+6. Context Signals
+- Weather
+- Events
+- Anomalies
+
+7. Risk & Confidence
+- Overall confidence %
+- Legal risk rating
+
+8. Plain-English Explanation
+- “This case was flagged because…”
+- Written for appeals & court use
+
+==================================================
+4. PCN GENERATION (STRICT)
+==================================================
+
+Show “Generate PCN” ONLY if:
+- Analysis complete
+- No HOLD_PCN flags
+- Signage confidence >= threshold
+- Risk <= acceptable level
+
+PCN must reference:
+- Breached rule
+- Evidence IDs
+- Duration calculation
+- Signage compliance
+- Explanation snapshot
+
+==================================================
+5. UI / UX IMPROVEMENTS
+==================================================
+
+- Evidence list grouped by case
+- Clear “Analyse Case” CTA
+- Clear “Why this decision?” tooltips
+- Mobile-first responsive layout
+- Highlight weak evidence visually
+
+==================================================
+6. CLEANUP & SAFETY
+==================================================
+
+- Remove duplicated analysis services
+- Remove background AI jobs
+- Centralise config thresholds
+- Log every decision with:
+  - Inputs
+  - Outputs
+  - Model versions
+  - Timestamps
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+✔ Operators understand decisions  
+✔ Appeals can be defended  
+✔ AI never silently decides  
+✔ Evidence is central  
+✔ System scales cleanly  
+✔ Legal risk reduced  

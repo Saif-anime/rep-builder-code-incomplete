@@ -23,6 +23,9 @@ import {
   Loader2,
   FileCheck,
   Car,
+  Cloud,
+  User,
+  MessageSquare,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -44,14 +47,74 @@ interface EvidenceAnalysisReportProps {
 
 interface PipelineResults {
   caseId: string;
-  status: "pending" | "running" | "completed" | "failed";
-  evidenceNormalization: any;
-  visionAnalysis: any;
-  dvlaEnrichment: any;
+  pipelineStatus: "pending" | "running" | "completed" | "failed";
+  evidenceTimeline: any;
+  visionResults: any;
+  dvlaData: any;
   regulationEvaluation: any;
   signageCompliance: any;
-  decisionEngine: any;
-  completedAt: string | null;
+  contextEnrichment: {
+    weather: {
+      conditions: string;
+      temperature?: number;
+      visibility?: string;
+      precipitation?: boolean;
+      dataSource: string;
+      timestamp: string;
+    } | null;
+    events: Array<{ name: string; type: string; distance?: string; impact: "low" | "medium" | "high" }>;
+    roadworks: Array<{ location: string; type: string; impact: "low" | "medium" | "high" }>;
+    spikeDetection: {
+      isSpike: boolean;
+      baselineOccupancy: number;
+      currentOccupancy: number;
+      deviationPercent: number;
+      recommendation: "HOLD_PCN" | "PROCEED_PCN" | "REVIEW_REQUIRED" | null;
+    } | null;
+    anomalies: string[];
+    confidenceAdjustment: number;
+  } | null;
+  behaviourProfiling: {
+    driverProfile: {
+      vrm: string;
+      visitCount: number;
+      averageDurationMinutes: number;
+      overstayCount: number;
+      lastVisit: string | null;
+      classification: "FAIR_USER" | "COMMUTER_MISUSE" | "FIRST_TIME_LATE" | "REPEAT_OFFENDER" | "UNKNOWN";
+      riskScore: number;
+    } | null;
+    siteHistory: {
+      totalVisits: number;
+      complianceRate: number;
+      lastCompliantVisit: string | null;
+    } | null;
+    patternAnalysis: {
+      typicalArrivalTime: string | null;
+      typicalDuration: number | null;
+      weekdayPattern: boolean;
+      weekendPattern: boolean;
+    } | null;
+    mitigatingFactors: string[];
+    aggravatingFactors: string[];
+  } | null;
+  decision: {
+    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+    eligibilityGates: {
+      regulationBreach: boolean;
+      signageCompliant: boolean;
+      confidenceThresholdMet: boolean;
+      noHoldFlags: boolean;
+      riskAcceptable: boolean;
+    };
+    overallConfidence: number;
+    legalRisk: "low" | "medium" | "high";
+    recommendation: string;
+    reasoning: string;
+    plainEnglishExplanation: string;
+    blockers: string[];
+  } | null;
+  analysisCompletedAt: string | null;
 }
 
 interface AnalysisStep {
@@ -80,7 +143,7 @@ export function EvidenceAnalysisReport({
 }: EvidenceAnalysisReportProps) {
   const { toast } = useToast();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(["summary", "evidence", "measurements", "regulations", "signage", "risk", "audit"])
+    new Set(["summary", "evidence", "measurements", "regulations", "signage", "context", "risk", "explanation", "audit"])
   );
 
   const { data: pipelineResults, isLoading: loadingPipeline } = useQuery<PipelineResults>({
@@ -146,18 +209,21 @@ export function EvidenceAnalysisReport({
     });
   };
 
-  const decision = pipelineResults?.decisionEngine;
+  const decision = pipelineResults?.decision;
   const regulations = pipelineResults?.regulationEvaluation;
   const signage = pipelineResults?.signageCompliance;
-  const vision = pipelineResults?.visionAnalysis;
-  const dvla = pipelineResults?.dvlaEnrichment;
-  const evidence = pipelineResults?.evidenceNormalization;
+  const vision = pipelineResults?.visionResults;
+  const dvla = pipelineResults?.dvlaData;
+  const evidence = pipelineResults?.evidenceTimeline;
+  const contextEnrichment = pipelineResults?.contextEnrichment;
+  const behaviourProfiling = pipelineResults?.behaviourProfiling;
 
   const isPcnEligible = 
     decision?.status === "PCN_ELIGIBLE" &&
-    signage?.overallCompliance === "PASS" &&
-    (decision?.confidenceScore || 0) >= 0.7 &&
-    !decision?.blockers?.length;
+    decision?.eligibilityGates?.signageCompliant &&
+    decision?.eligibilityGates?.confidenceThresholdMet &&
+    decision?.eligibilityGates?.noHoldFlags &&
+    decision?.eligibilityGates?.riskAcceptable;
 
   const getDecisionBadge = (status: string) => {
     switch (status) {
@@ -247,14 +313,14 @@ export function EvidenceAnalysisReport({
 
       <div className="flex items-center gap-2 flex-wrap">
         {decision?.status && getDecisionBadge(decision.status)}
-        {decision?.confidenceScore && (
+        {decision?.overallConfidence && (
           <Badge variant="outline">
-            Confidence: {Math.round(decision.confidenceScore * 100)}%
+            Confidence: {Math.round(decision.overallConfidence * 100)}%
           </Badge>
         )}
-        {decision?.riskLevel && (
-          <Badge variant={decision.riskLevel === "HIGH" ? "destructive" : decision.riskLevel === "MEDIUM" ? "secondary" : "outline"}>
-            Risk: {decision.riskLevel}
+        {decision?.legalRisk && (
+          <Badge variant={decision.legalRisk === "high" ? "destructive" : decision.legalRisk === "medium" ? "secondary" : "outline"}>
+            Risk: {decision.legalRisk.toUpperCase()}
           </Badge>
         )}
       </div>
@@ -428,7 +494,7 @@ export function EvidenceAnalysisReport({
                     )}
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Overall Confidence</span>
-                      <ConfidenceMeter value={(decision?.confidenceScore || analysis?.confidenceScore || 0) * 100} className="w-32" />
+                      <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-32" />
                     </div>
                   </div>
                 </div>
@@ -575,6 +641,141 @@ export function EvidenceAnalysisReport({
         </Card>
       </Collapsible>
 
+      <Collapsible open={expandedSections.has("context")} onOpenChange={() => toggleSection("context")}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover-elevate">
+              <CardTitle className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <Cloud className="h-4 w-4" />
+                  Section 6: Context Signals
+                </span>
+                {expandedSections.has("context") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="space-y-4">
+                {contextEnrichment?.weather && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-sm flex items-center gap-2">
+                        <Cloud className="h-4 w-4" />
+                        Weather Conditions
+                      </span>
+                      <Badge variant="outline">{contextEnrichment.weather.conditions}</Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                      {contextEnrichment.weather.temperature && (
+                        <span>Temp: {contextEnrichment.weather.temperature}°C</span>
+                      )}
+                      {contextEnrichment.weather.visibility && (
+                        <span>Visibility: {contextEnrichment.weather.visibility}</span>
+                      )}
+                      <span>Source: {contextEnrichment.weather.dataSource}</span>
+                    </div>
+                  </div>
+                )}
+
+                {contextEnrichment?.events && contextEnrichment.events.length > 0 && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <span className="font-medium text-sm">Local Events</span>
+                    <div className="mt-2 space-y-1">
+                      {contextEnrichment.events.map((event, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <span>{event.name}</span>
+                          <Badge variant={event.impact === "high" ? "destructive" : event.impact === "medium" ? "secondary" : "outline"}>
+                            {event.impact} impact
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {contextEnrichment?.spikeDetection && (
+                  <div className={`p-3 rounded-md border ${contextEnrichment.spikeDetection.isSpike ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700' : 'bg-muted/50'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-sm">Occupancy Spike Detection</span>
+                      {contextEnrichment.spikeDetection.isSpike ? (
+                        <Badge variant="secondary">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Spike Detected
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Normal</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <span>Baseline: {contextEnrichment.spikeDetection.baselineOccupancy}% | </span>
+                      <span>Current: {contextEnrichment.spikeDetection.currentOccupancy}% | </span>
+                      <span>Deviation: {contextEnrichment.spikeDetection.deviationPercent}%</span>
+                    </div>
+                    {contextEnrichment.spikeDetection.recommendation && (
+                      <div className="mt-2">
+                        <Badge variant={contextEnrichment.spikeDetection.recommendation === "HOLD_PCN" ? "destructive" : "outline"}>
+                          {contextEnrichment.spikeDetection.recommendation.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {contextEnrichment?.anomalies && contextEnrichment.anomalies.length > 0 && (
+                  <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-400 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Anomalies Detected
+                    </p>
+                    <ul className="text-sm text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
+                      {contextEnrichment.anomalies.map((a, i) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {behaviourProfiling?.driverProfile && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-sm flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        Driver Profile
+                      </span>
+                      <Badge variant="outline">{behaviourProfiling.driverProfile.classification.replace(/_/g, " ")}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <span>Visit Count: {behaviourProfiling.driverProfile.visitCount}</span>
+                      <span>Overstay Count: {behaviourProfiling.driverProfile.overstayCount}</span>
+                      <span>Avg Duration: {behaviourProfiling.driverProfile.averageDurationMinutes} min</span>
+                      <span>Risk Score: {(behaviourProfiling.driverProfile.riskScore * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {behaviourProfiling?.mitigatingFactors && behaviourProfiling.mitigatingFactors.length > 0 && (
+                  <div className="p-3 rounded-md bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-700">
+                    <p className="text-sm font-medium text-green-800 dark:text-green-400 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Mitigating Factors
+                    </p>
+                    <ul className="text-sm text-green-700 dark:text-green-300 mt-1 list-disc list-inside">
+                      {behaviourProfiling.mitigatingFactors.map((f, i) => <li key={i}>{f}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {(!contextEnrichment && !behaviourProfiling) && (
+                  <div className="p-4 text-center text-muted-foreground">
+                    <Cloud className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No context data available. Run analysis to gather context signals.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
       <Collapsible open={expandedSections.has("risk")} onOpenChange={() => toggleSection("risk")}>
         <Card>
           <CollapsibleTrigger asChild>
@@ -582,7 +783,7 @@ export function EvidenceAnalysisReport({
               <CardTitle className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2">
                   <Shield className="h-4 w-4" />
-                  Section 6: Risk & Confidence
+                  Section 7: Risk & Confidence
                 </span>
                 {expandedSections.has("risk") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </CardTitle>
@@ -594,16 +795,16 @@ export function EvidenceAnalysisReport({
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Overall Confidence</span>
                   <div className="flex items-center gap-3">
-                    <ConfidenceMeter value={(decision?.confidenceScore || analysis?.confidenceScore || 0) * 100} className="w-40" />
+                    <ConfidenceMeter value={(decision?.overallConfidence || analysis?.confidenceScore || 0) * 100} className="w-40" />
                     <span className="text-sm font-mono">
-                      {Math.round((decision?.confidenceScore || analysis?.confidenceScore || 0) * 100)}%
+                      {Math.round((decision?.overallConfidence || analysis?.confidenceScore || 0) * 100)}%
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Legal Risk Level</span>
-                  <Badge variant={decision?.riskLevel === "HIGH" ? "destructive" : decision?.riskLevel === "MEDIUM" ? "secondary" : "outline"}>
-                    {decision?.riskLevel || analysis?.riskAssessment || "Unknown"}
+                  <Badge variant={decision?.legalRisk === "high" ? "destructive" : decision?.legalRisk === "medium" ? "secondary" : "outline"}>
+                    {decision?.legalRisk?.toUpperCase() || analysis?.riskAssessment || "Unknown"}
                   </Badge>
                 </div>
                 <Separator />
@@ -616,7 +817,7 @@ export function EvidenceAnalysisReport({
                   </div>
                 </div>
                 
-                {decision?.blockers?.length > 0 && (
+                {decision?.blockers && decision.blockers.length > 0 && (
                   <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-400 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" />
@@ -633,7 +834,7 @@ export function EvidenceAnalysisReport({
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span>Analysis Complete</span>
-                      {pipelineResults?.status === "completed" ? (
+                      {pipelineResults?.pipelineStatus === "completed" ? (
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                       ) : (
                         <XCircle className="h-4 w-4 text-red-500" />
@@ -657,7 +858,7 @@ export function EvidenceAnalysisReport({
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span>Confidence ≥ 70%</span>
-                      {(decision?.confidenceScore || 0) >= 0.7 ? (
+                      {(decision?.overallConfidence || 0) >= 0.7 ? (
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                       ) : (
                         <XCircle className="h-4 w-4 text-red-500" />
@@ -701,6 +902,53 @@ export function EvidenceAnalysisReport({
         </Card>
       </Collapsible>
 
+      <Collapsible open={expandedSections.has("explanation")} onOpenChange={() => toggleSection("explanation")}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover-elevate">
+              <CardTitle className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Section 8: Plain-English Explanation
+                </span>
+                {expandedSections.has("explanation") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="space-y-4">
+                <div className="p-4 rounded-md bg-muted/50 border">
+                  <p className="text-sm leading-relaxed">
+                    {decision?.plainEnglishExplanation || 
+                     analysis?.summary || 
+                     "This case is pending analysis. Run the analysis pipeline to generate a plain-English explanation of the decision."}
+                  </p>
+                </div>
+                
+                {decision?.reasoning && (
+                  <div className="p-3 rounded-md border">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Technical Reasoning</p>
+                    <p className="text-sm">{decision.reasoning}</p>
+                  </div>
+                )}
+                
+                <div className="p-3 rounded-md bg-blue-50 border border-blue-200 dark:bg-blue-900/20 dark:border-blue-700">
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-400 flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    Appeals & Court Use
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                    This explanation is designed for use in appeal responses and court proceedings. 
+                    It summarizes the evidence, regulations applied, and the basis for the decision in plain language.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
       <Collapsible open={expandedSections.has("audit")} onOpenChange={() => toggleSection("audit")}>
         <Card>
           <CollapsibleTrigger asChild>
@@ -708,7 +956,7 @@ export function EvidenceAnalysisReport({
               <CardTitle className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2">
                   <History className="h-4 w-4" />
-                  Section 7: Full Audit Log
+                  Full Audit Log
                 </span>
                 {expandedSections.has("audit") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </CardTitle>
