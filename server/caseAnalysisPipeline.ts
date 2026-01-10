@@ -67,6 +67,12 @@ interface VisionResultsOutput {
     bayType: string;
     confidence: number;
   }>;
+  timestampExtractions: Array<{
+    evidenceId: number;
+    extractedTimestamp: string;
+    parsedDate: string | null;
+    confidence: number;
+  }>;
   bestVrmFrame: { evidenceId: number; plate: string; confidence: number } | null;
   overallConfidence: number;
   modelVersions: { yolov8?: string; visionGpt: string };
@@ -330,6 +336,69 @@ async function stepEvidenceNormalisation(
   }
 }
 
+function parseTimestampOverlay(timestampStr: string): string | null {
+  if (!timestampStr) return null;
+  
+  const patterns = [
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,
+    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = timestampStr.match(pattern);
+    if (match) {
+      try {
+        let year: number, month: number, day: number, hour: number, minute: number, second: number;
+        
+        if (pattern.source.startsWith("(\\d{2})\\/")) {
+          day = parseInt(match[1]);
+          month = parseInt(match[2]);
+          year = parseInt(match[3]);
+          hour = parseInt(match[4]);
+          minute = parseInt(match[5]);
+          second = match[6] ? parseInt(match[6]) : 0;
+        } else if (pattern.source.startsWith("(\\d{4})")) {
+          year = parseInt(match[1]);
+          month = parseInt(match[2]);
+          day = parseInt(match[3]);
+          hour = parseInt(match[4]);
+          minute = parseInt(match[5]);
+          second = match[6] ? parseInt(match[6]) : 0;
+        } else {
+          day = parseInt(match[1]);
+          month = parseInt(match[2]);
+          year = parseInt(match[3]);
+          hour = parseInt(match[4]);
+          minute = parseInt(match[5]);
+          second = match[6] ? parseInt(match[6]) : 0;
+        }
+        
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  
+  try {
+    const parsed = new Date(timestampStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  } catch {
+    return null;
+  }
+  
+  return null;
+}
+
 async function stepVisionAnalysis(
   ctx: PipelineContext,
   evidenceItems: Evidence[]
@@ -342,6 +411,7 @@ async function stepVisionAnalysis(
     const vehicleDetections: VisionResultsOutput["vehicleDetections"] = [];
     const vrmDetections: VisionResultsOutput["vrmDetections"] = [];
     const bayUsageDetections: VisionResultsOutput["bayUsageDetections"] = [];
+    const timestampExtractions: VisionResultsOutput["timestampExtractions"] = [];
     const visionResults: VisionAnalysisResult[] = [];
     
     const imageEvidence = evidenceItems.filter(e => e.imagePath);
@@ -380,6 +450,17 @@ async function stepVisionAnalysis(
             confidence: 0.75,
           });
         }
+        
+        if (result.result.timestampOverlay) {
+          const parsedDate = parseTimestampOverlay(result.result.timestampOverlay);
+          timestampExtractions.push({
+            evidenceId: ev.id,
+            extractedTimestamp: result.result.timestampOverlay,
+            parsedDate,
+            confidence: parsedDate ? 0.9 : 0.5,
+          });
+          console.log(`[Pipeline] Extracted timestamp for evidence ${ev.id}: ${result.result.timestampOverlay} -> ${parsedDate}`);
+        }
       }
     }
     
@@ -400,6 +481,7 @@ async function stepVisionAnalysis(
       vehicleDetections,
       vrmDetections,
       bayUsageDetections,
+      timestampExtractions,
       bestVrmFrame,
       overallConfidence,
       modelVersions: { visionGpt: "gpt-4o" },
@@ -934,10 +1016,55 @@ export async function runCaseAnalysisPipeline(
     
     console.log(`[Pipeline] Step 2: Vision Analysis`);
     ctx.visionResults = await stepVisionAnalysis(ctx, evidenceItems);
+    
+    if (ctx.visionResults.timestampExtractions.length > 0) {
+      console.log(`[Pipeline] Updating timeline with ${ctx.visionResults.timestampExtractions.length} extracted timestamps`);
+      
+      for (const extraction of ctx.visionResults.timestampExtractions) {
+        if (extraction.parsedDate) {
+          const existingTs = ctx.evidenceTimeline.timestamps.find(t => t.evidenceId === extraction.evidenceId);
+          if (existingTs) {
+            existingTs.timestamp = extraction.parsedDate;
+            existingTs.source = "camera_overlay";
+            existingTs.confidence = extraction.confidence;
+          }
+        }
+      }
+      
+      ctx.evidenceTimeline.timestamps.sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      
+      const timestamps = ctx.evidenceTimeline.timestamps;
+      const first = timestamps[0]?.timestamp || new Date().toISOString();
+      const last = timestamps[timestamps.length - 1]?.timestamp || first;
+      const durationMinutes = Math.round(
+        (new Date(last).getTime() - new Date(first).getTime()) / (1000 * 60)
+      );
+      
+      ctx.evidenceTimeline.timeRange = { first, last, durationMinutes };
+      
+      if (timestamps.length >= 2) {
+        ctx.evidenceTimeline.entryWindow = {
+          start: timestamps[0].timestamp,
+          end: timestamps[Math.min(1, timestamps.length - 1)].timestamp,
+          confidence: timestamps[0].confidence,
+        };
+        ctx.evidenceTimeline.exitWindow = {
+          start: timestamps[Math.max(0, timestamps.length - 2)].timestamp,
+          end: last,
+          confidence: timestamps[timestamps.length - 1].confidence,
+        };
+      }
+      
+      console.log(`[Pipeline] Updated timeline: ${first} to ${last} (${durationMinutes} minutes)`);
+    }
+    
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       currentStep: "dvla_enrichment",
       completedSteps: 2,
       visionResults: ctx.visionResults,
+      evidenceTimeline: ctx.evidenceTimeline,
     }) as CasePipelineResults;
     
     const detectedVrm = ctx.visionResults.bestVrmFrame?.plate || caseData.vrm || null;

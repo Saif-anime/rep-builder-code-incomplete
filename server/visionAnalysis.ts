@@ -31,6 +31,7 @@ export interface VisionAnalysisResult {
   visibilityQuality: "clear" | "partial" | "poor";
   confidenceNotes: string;
   numberPlateDetected?: string;
+  timestampOverlay?: string;
   analysedAt: string;
   modelVersion: string;
   imageHash: string;
@@ -92,6 +93,7 @@ Detect and return:
 - Signage visibility
 - Number plate if visible
 - Obstructions or unclear view
+- TIMESTAMP/DATE overlay text (camera overlays often show date/time like "10/01/2026 14:35:22" or "2026-01-10 14:35")
 
 Return ONLY valid JSON in this exact format:
 {
@@ -107,6 +109,7 @@ Return ONLY valid JSON in this exact format:
   "signageVisible": boolean,
   "visibilityQuality": "clear" | "partial" | "poor",
   "numberPlateDetected": "string or null",
+  "timestampOverlay": "string or null - if a date/time is visible in camera overlay text, extract it exactly as shown",
   "confidenceNotes": "string explaining any uncertainties"
 }`;
 
@@ -186,10 +189,15 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       visibilityQuality: parsed.visibilityQuality || "partial",
       confidenceNotes: parsed.confidenceNotes || "",
       numberPlateDetected: parsed.numberPlateDetected || undefined,
+      timestampOverlay: parsed.timestampOverlay || undefined,
       analysedAt: new Date().toISOString(),
       modelVersion: "gpt-4o",
       imageHash,
     };
+    
+    if (result.timestampOverlay) {
+      console.log("[Vision GPT] Extracted timestamp from overlay:", result.timestampOverlay);
+    }
     
     analysisCache.set(imageHash, result);
     console.log("[Vision GPT] Analysis complete:", result.vehicleDetected ? "Vehicle detected" : "No vehicle");
