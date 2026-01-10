@@ -1568,3 +1568,144 @@ export const pcnRecommendationsRelations = relations(pcnRecommendations, ({ one 
     references: [users.id],
   }),
 }));
+
+// ==================== PERMANENT SITE SIGNAGE ====================
+// Persistent signage records for enforcement rule extraction
+export const parkingSiteSignage = pgTable("parking_site_signage", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  signageType: text("signage_type").notNull(), // ENTRANCE, TERMS, BAY, PAYMENT, WARNING, OTHER
+  title: text("title").notNull(),
+  source: text("source").notNull().default("IMAGE"), // PDF, IMAGE, MANUAL
+  extractedData: jsonb("extracted_data").$type<{
+    maxStayMinutes: number | null;
+    graceMinutes: number | null;
+    enforcementHours: {
+      start: string;
+      end: string;
+      days: string[];
+    } | null;
+    bayRestrictions: Array<{
+      type: string;
+      description: string;
+    }>;
+    paymentTerms: {
+      required: boolean;
+      rates: string | null;
+      methods: string[];
+    } | null;
+    warningLanguage: string | null;
+    rawTextExtracted: string | null;
+    extractionNotes: string[];
+  }>(),
+  confidenceScore: real("confidence_score").default(0),
+  effectiveFrom: timestamp("effective_from").defaultNow().notNull(),
+  effectiveTo: timestamp("effective_to"),
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE, ARCHIVED
+  displayPriority: integer("display_priority").default(0),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertParkingSiteSignageSchema = createInsertSchema(parkingSiteSignage).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertParkingSiteSignage = z.infer<typeof insertParkingSiteSignageSchema>;
+export type ParkingSiteSignage = typeof parkingSiteSignage.$inferSelect;
+
+// ==================== SIGNAGE FILES ====================
+// Multiple files per signage record (PDFs, images)
+export const signageRuleFiles = pgTable("signage_rule_files", {
+  id: serial("id").primaryKey(),
+  signageId: varchar("signage_id").references(() => parkingSiteSignage.id, { onDelete: "cascade" }).notNull(),
+  filePath: text("file_path").notNull(),
+  fileType: text("file_type").notNull(), // pdf, image
+  mimeType: text("mime_type"),
+  sha256Hash: text("sha256_hash"),
+  pageNumber: integer("page_number"),
+  extractedText: text("extracted_text"),
+  aiAnalysis: jsonb("ai_analysis").$type<{
+    detectedRules: Array<{
+      ruleType: string;
+      value: string | number | null;
+      confidence: number;
+      sourceText: string;
+    }>;
+    ocrConfidence: number;
+    processingNotes: string[];
+  }>(),
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
+export const insertSignageRuleFileSchema = createInsertSchema(signageRuleFiles).omit({
+  id: true,
+  uploadedAt: true,
+});
+
+export type InsertSignageRuleFile = z.infer<typeof insertSignageRuleFileSchema>;
+export type SignageRuleFile = typeof signageRuleFiles.$inferSelect;
+
+// ==================== SIGNAGE USAGE AUDIT ====================
+// Track which signage was used in each case analysis
+export const signageUsageAudit = pgTable("signage_usage_audit", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  signageId: varchar("signage_id").references(() => parkingSiteSignage.id).notNull(),
+  rulesApplied: jsonb("rules_applied").$type<{
+    maxStayMinutes: number | null;
+    graceMinutes: number | null;
+    enforcementActive: boolean;
+    bayRestrictions: string[];
+  }>(),
+  confidenceAtUsage: real("confidence_at_usage"),
+  explanationGenerated: text("explanation_generated"),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+});
+
+export const insertSignageUsageAuditSchema = createInsertSchema(signageUsageAudit).omit({
+  id: true,
+  usedAt: true,
+});
+
+export type InsertSignageUsageAudit = z.infer<typeof insertSignageUsageAuditSchema>;
+export type SignageUsageAudit = typeof signageUsageAudit.$inferSelect;
+
+// ==================== SIGNAGE RELATIONS ====================
+export const parkingSiteSignageRelations = relations(parkingSiteSignage, ({ one, many }) => ({
+  site: one(parkingSites, {
+    fields: [parkingSiteSignage.siteId],
+    references: [parkingSites.id],
+  }),
+  creator: one(users, {
+    fields: [parkingSiteSignage.createdBy],
+    references: [users.id],
+  }),
+  files: many(signageRuleFiles),
+}));
+
+export const signageRuleFilesRelations = relations(signageRuleFiles, ({ one }) => ({
+  signage: one(parkingSiteSignage, {
+    fields: [signageRuleFiles.signageId],
+    references: [parkingSiteSignage.id],
+  }),
+  uploader: one(users, {
+    fields: [signageRuleFiles.uploadedBy],
+    references: [users.id],
+  }),
+}));
+
+export const signageUsageAuditRelations = relations(signageUsageAudit, ({ one }) => ({
+  case: one(enforcementCases, {
+    fields: [signageUsageAudit.caseId],
+    references: [enforcementCases.id],
+  }),
+  signage: one(parkingSiteSignage, {
+    fields: [signageUsageAudit.signageId],
+    references: [parkingSiteSignage.id],
+  }),
+}));

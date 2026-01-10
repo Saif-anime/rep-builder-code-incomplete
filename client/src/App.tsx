@@ -16,6 +16,7 @@ import EvidencePage from "@/pages/evidence";
 import UsersPage from "@/pages/users";
 import AdminSitesPage from "@/pages/admin-sites";
 import SignageInspectionPage from "@/pages/signage-inspection";
+import SiteSignagePage from "@/pages/site-signage";
 import FlaggedSessionsPage from "@/pages/flagged-sessions";
 import RecommendationsPage from "@/pages/recommendations";
 import SettingsPage from "@/pages/settings";
@@ -30,6 +31,7 @@ function ProtectedRoutes() {
       <Route path="/evidence" component={EvidencePage} />
       <Route path="/admin/users" component={UsersPage} />
       <Route path="/admin/sites" component={AdminSitesPage} />
+      <Route path="/sites/:siteId/signage" component={SiteSignagePage} />
       <Route path="/signage/:siteId" component={SignageInspectionPage} />
       <Route path="/signage/:siteId/:inspectionId" component={SignageInspectionPage} />
       <Route path="/flagged-sessions" component={FlaggedSessionsPage} />

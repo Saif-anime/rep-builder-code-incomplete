@@ -754,6 +754,44 @@ export function EvidenceAnalysisReport({
                     </ul>
                   </div>
                 )}
+
+                {signage?.extractedRegulations && (
+                  <div className="p-3 rounded-md border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700">
+                    <p className="text-sm font-medium text-blue-800 dark:text-blue-400 flex items-center gap-2 mb-2">
+                      <FileText className="h-4 w-4" />
+                      Extracted Rules Applied
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Source:</span>
+                        <span className="font-medium">{signage.extractedRegulations.source || "Not specified"}</span>
+                      </div>
+                      {signage.extractedRegulations.maxStayMinutes != null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Max Stay:</span>
+                          <span className="font-medium">{signage.extractedRegulations.maxStayMinutes} minutes</span>
+                        </div>
+                      )}
+                      {signage.extractedRegulations.graceMinutes != null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Grace Period:</span>
+                          <span className="font-medium">{signage.extractedRegulations.graceMinutes} minutes</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Confidence:</span>
+                        <span className="font-medium">{((signage.extractedRegulations.confidence || 0) * 100).toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    {signage.appliedSignageId && signage.appliedSignageTitle && (
+                      <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">
+                        <span className="text-xs text-blue-700 dark:text-blue-300">
+                          Applied from: {signage.appliedSignageTitle} (ID: {signage.appliedSignageId})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </CollapsibleContent>

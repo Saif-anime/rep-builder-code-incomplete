@@ -3,6 +3,7 @@ import {
   anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
   enforcementCases, caseEvidence, caseAnalysis, evidenceBundles, caseVehicles,
   caseAnalysisSteps, pcns, casePipelineResults,
+  parkingSiteSignage, signageRuleFiles, signageUsageAudit,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -21,7 +22,10 @@ import {
   type CaseVehicle, type InsertCaseVehicle,
   type CaseAnalysisStep, type InsertCaseAnalysisStep,
   type Pcn, type InsertPcn,
-  type CasePipelineResults, type InsertCasePipelineResults
+  type CasePipelineResults, type InsertCasePipelineResults,
+  type ParkingSiteSignage, type InsertParkingSiteSignage,
+  type SignageRuleFile, type InsertSignageRuleFile,
+  type SignageUsageAudit, type InsertSignageUsageAudit
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -247,6 +251,27 @@ export interface IStorage {
     analysisTimestamp: Date;
     pipelineResults: CasePipelineResults;
   }>>;
+
+  // Permanent Site Signage
+  createParkingSiteSignage(signage: InsertParkingSiteSignage): Promise<ParkingSiteSignage>;
+  getParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined>;
+  getParkingSiteSignageBySite(siteId: number, options?: { status?: string }): Promise<ParkingSiteSignage[]>;
+  getActiveSignageBySite(siteId: number): Promise<ParkingSiteSignage[]>;
+  updateParkingSiteSignage(id: string, update: Partial<InsertParkingSiteSignage>): Promise<ParkingSiteSignage | undefined>;
+  archiveParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined>;
+  activateParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined>;
+  deleteParkingSiteSignage(id: string): Promise<void>;
+
+  // Signage Rule Files
+  createSignageRuleFile(file: InsertSignageRuleFile): Promise<SignageRuleFile>;
+  getSignageRuleFile(id: number): Promise<SignageRuleFile | undefined>;
+  getSignageRuleFilesBySignage(signageId: string): Promise<SignageRuleFile[]>;
+  updateSignageRuleFile(id: number, update: Partial<InsertSignageRuleFile>): Promise<SignageRuleFile | undefined>;
+  deleteSignageRuleFile(id: number): Promise<void>;
+
+  // Signage Usage Audit
+  createSignageUsageAudit(audit: InsertSignageUsageAudit): Promise<SignageUsageAudit>;
+  getSignageUsageAuditByCase(caseId: string): Promise<SignageUsageAudit[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1451,6 +1476,111 @@ export class DatabaseStorage implements IStorage {
       analysisTimestamp: r.pipelineResults.updatedAt || r.pipelineResults.createdAt,
       pipelineResults: r.pipelineResults,
     }));
+  }
+
+  // Permanent Site Signage
+  async createParkingSiteSignage(signage: InsertParkingSiteSignage): Promise<ParkingSiteSignage> {
+    const [created] = await db.insert(parkingSiteSignage).values(signage).returning();
+    return created;
+  }
+
+  async getParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined> {
+    const [signage] = await db.select().from(parkingSiteSignage)
+      .where(eq(parkingSiteSignage.id, id));
+    return signage || undefined;
+  }
+
+  async getParkingSiteSignageBySite(siteId: number, options?: { status?: string }): Promise<ParkingSiteSignage[]> {
+    if (options?.status) {
+      return db.select().from(parkingSiteSignage)
+        .where(and(
+          eq(parkingSiteSignage.siteId, siteId),
+          eq(parkingSiteSignage.status, options.status)
+        ))
+        .orderBy(desc(parkingSiteSignage.displayPriority), desc(parkingSiteSignage.effectiveFrom));
+    }
+    return db.select().from(parkingSiteSignage)
+      .where(eq(parkingSiteSignage.siteId, siteId))
+      .orderBy(desc(parkingSiteSignage.displayPriority), desc(parkingSiteSignage.effectiveFrom));
+  }
+
+  async getActiveSignageBySite(siteId: number): Promise<ParkingSiteSignage[]> {
+    return db.select().from(parkingSiteSignage)
+      .where(and(
+        eq(parkingSiteSignage.siteId, siteId),
+        eq(parkingSiteSignage.status, "ACTIVE")
+      ))
+      .orderBy(desc(parkingSiteSignage.displayPriority), desc(parkingSiteSignage.confidenceScore));
+  }
+
+  async updateParkingSiteSignage(id: string, update: Partial<InsertParkingSiteSignage>): Promise<ParkingSiteSignage | undefined> {
+    const [updated] = await db.update(parkingSiteSignage)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(parkingSiteSignage.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async archiveParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined> {
+    const [archived] = await db.update(parkingSiteSignage)
+      .set({ status: "ARCHIVED", effectiveTo: new Date(), updatedAt: new Date() })
+      .where(eq(parkingSiteSignage.id, id))
+      .returning();
+    return archived || undefined;
+  }
+
+  async activateParkingSiteSignage(id: string): Promise<ParkingSiteSignage | undefined> {
+    const [activated] = await db.update(parkingSiteSignage)
+      .set({ status: "ACTIVE", effectiveTo: null, updatedAt: new Date() })
+      .where(eq(parkingSiteSignage.id, id))
+      .returning();
+    return activated || undefined;
+  }
+
+  async deleteParkingSiteSignage(id: string): Promise<void> {
+    await db.delete(parkingSiteSignage).where(eq(parkingSiteSignage.id, id));
+  }
+
+  // Signage Rule Files
+  async createSignageRuleFile(file: InsertSignageRuleFile): Promise<SignageRuleFile> {
+    const [created] = await db.insert(signageRuleFiles).values(file).returning();
+    return created;
+  }
+
+  async getSignageRuleFile(id: number): Promise<SignageRuleFile | undefined> {
+    const [file] = await db.select().from(signageRuleFiles)
+      .where(eq(signageRuleFiles.id, id));
+    return file || undefined;
+  }
+
+  async getSignageRuleFilesBySignage(signageId: string): Promise<SignageRuleFile[]> {
+    return db.select().from(signageRuleFiles)
+      .where(eq(signageRuleFiles.signageId, signageId))
+      .orderBy(signageRuleFiles.pageNumber);
+  }
+
+  async updateSignageRuleFile(id: number, update: Partial<InsertSignageRuleFile>): Promise<SignageRuleFile | undefined> {
+    const [updated] = await db.update(signageRuleFiles)
+      .set(update)
+      .where(eq(signageRuleFiles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSignageRuleFile(id: number): Promise<void> {
+    await db.delete(signageRuleFiles).where(eq(signageRuleFiles.id, id));
+  }
+
+  // Signage Usage Audit
+  async createSignageUsageAudit(audit: InsertSignageUsageAudit): Promise<SignageUsageAudit> {
+    const [created] = await db.insert(signageUsageAudit).values(audit).returning();
+    return created;
+  }
+
+  async getSignageUsageAuditByCase(caseId: string): Promise<SignageUsageAudit[]> {
+    return db.select().from(signageUsageAudit)
+      .where(eq(signageUsageAudit.caseId, caseId))
+      .orderBy(desc(signageUsageAudit.usedAt));
   }
 }
 

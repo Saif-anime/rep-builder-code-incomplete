@@ -2839,6 +2839,298 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== PERMANENT SITE SIGNAGE ====================
+  // List all signage for a site
+  app.get("/api/sites/:id/signage", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      const status = req.query.status as string | undefined;
+      const signage = await storage.getParkingSiteSignageBySite(siteId, status ? { status } : undefined);
+      
+      // Include files for each signage
+      const signageWithFiles = await Promise.all(signage.map(async (s) => {
+        const files = await storage.getSignageRuleFilesBySignage(s.id);
+        return { ...s, files };
+      }));
+      
+      res.json(signageWithFiles);
+    } catch (error: any) {
+      console.error("[Signage] List error:", error.message);
+      res.status(500).json({ error: "Failed to fetch signage" });
+    }
+  });
+
+  // Get single signage
+  app.get("/api/signage/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const signage = await storage.getParkingSiteSignage(req.params.id);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      const files = await storage.getSignageRuleFilesBySignage(signage.id);
+      res.json({ ...signage, files });
+    } catch (error: any) {
+      console.error("[Signage] Get error:", error.message);
+      res.status(500).json({ error: "Failed to fetch signage" });
+    }
+  });
+
+  // Get active signage for a site (for pipeline use)
+  app.get("/api/sites/:id/active-signage", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      const signage = await storage.getActiveSignageBySite(siteId);
+      res.json(signage);
+    } catch (error: any) {
+      console.error("[Signage] Active signage error:", error.message);
+      res.status(500).json({ error: "Failed to fetch active signage" });
+    }
+  });
+
+  // Create new signage
+  app.post("/api/sites/:id/signage", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.id);
+      const site = await storage.getParkingSite(siteId);
+      if (!site) {
+        return res.status(404).json({ error: "Site not found" });
+      }
+      
+      const signageData = {
+        siteId,
+        signageType: req.body.signageType || "OTHER",
+        title: req.body.title,
+        source: req.body.source || "MANUAL",
+        extractedData: req.body.extractedData || null,
+        confidenceScore: req.body.confidenceScore || 0,
+        effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : new Date(),
+        effectiveTo: req.body.effectiveTo ? new Date(req.body.effectiveTo) : null,
+        status: "ACTIVE",
+        displayPriority: req.body.displayPriority || 0,
+        createdBy: req.user!.id,
+      };
+      
+      const signage = await storage.createParkingSiteSignage(signageData);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entityType: "site_signage",
+        entityId: signage.id,
+        details: { siteId, signageType: signageData.signageType, title: signageData.title },
+      });
+      
+      res.status(201).json(signage);
+    } catch (error: any) {
+      console.error("[Signage] Create error:", error.message);
+      res.status(500).json({ error: "Failed to create signage" });
+    }
+  });
+
+  // Upload signage file and trigger extraction
+  app.post("/api/signage/:id/files", authenticateToken, requireRole("admin", "operator"), pdfUpload.single("file"), async (req: AuthRequest, res: Response) => {
+    try {
+      const signageId = req.params.id;
+      const signage = await storage.getParkingSiteSignage(signageId);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+      
+      const crypto = await import("crypto");
+      const sha256Hash = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+      
+      // Save file to disk
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const uploadDir = path.join(process.cwd(), "uploads", "signage");
+      await fs.mkdir(uploadDir, { recursive: true });
+      
+      const fileExt = path.extname(req.file.originalname);
+      const fileName = `${signageId}_${Date.now()}${fileExt}`;
+      const filePath = path.join(uploadDir, fileName);
+      await fs.writeFile(filePath, req.file.buffer);
+      
+      const isImage = req.file.mimetype.startsWith("image/");
+      const isPdf = req.file.mimetype === "application/pdf";
+      
+      // Create file record
+      const fileRecord = await storage.createSignageRuleFile({
+        signageId,
+        filePath: `uploads/signage/${fileName}`,
+        fileType: isPdf ? "pdf" : "image",
+        mimeType: req.file.mimetype,
+        sha256Hash,
+        pageNumber: parseInt(req.body.pageNumber) || 1,
+        uploadedBy: req.user!.id,
+      });
+      
+      // Queue extraction (async process)
+      let extractionResult = null;
+      if (isImage) {
+        // Use Vision GPT for image analysis
+        const { extractSignageRulesFromImage } = await import("./signageExtractionService");
+        extractionResult = await extractSignageRulesFromImage(filePath, signage.signageType);
+      } else if (isPdf) {
+        // Process PDF with OCR
+        const pdfResult = await processPdf(req.file.buffer, req.file.originalname);
+        if (pdfResult.success) {
+          extractionResult = {
+            extractedText: pdfResult.extractedText,
+            ocrConfidence: pdfResult.source === "ocr" ? 0.7 : 0.9,
+            detectedRules: [],
+          };
+        }
+      }
+      
+      // Update file with AI analysis
+      if (extractionResult) {
+        await storage.updateSignageRuleFile(fileRecord.id, {
+          extractedText: extractionResult.extractedText,
+          aiAnalysis: {
+            detectedRules: extractionResult.detectedRules || [],
+            ocrConfidence: extractionResult.ocrConfidence || 0,
+            processingNotes: extractionResult.notes || [],
+          },
+        });
+        
+        // Merge extracted data into parent signage record
+        if (extractionResult.extractedData) {
+          const currentData = signage.extractedData || {};
+          await storage.updateParkingSiteSignage(signageId, {
+            extractedData: {
+              ...currentData,
+              ...extractionResult.extractedData,
+            },
+            confidenceScore: extractionResult.confidence || signage.confidenceScore,
+            source: isPdf ? "PDF" : "IMAGE",
+          });
+        }
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "upload",
+        entityType: "signage_file",
+        entityId: String(fileRecord.id),
+        details: { signageId, fileName: req.file.originalname, fileType: fileRecord.fileType },
+      });
+      
+      const updatedFile = await storage.getSignageRuleFile(fileRecord.id);
+      res.status(201).json(updatedFile);
+    } catch (error: any) {
+      console.error("[Signage] File upload error:", error.message);
+      res.status(500).json({ error: "Failed to upload signage file" });
+    }
+  });
+
+  // Update signage
+  app.patch("/api/signage/:id", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const signageId = req.params.id;
+      const signage = await storage.updateParkingSiteSignage(signageId, req.body);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entityType: "site_signage",
+        entityId: signageId,
+        details: req.body,
+      });
+      
+      res.json(signage);
+    } catch (error: any) {
+      console.error("[Signage] Update error:", error.message);
+      res.status(500).json({ error: "Failed to update signage" });
+    }
+  });
+
+  // Archive signage
+  app.post("/api/signage/:id/archive", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const signage = await storage.archiveParkingSiteSignage(req.params.id);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "archive",
+        entityType: "site_signage",
+        entityId: req.params.id,
+      });
+      
+      res.json(signage);
+    } catch (error: any) {
+      console.error("[Signage] Archive error:", error.message);
+      res.status(500).json({ error: "Failed to archive signage" });
+    }
+  });
+
+  // Activate signage
+  app.post("/api/signage/:id/activate", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
+    try {
+      const signage = await storage.activateParkingSiteSignage(req.params.id);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "activate",
+        entityType: "site_signage",
+        entityId: req.params.id,
+      });
+      
+      res.json(signage);
+    } catch (error: any) {
+      console.error("[Signage] Activate error:", error.message);
+      res.status(500).json({ error: "Failed to activate signage" });
+    }
+  });
+
+  // Delete signage
+  app.delete("/api/signage/:id", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
+    try {
+      const signage = await storage.getParkingSiteSignage(req.params.id);
+      if (!signage) {
+        return res.status(404).json({ error: "Signage not found" });
+      }
+      
+      await storage.deleteParkingSiteSignage(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entityType: "site_signage",
+        entityId: req.params.id,
+        details: { title: signage.title, siteId: signage.siteId },
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("[Signage] Delete error:", error.message);
+      res.status(500).json({ error: "Failed to delete signage" });
+    }
+  });
+
+  // Get signage usage audit for a case
+  app.get("/api/cases/:id/signage-audit", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const audits = await storage.getSignageUsageAuditByCase(req.params.id);
+      res.json(audits);
+    } catch (error: any) {
+      console.error("[Signage] Audit error:", error.message);
+      res.status(500).json({ error: "Failed to fetch signage audit" });
+    }
+  });
+
   // ==================== AI SETTINGS ====================
   app.get("/api/settings/ai", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {

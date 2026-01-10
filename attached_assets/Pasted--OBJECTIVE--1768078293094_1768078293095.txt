@@ -1,0 +1,164 @@
+====================================================
+OBJECTIVE
+====================================================
+
+Implement a PERMANENT, SITE-LEVEL SIGNAGE SYSTEM that:
+
+1. Allows uploading MULTIPLE signage files per parking site
+2. Stores signage persistently (not inspection-only)
+3. Automatically applies signage data during:
+   - Evidence analysis
+   - Regulation validation
+   - PCN decision logic
+
+====================================================
+KEY BEHAVIOUR
+====================================================
+
+• Signage uploaded once should be reused for all future cases
+• Evidence analysis MUST reference the latest ACTIVE signage
+• Signage is the PRIMARY source of enforcement rules
+
+====================================================
+DATABASE DESIGN (MANDATORY)
+====================================================
+
+Create tables:
+
+parking_site_signage
+- id (uuid)
+- site_id (fk → parking_sites)
+- signage_type (ENTRANCE | TERMS | BAY | PAYMENT | WARNING | OTHER)
+- title
+- source (PDF | IMAGE | MANUAL)
+- extracted_data jsonb
+- confidence_score numeric
+- effective_from timestamp
+- effective_to timestamp (nullable)
+- status (ACTIVE | ARCHIVED)
+- created_at
+
+signage_files
+- id
+- signage_id
+- file_url
+- file_type
+- uploaded_at
+
+====================================================
+UPLOAD FLOW
+====================================================
+
+In Parking Site → Signage:
+
+• Allow multiple uploads
+• Each upload can contain:
+  - multiple pages
+  - multiple rules
+• User can tag signage type
+• Extract data automatically (OCR / Vision)
+
+====================================================
+DATA EXTRACTION REQUIREMENTS
+====================================================
+
+Extract and normalize:
+
+- Maximum stay
+- Grace period
+- Enforcement hours
+- Bay restrictions
+- Payment terms
+- Warning language
+
+Store ALL extracted values with:
+- source_page
+- confidence
+- raw_text
+
+====================================================
+SIGNAGE PRIORITY RULE
+====================================================
+
+When analyzing evidence:
+
+1️⃣ ACTIVE signage for site (latest effective_from)
+2️⃣ If multiple signage conflict:
+   - Choose highest confidence
+   - Prefer ENTRANCE > TERMS > OTHER
+3️⃣ If signage missing:
+   - Fall back to site regulations
+   - Mark analysis as LOWER CONFIDENCE
+
+====================================================
+EVIDENCE ANALYSIS INTEGRATION
+====================================================
+
+During evidence analysis:
+
+• Automatically load site signage
+• Apply rules from signage before site defaults
+• Explain which signage was used
+
+Example explanation:
+"Maximum stay derived from Entrance Signage
+uploaded on 02-Jan-2026 (confidence 92%)"
+
+====================================================
+PCN DECISION DEPENDENCY
+====================================================
+
+PCN recommendation is VALID ONLY IF:
+
+- Signage exists and is ACTIVE
+- Rule source is known
+- Rule is readable with confidence ≥ threshold
+
+Otherwise:
+Decision = REVIEW_REQUIRED
+
+====================================================
+UI REQUIREMENTS
+====================================================
+
+Parking Site → Signage tab:
+
+• List all signage (ACTIVE / ARCHIVED)
+• Show:
+  - extracted rules
+  - confidence
+  - effective dates
+• Allow:
+  - add new signage
+  - archive old signage
+  - view history
+
+Evidence → Analysis:
+
+• Show "Signage Applied" section
+• Display:
+  - signage title
+  - upload date
+  - extracted rules
+  - how it affected decision
+
+====================================================
+AUDIT & LEGAL DEFENSIBILITY
+====================================================
+
+Store for every analysis:
+- signage_id(s) used
+- extracted rule snapshot
+- confidence
+- explanation string
+
+====================================================
+ACCEPTANCE CHECKS
+====================================================
+
+✔ Multiple signage supported per site
+✔ Signage persists across inspections
+✔ Evidence analysis auto-uses signage
+✔ Conflicting signage resolved deterministically
+✔ PCN decisions explainable and auditable
+✔ No enforcement without signage clarity
