@@ -284,6 +284,259 @@ export const insertCaseVehicleSchema = createInsertSchema(caseVehicles).omit({
 export type InsertCaseVehicle = z.infer<typeof insertCaseVehicleSchema>;
 export type CaseVehicle = typeof caseVehicles.$inferSelect;
 
+// ==================== CASE ANALYSIS PIPELINE STEPS ====================
+export type AnalysisStepName = 
+  | "evidence_normalisation"
+  | "vision_analysis"
+  | "dvla_enrichment"
+  | "regulation_evaluation"
+  | "signage_compliance"
+  | "decision_engine";
+
+export type AnalysisStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
+export const caseAnalysisSteps = pgTable("case_analysis_steps", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  stepName: text("step_name").notNull(), // evidence_normalisation, vision_analysis, dvla_enrichment, regulation_evaluation, signage_compliance, decision_engine
+  stepOrder: integer("step_order").notNull(),
+  status: text("status").notNull().default("pending"), // pending, running, completed, failed, skipped
+  inputData: jsonb("input_data"),
+  outputData: jsonb("output_data"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+  modelVersion: text("model_version"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCaseAnalysisStepSchema = createInsertSchema(caseAnalysisSteps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCaseAnalysisStep = z.infer<typeof insertCaseAnalysisStepSchema>;
+export type CaseAnalysisStep = typeof caseAnalysisSteps.$inferSelect;
+
+// ==================== PCN ISSUANCE ====================
+export type PcnStatus = "draft" | "issued" | "cancelled" | "appealed" | "paid";
+export type PcnEligibility = "eligible" | "blocked_signage" | "blocked_confidence" | "blocked_regulation" | "review_required";
+
+export const pcns = pgTable("pcns", {
+  id: serial("id").primaryKey(),
+  pcnNumber: text("pcn_number").notNull().unique(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  siteId: integer("site_id").references(() => parkingSites.id).notNull(),
+  vrm: text("vrm").notNull(),
+  status: text("status").notNull().default("draft"), // draft, issued, cancelled, appealed, paid
+  eligibility: text("eligibility").notNull(), // eligible, blocked_signage, blocked_confidence, blocked_regulation, review_required
+  
+  // Regulation breach details
+  regulationBreached: text("regulation_breached"),
+  breachDetails: jsonb("breach_details").$type<{
+    allowedDuration: number;
+    actualDuration: number;
+    enforcementWindow: { start: string; end: string };
+    breachTime: string;
+    ruleDescription: string;
+  }>(),
+  
+  // Signage confirmation
+  signageCompliant: boolean("signage_compliant").notNull().default(false),
+  signageConfirmation: jsonb("signage_confirmation").$type<{
+    entranceSignage: "pass" | "fail" | "unknown";
+    termsVisibility: "pass" | "fail" | "unknown";
+    overallConfidence: number;
+    notes: string;
+  }>(),
+  
+  // Analysis snapshot (frozen at time of issuance)
+  analysisSnapshot: jsonb("analysis_snapshot").$type<{
+    evidenceTimeline: any;
+    visionResults: any;
+    dvlaData: any;
+    regulationEvaluation: any;
+    signageCompliance: any;
+    decision: any;
+    confidence: number;
+    generatedAt: string;
+  }>(),
+  
+  // PCN content
+  amount: real("amount").notNull(),
+  explanation: text("explanation"), // Plain English summary
+  evidenceReferences: jsonb("evidence_references").$type<number[]>(),
+  
+  // Issuance details
+  issuedBy: varchar("issued_by").references(() => users.id),
+  issuedAt: timestamp("issued_at"),
+  generatedBy: text("generated_by").notNull().default("system"), // system, user
+  
+  // Override tracking
+  overrideReason: text("override_reason"),
+  overrideBy: varchar("override_by").references(() => users.id),
+  overrideAt: timestamp("override_at"),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPcnSchema = createInsertSchema(pcns).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  issuedAt: true,
+  overrideAt: true,
+});
+
+export type InsertPcn = z.infer<typeof insertPcnSchema>;
+export type Pcn = typeof pcns.$inferSelect;
+
+// ==================== CASE PIPELINE RESULTS ====================
+// Extended analysis with full pipeline step outputs
+export const casePipelineResults = pgTable("case_pipeline_results", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull().unique(),
+  
+  // Pipeline status
+  pipelineStatus: text("pipeline_status").notNull().default("pending"), // pending, running, completed, failed, partial
+  currentStep: text("current_step"),
+  completedSteps: integer("completed_steps").notNull().default(0),
+  totalSteps: integer("total_steps").notNull().default(6),
+  
+  // Step 1: Evidence Normalisation
+  evidenceTimeline: jsonb("evidence_timeline").$type<{
+    evidenceCount: number;
+    imageCount: number;
+    videoCount: number;
+    timestamps: Array<{
+      evidenceId: number;
+      timestamp: string;
+      source: "exif" | "camera_overlay" | "filename" | "upload_time";
+      confidence: number;
+    }>;
+    entryWindow: { start: string; end: string; confidence: number } | null;
+    exitWindow: { start: string; end: string; confidence: number } | null;
+    timeRange: { first: string; last: string; durationMinutes: number };
+  }>(),
+  
+  // Step 2: Vision Analysis (YOLOv8 + Vision GPT)
+  visionResults: jsonb("vision_results").$type<{
+    vehicleDetections: Array<{
+      evidenceId: number;
+      detected: boolean;
+      type: string;
+      confidence: number;
+      boundingBox?: { x: number; y: number; width: number; height: number };
+    }>;
+    vrmDetections: Array<{
+      evidenceId: number;
+      plate: string;
+      confidence: number;
+      method: "ocr" | "vision_gpt";
+    }>;
+    bayUsageDetections: Array<{
+      evidenceId: number;
+      bayType: string;
+      confidence: number;
+    }>;
+    bestVrmFrame: { evidenceId: number; plate: string; confidence: number } | null;
+    overallConfidence: number;
+    modelVersions: { yolov8?: string; visionGpt: string };
+  }>(),
+  
+  // Step 3: DVLA Enrichment
+  dvlaData: jsonb("dvla_data").$type<{
+    vrm: string;
+    verified: boolean;
+    lookupTimestamp: string;
+    vehicleData: {
+      make: string;
+      model?: string;
+      colour: string;
+      fuelType: string;
+      taxStatus: string;
+      taxDueDate?: string;
+      motStatus: string;
+      motExpiryDate?: string;
+      yearOfManufacture?: number;
+      engineCapacity?: number;
+      co2Emissions?: number;
+    } | null;
+    error?: string;
+  }>(),
+  
+  // Step 4: Regulation Evaluation
+  regulationEvaluation: jsonb("regulation_evaluation").$type<{
+    siteId: number;
+    siteName: string;
+    rules: {
+      maxStayMinutes: number | null;
+      gracePeriodMinutes: number;
+      enforcementHours: { start: string; end: string; days: string[] };
+      paymentRequired: boolean;
+      permitRequired: boolean;
+      specialRules: string[];
+    };
+    evaluation: {
+      actualDurationMinutes: number;
+      allowedDurationMinutes: number | null;
+      withinEnforcementHours: boolean;
+      breachDetected: boolean;
+      breachType: string | null;
+      breachExplanation: string | null;
+      numericComparison: string; // e.g., "2h 43m vs 2h allowed"
+    };
+  }>(),
+  
+  // Step 5: Signage Compliance
+  signageCompliance: jsonb("signage_compliance").$type<{
+    inspectionId: number | null;
+    inspectionDate: string | null;
+    entranceSignage: { status: "pass" | "fail" | "unknown"; notes: string };
+    termsVisibility: { status: "pass" | "fail" | "unknown"; notes: string };
+    signSpacing: { status: "pass" | "fail" | "unknown"; distanceMeters?: number };
+    wordingCompliance: { status: "pass" | "fail" | "unknown"; coreTermsVisible: boolean };
+    overallCompliance: "pass" | "fail" | "partial";
+    overallConfidence: number;
+    issues: string[];
+  }>(),
+  
+  // Step 6: Decision Engine
+  decision: jsonb("decision").$type<{
+    status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN";
+    eligibilityGates: {
+      regulationBreach: boolean;
+      signageCompliant: boolean;
+      confidenceThresholdMet: boolean;
+    };
+    overallConfidence: number;
+    legalRisk: "low" | "medium" | "high";
+    recommendation: string;
+    reasoning: string;
+    blockers: string[];
+  }>(),
+  
+  // Audit trail
+  analysisStartedAt: timestamp("analysis_started_at"),
+  analysisCompletedAt: timestamp("analysis_completed_at"),
+  analysisError: text("analysis_error"),
+  triggeredBy: varchar("triggered_by").references(() => users.id),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCasePipelineResultsSchema = createInsertSchema(casePipelineResults).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCasePipelineResults = z.infer<typeof insertCasePipelineResultsSchema>;
+export type CasePipelineResults = typeof casePipelineResults.$inferSelect;
+
 // ==================== EVIDENCE BUNDLES ====================
 export const evidenceBundles = pgTable("evidence_bundles", {
   id: serial("id").primaryKey(),

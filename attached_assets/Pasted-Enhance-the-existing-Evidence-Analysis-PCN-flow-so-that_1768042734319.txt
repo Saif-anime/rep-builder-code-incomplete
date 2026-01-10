@@ -1,0 +1,221 @@
+Enhance the existing Evidence → Analysis → PCN flow so that:
+
+- Every case is analysed holistically
+- Parking site regulations and signage are mandatory inputs
+- The analysis report explains WHAT was analysed, HOW it was measured, and WHY a decision was made
+- PCNs are generated only from an approved, explainable analysis
+
+DO NOT remove existing integrations (YOLOv8, Vision GPT, DVLA).
+EXTEND them.
+
+====================================================
+1. CASE ANALYSIS PIPELINE (MANDATORY)
+====================================================
+
+Create a unified analysis pipeline per CASE (bundle of evidence):
+
+Inputs:
+- Evidence bundle (images/videos/manual uploads)
+- Camera metadata (if available)
+- Parking site
+- Site regulations
+- Site signage inspection data
+- External enrichments (DVLA, vision models, timestamps)
+
+Pipeline steps (store each step result):
+
+STEP 1: Evidence Normalisation
+- Group all uploaded files by case_id
+- Extract timestamps from:
+  - EXIF
+  - Camera overlay
+  - Filename fallback
+- Detect entry & exit confidence windows
+- Output:
+  evidence_timeline.json
+
+STEP 2: Vision Analysis (YOLOv8 + Vision GPT)
+- Vehicle detection
+- VRM detection (best-confidence frame)
+- Vehicle class (car/van/motorbike)
+- Bay usage detection (where possible)
+- Confidence score per detection
+- Output:
+  vision_results.json
+
+STEP 3: DVLA Enrichment
+- Use detected VRM to call DVLA API
+- Store response with timestamp + source
+- Output:
+  dvla_data.json
+
+STEP 4: Parking Site Regulations Evaluation
+Each site has regulations:
+- Max stay
+- Paid / free
+- Grace period
+- Enforcement hours
+- Special rules (permit only, disabled bays, etc)
+
+Evaluate:
+- Actual stay duration vs allowed stay
+- Time of day vs enforcement window
+- Vehicle type vs site rules
+
+Output:
+  regulation_evaluation.json
+
+STEP 5: Signage Compliance Analysis
+Use signage inspection data (PDF-derived or stored form):
+
+Analyse:
+- Presence of entrance signage
+- Visibility (height, lighting, obstruction flag)
+- Distance between signs
+- Wording compliance (core terms visible)
+- Whether terms are legible from driver position
+
+Output:
+  signage_compliance.json
+
+STEP 6: Combined Decision Engine (RULE-BASED)
+DO NOT let AI decide PCNs directly.
+
+Rules:
+- If regulation breach AND signage compliant → PCN_ELIGIBLE
+- If regulation breach BUT signage weak → REVIEW_REQUIRED
+- If no breach → NO_PCN
+- If confidence < threshold → REVIEW_REQUIRED
+
+Output:
+  decision.json
+
+====================================================
+2. ANALYSIS REPORT (FRONTEND)
+====================================================
+
+Replace current analysis panel with a structured report:
+
+Sections (ALL REQUIRED):
+
+1. Case Summary
+- Site name
+- VRM
+- Vehicle type
+- Total duration
+- Allowed duration
+- Outcome badge
+
+2. What Was Analysed
+- Evidence count (images/videos)
+- Time range used
+- Vision models used
+- External services used (DVLA)
+
+3. How It Was Measured
+- Entry/exit method
+- Duration calculation method
+- Confidence scores
+- Vision confidence
+- OCR confidence
+
+4. Regulations Applied
+- List site rules
+- Highlight breached rule(s)
+- Show numeric comparison (e.g. 2h 43m vs 2h allowed)
+
+5. Signage Assessment
+- Entrance signage: PASS/FAIL
+- Terms visibility: PASS/FAIL
+- Overall signage confidence %
+
+6. Risk & Confidence
+- Overall confidence %
+- Legal risk level (LOW / MEDIUM / HIGH)
+- Recommendation
+
+7. Audit Log
+- All data sources
+- Timestamps
+- Model versions
+- Manual overrides (if any)
+
+====================================================
+3. PCN GENERATION (STRICT RULES)
+====================================================
+
+PCN can ONLY be generated if:
+- decision.status === PCN_ELIGIBLE
+- confidence >= configurable threshold
+- signage_compliance.overall === PASS
+
+PCN must include:
+- Regulation breached
+- Evidence references
+- Time calculation
+- Signage confirmation
+- Analysis summary (plain English)
+
+Store:
+- pcn_id
+- linked case_id
+- analysis_snapshot.json
+- generated_by (SYSTEM / USER)
+
+====================================================
+4. DATA MODELS (ADD)
+====================================================
+
+Add tables:
+
+cases (
+  id,
+  site_id,
+  status,
+  confidence,
+  decision,
+  created_at
+)
+
+case_analysis (
+  case_id,
+  evidence_timeline jsonb,
+  vision_results jsonb,
+  dvla_data jsonb,
+  regulation_evaluation jsonb,
+  signage_compliance jsonb,
+  decision jsonb,
+  created_at
+)
+
+pcns (
+  id,
+  case_id,
+  status,
+  issued_at,
+  analysis_snapshot jsonb
+)
+
+====================================================
+5. UI / UX REQUIREMENTS
+====================================================
+
+- Analysis is READ-ONLY unless reviewer role
+- Highlight weak points in amber/red
+- Show “Why this PCN is valid” explanation
+- Disable PCN button if requirements not met
+- Allow manual override with mandatory reason
+
+====================================================
+6. ACCEPTANCE CRITERIA
+====================================================
+
+✔ Same case with multiple evidence analysed together  
+✔ Regulations + signage always included  
+✔ Analysis explains WHAT, HOW, WHY  
+✔ PCN only generated from validated analysis  
+✔ Every decision auditable and defensible  
+
+Build this incrementally.
+Do not break existing flows.
+Do not hide uncertainty.
