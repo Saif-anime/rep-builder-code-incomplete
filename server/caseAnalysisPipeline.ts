@@ -9,7 +9,6 @@ import type {
   InsertCaseAnalysisStep,
   ParkingSite,
   SiteRule,
-  SignageInspection,
   ParkingSiteSignage
 } from "@shared/schema";
 import { selectBestSignage, mergeSignageRules } from "./signageExtractionService";
@@ -864,15 +863,16 @@ async function stepRegulationEvaluation(
 
 async function stepSignageCompliance(
   ctx: PipelineContext,
-  inspection: SignageInspection | undefined,
   permanentSignage: ParkingSiteSignage[]
 ): Promise<SignageComplianceOutput> {
+  // CRITICAL: Signage is ONLY loaded from Parking Site configuration
+  // Evidence images are NOT used for signage extraction - only for vehicle behavior/timing
   const step = await createOrUpdateStep(ctx.caseId, "signage_compliance", "running", {
     startedAt: new Date(),
   });
   
   try {
-    // Extract timing from permanent site signage (priority source)
+    // Extract timing from permanent site signage (the ONLY source)
     let signageMaxStay: number | null = null;
     let signageGrace: number | null = null;
     let signageConfidence = 0;
@@ -892,9 +892,9 @@ async function stepSignageCompliance(
           signageMaxStay = extractedData.maxStayMinutes ?? null;
           signageGrace = extractedData.graceMinutes ?? null;
           signageConfidence = bestSignage.confidenceScore || 0.6;
-          signageSource = `permanent_signage:${bestSignage.signageType}`;
+          signageSource = `site_signage:${bestSignage.signageType}`;
           if (extractedData.rawTextExtracted) {
-            signageNotes = `Extracted from ${bestSignage.signageType} signage`;
+            signageNotes = `Extracted from ${bestSignage.signageType} signage (Parking Site Configuration)`;
           }
         }
       }
@@ -905,7 +905,7 @@ async function stepSignageCompliance(
         signageMaxStay = mergedRules.maxStayMinutes;
         signageGrace = mergedRules.graceMinutes;
         signageConfidence = 0.7;
-        signageSource = "merged_signage";
+        signageSource = "merged_site_signage";
       }
       
       // Record signage usage for audit
@@ -929,17 +929,18 @@ async function stepSignageCompliance(
       }
     }
     
-    if (!inspection && permanentSignage.length === 0) {
+    // No site signage configured - mark as NOT_AVAILABLE and reduce confidence
+    if (permanentSignage.length === 0) {
       const result: SignageComplianceOutput = {
         inspectionId: null,
         inspectionDate: null,
-        entranceSignage: { status: "unknown", notes: "No signage inspection on record" },
-        termsVisibility: { status: "unknown", notes: "No signage inspection on record" },
+        entranceSignage: { status: "unknown", notes: "No site signage configured" },
+        termsVisibility: { status: "unknown", notes: "No site signage configured" },
         signSpacing: { status: "unknown" },
         wordingCompliance: { status: "unknown", coreTermsVisible: false },
         overallCompliance: "partial",
         overallConfidence: 0.3,
-        issues: ["No signage data available for this site - PCN enforcement may be challenged"],
+        issues: ["No signage configured for this site - upload signage PDFs in Parking Sites > Site Signage"],
         extractedRegulations: {
           maxStayMinutes: null,
           graceMinutes: null,
@@ -958,126 +959,33 @@ async function stepSignageCompliance(
       return result;
     }
     
-    // If we only have permanent signage (no inspection), return signage-based result
-    if (!inspection) {
-      const hasSignageData = signageMaxStay !== null || signageConfidence > 0.5;
-      const result: SignageComplianceOutput = {
-        inspectionId: null,
-        inspectionDate: null,
-        entranceSignage: { status: hasSignageData ? "pass" : "unknown", notes: appliedSignageTitle ? `Rules from: ${appliedSignageTitle}` : "Using permanent signage data" },
-        termsVisibility: { status: hasSignageData ? "pass" : "unknown", notes: signageNotes || "Permanent signage on file" },
-        signSpacing: { status: "unknown" },
-        wordingCompliance: { status: "unknown", coreTermsVisible: true },
-        overallCompliance: hasSignageData ? "pass" : "partial",
-        overallConfidence: signageConfidence,
-        issues: hasSignageData ? [] : ["No signage inspection - using permanent signage only"],
-        extractedRegulations: {
-          maxStayMinutes: signageMaxStay,
-          graceMinutes: signageGrace,
-          tariffNotes: signageNotes,
-          confidence: signageConfidence,
-          source: signageSource,
-        },
-        appliedSignageId,
-        appliedSignageTitle,
-      };
-      
-      await createOrUpdateStep(ctx.caseId, "signage_compliance", "completed", {
-        completedAt: new Date(),
-        durationMs: Date.now() - (step.startedAt?.getTime() || Date.now()),
-        outputData: result,
-      });
-      
-      return result;
-    }
-    
-    const issues: string[] = [];
-    
-    const entrancePresent = inspection.entranceSignagePresent ?? false;
-    const entranceSignage: SignageComplianceOutput["entranceSignage"] = {
-      status: entrancePresent ? "pass" : "fail",
-      notes: entrancePresent 
-        ? "Entrance signage confirmed present" 
-        : "Entrance signage not present or not verified",
-    };
-    if (!entrancePresent) {
-      issues.push("Missing entrance signage");
-    }
-    
-    const termsVisible = (inspection.tcTariffVisible && inspection.tcFontReadable) ?? false;
-    const termsVisibility: SignageComplianceOutput["termsVisibility"] = {
-      status: termsVisible ? "pass" : "fail",
-      notes: termsVisible 
-        ? "Core parking terms are visible to drivers"
-        : "Core parking terms not clearly visible",
-    };
-    if (!termsVisible) {
-      issues.push("Core terms not visible");
-    }
-    
-    const distanceReadable = inspection.tcDistanceReadable;
-    const signSpacing: SignageComplianceOutput["signSpacing"] = {
-      status: distanceReadable && distanceReadable <= 3 ? "pass" : distanceReadable ? "fail" : "unknown",
-      distanceMeters: distanceReadable ?? undefined,
-    };
-    if (distanceReadable && distanceReadable > 3) {
-      issues.push("Sign spacing inadequate");
-    }
-    
-    const wordingCorrect = (inspection.entranceCorrectWording && inspection.tcLanguageCorrect) ?? false;
-    const wordingCompliance: SignageComplianceOutput["wordingCompliance"] = {
-      status: wordingCorrect ? "pass" : "fail",
-      coreTermsVisible: termsVisible,
-    };
-    if (!wordingCorrect) {
-      issues.push("Wording not compliant with regulations");
-    }
-    
-    const passCount = [
-      entranceSignage.status === "pass",
-      termsVisibility.status === "pass",
-      signSpacing.status === "pass",
-      wordingCompliance.status === "pass",
-    ].filter(Boolean).length;
-    
-    let overallCompliance: "pass" | "fail" | "partial";
-    if (passCount === 4) {
-      overallCompliance = "pass";
-    } else if (passCount === 0) {
-      overallCompliance = "fail";
-    } else {
-      overallCompliance = "partial";
-    }
-    
-    const overallConfidence = passCount / 4;
-    
-    // Extract timing regulations - priority: permanent signage > inspection data
-    // Permanent signage timing takes precedence when available with good confidence
-    const useSignageTiming = signageMaxStay !== null && signageConfidence >= 0.5;
-    const extractedRegulations: SignageComplianceOutput["extractedRegulations"] = {
-      maxStayMinutes: useSignageTiming ? signageMaxStay : null,
-      graceMinutes: useSignageTiming ? signageGrace : null,
-      tariffNotes: signageNotes || (inspection.tcTariffVisible ? "Tariff information visible on signage" : null),
-      confidence: useSignageTiming ? signageConfidence : (termsVisible ? 0.5 : 0.2),
-      source: useSignageTiming ? signageSource : "inspection_data",
-    };
-    
-    // Adjust overall confidence if we have permanent signage with good extraction
-    const effectiveConfidence = useSignageTiming 
-      ? Math.max(overallConfidence, signageConfidence)
-      : overallConfidence;
+    // Site signage exists - evaluate based on configured signage data
+    const hasSignageData = signageMaxStay !== null || signageConfidence > 0.5;
+    const issues: string[] = hasSignageData ? [] : ["Signage data incomplete - review site signage configuration"];
     
     const result: SignageComplianceOutput = {
-      inspectionId: inspection.id,
-      inspectionDate: inspection.inspectionDate?.toISOString() || null,
-      entranceSignage,
-      termsVisibility,
-      signSpacing,
-      wordingCompliance,
-      overallCompliance,
-      overallConfidence: effectiveConfidence,
+      inspectionId: null,
+      inspectionDate: null,
+      entranceSignage: { 
+        status: hasSignageData ? "pass" : "unknown", 
+        notes: appliedSignageTitle ? `Rules from: ${appliedSignageTitle}` : "From Parking Site Configuration" 
+      },
+      termsVisibility: { 
+        status: hasSignageData ? "pass" : "unknown", 
+        notes: signageNotes || "From Parking Site Configuration" 
+      },
+      signSpacing: { status: "unknown" },
+      wordingCompliance: { status: "unknown", coreTermsVisible: true },
+      overallCompliance: hasSignageData ? "pass" : "partial",
+      overallConfidence: signageConfidence,
       issues,
-      extractedRegulations,
+      extractedRegulations: {
+        maxStayMinutes: signageMaxStay,
+        graceMinutes: signageGrace,
+        tariffNotes: signageNotes,
+        confidence: signageConfidence,
+        source: signageSource,
+      },
       appliedSignageId,
       appliedSignageTitle,
     };
@@ -1089,6 +997,7 @@ async function stepSignageCompliance(
     });
     
     return result;
+    
   } catch (error: any) {
     await createOrUpdateStep(ctx.caseId, "signage_compliance", "failed", {
       completedAt: new Date(),
@@ -1097,6 +1006,8 @@ async function stepSignageCompliance(
     throw error;
   }
 }
+
+// Signage now comes ONLY from Parking Site configuration (not from evidence images)
 
 function stepContextEnrichment(
   ctx: PipelineContext,
@@ -1693,11 +1604,11 @@ export async function runCaseAnalysisPipeline(
     const timestampQuality = ctx.evidenceTimeline.timeRange.timestampQuality;
     
     // Step 4: Signage Compliance (runs BEFORE regulation evaluation to extract timing)
-    // Load both signage inspection data AND permanent site signage for rule extraction
-    const signageInspection = await storage.getLatestSignageInspection(caseData.siteId);
+    // CRITICAL: Load ONLY permanent site signage for rule extraction (signage configured at site level)
+    // Evidence images are NOT used to extract signage - only for vehicle behavior/timing
     const permanentSignage = await storage.getActiveSignageBySite(caseData.siteId);
-    console.log(`[Pipeline] Step 4: Signage Compliance (inspection: ${signageInspection ? "yes" : "no"}, permanent signage: ${permanentSignage.length})`);
-    ctx.signageCompliance = await stepSignageCompliance(ctx, signageInspection, permanentSignage);
+    console.log(`[Pipeline] Step 4: Signage Compliance (site signage records: ${permanentSignage.length})`);
+    ctx.signageCompliance = await stepSignageCompliance(ctx, permanentSignage);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       currentStep: "regulation_evaluation",
       completedSteps: 4,

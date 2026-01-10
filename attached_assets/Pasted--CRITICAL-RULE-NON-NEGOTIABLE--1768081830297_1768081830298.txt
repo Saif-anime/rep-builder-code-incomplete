@@ -1,0 +1,127 @@
+====================================================
+CRITICAL RULE (NON-NEGOTIABLE)
+====================================================
+
+❌ DO NOT analyse signage from uploaded evidence images or videos.
+❌ DO NOT attempt to detect signage inside evidence bundles.
+
+✔ Signage MUST be collected ONLY from the Parking Site configuration.
+✔ Regulations MUST be collected ONLY from the Parking Site configuration.
+
+====================================================
+DATA SOURCES (STRICT)
+====================================================
+
+1️⃣ Parking Site → Signage
+2️⃣ Parking Site → Regulations
+3️⃣ Evidence files (ONLY for vehicle behaviour, timing, bay usage)
+
+====================================================
+SIGNAGE HANDLING RULES
+====================================================
+
+• Signage is uploaded and managed at PARKING SITE level only
+• Each site can have multiple signage records
+• Signage is permanent and reusable
+• Evidence analysis MUST reference existing site signage
+
+If no signage exists for a site:
+- Mark signage status as NOT_AVAILABLE
+- Reduce confidence
+- Do NOT invent or infer signage rules
+
+====================================================
+REGULATION HANDLING RULES
+====================================================
+
+• Regulations are defined per Parking Site
+• Regulations include:
+  - max stay
+  - grace period
+  - enforcement hours
+  - bay restrictions
+  - payment requirements
+• Regulations are applied EVEN if signage confidence is low
+• Regulations must always be cited as rule source when used
+
+====================================================
+EVIDENCE ANALYSIS FLOW
+====================================================
+
+Step 1: Identify parking_site_id from evidence
+Step 2: Load ACTIVE signage for that site
+Step 3: Load regulations for that site
+Step 4: Analyse evidence ONLY for:
+        - vehicle entry/exit
+        - duration
+        - bay usage
+        - payment proof
+Step 5: Apply rules in this order:
+        a) Site Signage rules
+        b) Site Regulations
+Step 6: Generate analysis explanation
+
+====================================================
+PRIORITY RULE
+====================================================
+
+Rule precedence:
+1️⃣ Site Signage (if available)
+2️⃣ Site Regulations
+3️⃣ If both missing → REVIEW_REQUIRED
+
+====================================================
+UI & OUTPUT REQUIREMENTS
+====================================================
+
+In Evidence Analysis UI:
+
+Section: Signage Assessment
+• Source: Parking Site
+• Signage status: AVAILABLE / NOT_AVAILABLE
+• Confidence based on signage data completeness
+
+Section: Regulations Applied
+• Source: Parking Site Regulations
+• List all regulations used
+• Explain how each regulation affected analysis
+
+====================================================
+EXPLANATION REQUIREMENT
+====================================================
+
+Every analysis MUST clearly state:
+
+• Signage source: "Parking Site Configuration"
+• Regulation source: "Parking Site Regulations"
+• Why a rule was applied
+• Why confidence increased or decreased
+
+Example:
+"Maximum stay applied from site regulation (2 hours).
+No signage record available; confidence reduced."
+
+====================================================
+FAIL-SAFE CONDITIONS
+====================================================
+
+If:
+- No signage
+- No regulations
+- Conflicting rules
+
+Then:
+Decision = REVIEW_REQUIRED
+Confidence = LOW
+Reason must be explicit.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+✔ No signage extracted from evidence
+✔ Site signage reused across all cases
+✔ Regulations always site-specific
+✔ Analysis differs per site
+✔ Results vary correctly per case
+✔ No hardcoded or repeated analysis output

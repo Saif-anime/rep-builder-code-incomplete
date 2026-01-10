@@ -689,6 +689,21 @@ export function EvidenceAnalysisReport({
           <CollapsibleContent>
             <CardContent className="pt-0">
               <div className="space-y-4">
+                {/* Signage Source Indicator */}
+                <div className="p-3 rounded-md border bg-muted/50 mb-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Signage Source</span>
+                    <Badge variant={signage?.appliedSignageId ? "default" : "secondary"}>
+                      {signage?.appliedSignageId ? "Parking Site Configuration" : "Not Configured"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {signage?.appliedSignageId 
+                      ? `Using: ${signage.appliedSignageTitle || "Site signage"}`
+                      : "No signage configured for this site. Upload signage PDFs in Parking Sites > Site Signage."}
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 rounded-md border bg-muted/50">
                     <div className="flex items-center justify-between mb-1">
@@ -702,7 +717,9 @@ export function EvidenceAnalysisReport({
                     <p className="text-xs text-muted-foreground">
                       {typeof signage?.entranceSignage === 'object' 
                         ? signage.entranceSignage?.notes 
-                        : signage?.entranceNotes || "Site entrance signage visibility"}
+                        : signage?.appliedSignageId 
+                          ? "From site signage configuration" 
+                          : "No signage configured for this site"}
                     </p>
                   </div>
                   <div className="p-3 rounded-md border bg-muted/50">
@@ -717,7 +734,9 @@ export function EvidenceAnalysisReport({
                     <p className="text-xs text-muted-foreground">
                       {typeof signage?.termsVisibility === 'object' 
                         ? signage.termsVisibility?.notes 
-                        : signage?.termsNotes || "Terms and conditions display"}
+                        : signage?.appliedSignageId 
+                          ? "From site signage configuration" 
+                          : "No signage configured for this site"}
                     </p>
                   </div>
                 </div>
@@ -736,10 +755,16 @@ export function EvidenceAnalysisReport({
                   <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-400 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" />
-                      Signage Issues
+                      Site Signage Issues
                     </p>
                     <ul className="text-sm text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
-                      {signage.issues.map((issue: string, i: number) => <li key={i}>{issue}</li>)}
+                      {signage.issues.map((issue: string, i: number) => (
+                        <li key={i}>
+                          {issue.includes("signage inspection") 
+                            ? issue.replace("signage inspection", "site signage configuration")
+                            : issue}
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 )}
