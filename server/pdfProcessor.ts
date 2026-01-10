@@ -1,37 +1,40 @@
 import Tesseract from "tesseract.js";
 import { createCanvas } from "canvas";
-import * as fs from "fs";
-import * as path from "path";
+import { createRequire } from "module";
 
-// Dynamic import for pdf-parse (CommonJS module)
-let pdfParse: any = null;
+const require = createRequire(import.meta.url);
 
-async function getPdfParse() {
-  if (!pdfParse) {
-    try {
-      const mod: any = await import("pdf-parse");
-      pdfParse = mod.default || mod;
-    } catch (e) {
-      console.error("[PDF] Failed to load pdf-parse:", e);
-    }
+// Lazy-loaded modules
+let pdfParseLoaded: ((buffer: Buffer) => Promise<any>) | null = null;
+let pdfjsLoaded: any = null;
+
+function loadPdfParse(): ((buffer: Buffer) => Promise<any>) | null {
+  if (pdfParseLoaded) return pdfParseLoaded;
+  try {
+    const mod = require("pdf-parse");
+    pdfParseLoaded = mod;
+    console.log("[PDF] pdf-parse loaded successfully");
+    return pdfParseLoaded;
+  } catch (e: any) {
+    console.error("[PDF] Failed to load pdf-parse:", e.message);
+    return null;
   }
-  return pdfParse;
 }
 
-// Dynamic import for pdfjs-dist
-let pdfjsLib: any = null;
-
-async function getPdfjsLib() {
-  if (!pdfjsLib) {
-    try {
-      pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      // Disable worker to avoid worker setup issues
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
-    } catch (e) {
-      console.error("[PDF] Failed to load pdfjs-dist:", e);
-    }
+async function loadPdfjs(): Promise<any> {
+  if (pdfjsLoaded) return pdfjsLoaded;
+  try {
+    // Use legacy build without worker
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // Explicitly disable workers
+    (pdfjs as any).GlobalWorkerOptions.workerSrc = false;
+    pdfjsLoaded = pdfjs;
+    console.log("[PDF] pdfjs-dist loaded successfully");
+    return pdfjsLoaded;
+  } catch (e: any) {
+    console.error("[PDF] Failed to load pdfjs-dist:", e.message);
+    return null;
   }
-  return pdfjsLib;
 }
 
 const MIN_TEXT_LENGTH = 50;
@@ -55,9 +58,9 @@ export interface ExtractedSections {
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number }> {
-  // Try pdf-parse first
+  // Try pdf-parse first (synchronous require, most reliable)
   try {
-    const parser = await getPdfParse();
+    const parser = loadPdfParse();
     if (parser) {
       const data = await parser(buffer);
       console.log("[PDF Text] Extracted text length:", data.text?.length || 0, "pages:", data.numpages);
@@ -72,7 +75,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
   // Fallback to pdfjs-dist
   console.log("[PDF Text] Trying pdfjs-dist...");
   try {
-    const pdfjs = await getPdfjsLib();
+    const pdfjs = await loadPdfjs();
     if (!pdfjs) {
       console.error("[PDF Text] pdfjs-dist not available");
       return { text: "", pages: 0 };
@@ -84,6 +87,8 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
       useSystemFonts: true,
       disableFontFace: true,
       isEvalSupported: false,
+      useWorkerFetch: false,
+      verbosity: 0,
     });
     const doc = await loadingTask.promise;
     
@@ -117,7 +122,7 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
       return { text: "", pages: 0 };
     }
     
-    const pdfjs = await getPdfjsLib();
+    const pdfjs = await loadPdfjs();
     if (!pdfjs) {
       console.error("[PDF OCR] pdfjs-dist not available for OCR");
       return { text: "", pages: 0 };
@@ -129,6 +134,8 @@ async function extractTextWithOcr(buffer: Buffer): Promise<{ text: string; pages
       useSystemFonts: true,
       disableFontFace: true,
       isEvalSupported: false,
+      useWorkerFetch: false,
+      verbosity: 0,
     });
     const doc = await loadingTask.promise;
     const numPages = doc.numPages;
