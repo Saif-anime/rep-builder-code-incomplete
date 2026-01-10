@@ -15,10 +15,11 @@ function getAuthHeaders(): HeadersInit {
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("auth_user");
       window.location.href = "/";
+      return;
     }
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
