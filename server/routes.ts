@@ -1334,6 +1334,19 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/site-rules/by-site/:siteId", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const siteId = parseInt(req.params.siteId);
+      const rules = await storage.getSiteRules(siteId);
+      if (!rules) {
+        return res.json({});
+      }
+      res.json(rules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch site rules" });
+    }
+  });
+
   app.post("/api/parking-sites", authenticateToken, requireRole("admin"), async (req: AuthRequest, res: Response) => {
     try {
       const site = await storage.createParkingSite(req.body);

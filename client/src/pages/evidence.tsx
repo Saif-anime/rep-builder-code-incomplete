@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { EvidenceAnalysisReport } from "@/components/evidence-analysis-report";
 import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle } from "@shared/schema";
 
 type SourceFilter = "all" | "camera" | "manual";
@@ -647,92 +648,20 @@ export default function EvidencePage() {
 
               <Separator />
 
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-medium">Analysis Report</h4>
-                  <Button 
-                    onClick={() => analyzeMutation.mutate(selectedBundle.id)}
-                    disabled={analyzeMutation.isPending}
-                    data-testid="button-analyze-detail"
-                  >
-                    {analyzeMutation.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Analysing...
-                      </>
-                    ) : (
-                      <>
-                        <Brain className="h-4 w-4 mr-2" />
-                        {selectedBundle.analysis ? "Re-analyse" : "Analyse Bundle"}
-                      </>
-                    )}
-                  </Button>
-                </div>
-                
-                {selectedBundle.analysis ? (
-                  <Card>
-                    <CardContent className="p-4 space-y-4">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant={selectedBundle.analysis.recommendation === "Issue PCN" ? "destructive" : "secondary"}>
-                          {selectedBundle.analysis.recommendation}
-                        </Badge>
-                        <Badge variant="outline">
-                          Confidence: {Math.round((selectedBundle.analysis.confidenceScore || 0) * 100)}%
-                        </Badge>
-                        <Badge variant="outline">
-                          Risk: {selectedBundle.analysis.riskAssessment}
-                        </Badge>
-                      </div>
-                      
-                      {selectedBundle.analysis.violations && (selectedBundle.analysis.violations as any[]).length > 0 && (
-                        <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
-                          <p className="text-sm font-medium text-destructive flex items-center gap-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            Violation: {((selectedBundle.analysis.violations as any[])[0])?.type}
-                          </p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {((selectedBundle.analysis.violations as any[])[0])?.explanation}
-                          </p>
-                        </div>
-                      )}
-                      
-                      {selectedBundle.analysis.mergedDetections && (
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">Vision Analysis Details</p>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            {(selectedBundle.analysis.mergedDetections as any).bayMarkings?.length > 0 && (
-                              <div>
-                                <span className="text-muted-foreground">Bay Type:</span>{" "}
-                                {(selectedBundle.analysis.mergedDetections as any).bayMarkings[0]?.type}
-                              </div>
-                            )}
-                            {selectedBundle.analysis.vehicleDetails?.plate && (
-                              <div>
-                                <span className="text-muted-foreground">Plate:</span>{" "}
-                                <span className="font-mono">{selectedBundle.analysis.vehicleDetails.plate}</span>
-                              </div>
-                            )}
-                            {(selectedBundle.analysis.mergedDetections as any).vehicles?.length > 0 && (
-                              <div>
-                                <span className="text-muted-foreground">Vehicle:</span>{" "}
-                                {(selectedBundle.analysis.mergedDetections as any).vehicles[0]?.type}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card>
-                    <CardContent className="p-8 text-center">
-                      <Brain className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                      <p className="text-muted-foreground">No analysis available</p>
-                      <p className="text-sm text-muted-foreground">Click "Analyse Bundle" to generate a comprehensive report</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+              <EvidenceAnalysisReport
+                bundleId={selectedBundle.id}
+                caseReference={selectedBundle.caseReference}
+                analysis={selectedBundle.analysis}
+                vehicles={selectedBundle.vehicles}
+                evidenceFiles={selectedBundle.evidenceFiles}
+                siteName={selectedBundle.siteName}
+                siteId={selectedBundle.siteId}
+                vrm={selectedBundle.vrm}
+                timeWindow={selectedBundle.timeWindow}
+                onPcnIssued={() => {
+                  queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+                }}
+              />
             </div>
           )}
         </SheetContent>
