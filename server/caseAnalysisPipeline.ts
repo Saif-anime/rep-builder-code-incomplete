@@ -78,8 +78,8 @@ const STEP_ORDER: Record<PipelineStepName, number> = {
   evidence_normalisation: 1,
   vision_analysis: 2,
   dvla_enrichment: 3,
-  regulation_evaluation: 4,
-  signage_compliance: 5,
+  signage_compliance: 4,  // Moved before regulation_evaluation to extract timing first
+  regulation_evaluation: 5,
   context_enrichment: 6,
   behaviour_profiling: 7,
   bay_rule_evaluation: 8,
@@ -194,6 +194,13 @@ interface SignageComplianceOutput {
   overallCompliance: "pass" | "fail" | "partial";
   overallConfidence: number;
   issues: string[];
+  extractedRegulations: {
+    maxStayMinutes: number | null;
+    graceMinutes: number | null;
+    tariffNotes: string | null;
+    confidence: number;
+    source: "ocr" | "inspection_data" | "not_available";
+  };
 }
 
 interface ContextEnrichmentOutput {
@@ -708,6 +715,7 @@ async function stepRegulationEvaluation(
   ctx: PipelineContext,
   site: ParkingSite,
   siteRules: SiteRule | undefined,
+  signageCompliance: SignageComplianceOutput | undefined,
   durationMinutes: number,
   timestampQuality?: "high" | "medium" | "low" | "invalid"
 ): Promise<RegulationEvaluationOutput> {
@@ -716,10 +724,36 @@ async function stepRegulationEvaluation(
   });
   
   try {
-    const maxStayMinutes = siteRules?.maxStayMinutes ?? null;
-    const graceEntryMinutes = siteRules?.graceEntryMinutes ?? 5;
-    const graceExitMinutes = siteRules?.graceExitMinutes ?? 5;
+    // Priority order for max stay: signage (high confidence) > site policy > unknown
+    // Signage-extracted timing takes precedence when confidence is sufficient
+    // Fallback gracefully if signage compliance failed or is unavailable
+    const signageMaxStay = signageCompliance?.extractedRegulations?.maxStayMinutes ?? null;
+    const signageConfidence = signageCompliance?.extractedRegulations?.confidence ?? 0;
+    const signageGrace = signageCompliance?.extractedRegulations?.graceMinutes ?? null;
+    
+    let maxStayMinutes: number | null;
+    let ruleSource: "site_policy" | "signage" | "unknown";
+    
+    // Use signage timing if available with sufficient confidence (>0.6)
+    if (signageMaxStay !== null && signageConfidence >= 0.6) {
+      maxStayMinutes = signageMaxStay;
+      ruleSource = "signage";
+      console.log(`[Regulation] Using signage-based max stay: ${maxStayMinutes}m (confidence: ${signageConfidence})`);
+    } else if (siteRules?.maxStayMinutes) {
+      maxStayMinutes = siteRules.maxStayMinutes;
+      ruleSource = "site_policy";
+      console.log(`[Regulation] Using site policy max stay: ${maxStayMinutes}m`);
+    } else {
+      maxStayMinutes = null;
+      ruleSource = "unknown";
+      console.log(`[Regulation] No max stay configured - manual review required`);
+    }
+    
+    // Grace period: signage > site rules > default
+    const graceEntryMinutes = signageGrace !== null ? Math.floor(signageGrace / 2) : (siteRules?.graceEntryMinutes ?? 5);
+    const graceExitMinutes = signageGrace !== null ? Math.ceil(signageGrace / 2) : (siteRules?.graceExitMinutes ?? 5);
     const gracePeriodMinutes = graceEntryMinutes + graceExitMinutes;
+    
     const enforcementMode = siteRules?.enforcementMode || "standard";
     const enforcementStart = "00:00";
     const enforcementEnd = "23:59";
@@ -740,11 +774,6 @@ async function stepRegulationEvaluation(
     let breachType: string | null = null;
     let breachExplanation: string | null = null;
     let complianceResult: "OK" | "OVERSTAY" | "UNKNOWN" = "UNKNOWN";
-    
-    // Determine rule source
-    const ruleSource: "site_policy" | "signage" | "unknown" = siteRules?.maxStayMinutes 
-      ? "site_policy" 
-      : "unknown";
     
     const formatDuration = (mins: number) => {
       const h = Math.floor(mins / 60);
@@ -849,6 +878,13 @@ async function stepSignageCompliance(
         overallCompliance: "partial",
         overallConfidence: 0.3,
         issues: ["No signage inspection data available for this site"],
+        extractedRegulations: {
+          maxStayMinutes: null,
+          graceMinutes: null,
+          tariffNotes: null,
+          confidence: 0,
+          source: "not_available",
+        },
       };
       
       await createOrUpdateStep(ctx.caseId, "signage_compliance", "completed", {
@@ -920,6 +956,17 @@ async function stepSignageCompliance(
     
     const overallConfidence = passCount / 4;
     
+    // Extract timing regulations from signage data
+    // For now, signage inspection doesn't capture explicit timing - use site rules
+    // TODO: Add OCR extraction from signage photos when available
+    const extractedRegulations: SignageComplianceOutput["extractedRegulations"] = {
+      maxStayMinutes: null, // Will be populated from OCR/signage photos in future
+      graceMinutes: null,
+      tariffNotes: inspection.tcTariffVisible ? "Tariff information visible on signage" : null,
+      confidence: termsVisible ? 0.5 : 0.2, // Lower confidence when terms not visible
+      source: "inspection_data",
+    };
+    
     const result: SignageComplianceOutput = {
       inspectionId: inspection.id,
       inspectionDate: inspection.inspectionDate?.toISOString() || null,
@@ -930,6 +977,7 @@ async function stepSignageCompliance(
       overallCompliance,
       overallConfidence,
       issues,
+      extractedRegulations,
     };
     
     await createOrUpdateStep(ctx.caseId, "signage_compliance", "completed", {
@@ -1511,7 +1559,7 @@ export async function runCaseAnalysisPipeline(
     console.log(`[Pipeline] Step 3: DVLA Enrichment (VRM: ${detectedVrm || "none"})`);
     ctx.dvlaData = await stepDVLAEnrichment(ctx, detectedVrm);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
-      currentStep: "regulation_evaluation",
+      currentStep: "signage_compliance",
       completedSteps: 3,
       dvlaData: ctx.dvlaData,
     }) as CasePipelineResults;
@@ -1525,22 +1573,23 @@ export async function runCaseAnalysisPipeline(
     const durationMinutes = ctx.evidenceTimeline.timeRange.durationMinutes;
     const timestampQuality = ctx.evidenceTimeline.timeRange.timestampQuality;
     
-    console.log(`[Pipeline] Step 4: Regulation Evaluation (duration: ${durationMinutes}m, quality: ${timestampQuality || "unknown"})`);
-    ctx.regulationEvaluation = await stepRegulationEvaluation(ctx, site, siteRules, durationMinutes, timestampQuality);
+    // Step 4: Signage Compliance (runs BEFORE regulation evaluation to extract timing)
+    const signageInspection = await storage.getLatestSignageInspection(caseData.siteId);
+    console.log(`[Pipeline] Step 4: Signage Compliance`);
+    ctx.signageCompliance = await stepSignageCompliance(ctx, signageInspection);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
-      currentStep: "signage_compliance",
+      currentStep: "regulation_evaluation",
       completedSteps: 4,
-      regulationEvaluation: ctx.regulationEvaluation,
+      signageCompliance: ctx.signageCompliance,
     }) as CasePipelineResults;
     
-    const signageInspection = await storage.getLatestSignageInspection(caseData.siteId);
-    
-    console.log(`[Pipeline] Step 5: Signage Compliance`);
-    ctx.signageCompliance = await stepSignageCompliance(ctx, signageInspection);
+    // Step 5: Regulation Evaluation (uses signage timing when available)
+    console.log(`[Pipeline] Step 5: Regulation Evaluation (duration: ${durationMinutes}m, quality: ${timestampQuality || "unknown"})`);
+    ctx.regulationEvaluation = await stepRegulationEvaluation(ctx, site, siteRules, ctx.signageCompliance, durationMinutes, timestampQuality);
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
       currentStep: "context_enrichment",
       completedSteps: 5,
-      signageCompliance: ctx.signageCompliance,
+      regulationEvaluation: ctx.regulationEvaluation,
     }) as CasePipelineResults;
     
     console.log(`[Pipeline] Step 6: Context Enrichment`);
