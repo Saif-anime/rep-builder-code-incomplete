@@ -9,6 +9,7 @@ import {
   Shield,
   MapPin,
   Flag,
+  Lightbulb,
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,11 @@ const mainNavItems = [
     title: "Analysis",
     url: "/analysis",
     icon: Brain,
+  },
+  {
+    title: "AI Reports",
+    url: "/recommendations",
+    icon: Lightbulb,
   },
 ];
 

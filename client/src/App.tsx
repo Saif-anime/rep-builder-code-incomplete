@@ -18,6 +18,7 @@ import UsersPage from "@/pages/users";
 import AdminSitesPage from "@/pages/admin-sites";
 import SignageInspectionPage from "@/pages/signage-inspection";
 import FlaggedSessionsPage from "@/pages/flagged-sessions";
+import RecommendationsPage from "@/pages/recommendations";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -34,6 +35,7 @@ function ProtectedRoutes() {
       <Route path="/signage/:siteId" component={SignageInspectionPage} />
       <Route path="/signage/:siteId/:inspectionId" component={SignageInspectionPage} />
       <Route path="/flagged-sessions" component={FlaggedSessionsPage} />
+      <Route path="/recommendations" component={RecommendationsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
