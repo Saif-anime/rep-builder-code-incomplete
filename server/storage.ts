@@ -1,7 +1,7 @@
 import {
   users, cameras, bays, evidence, detections, parkingEvents, numberPlates, auditLogs, sites, aiSettings, parkingSites,
   anprEvents, parkingSessions, siteRules, sitePolicies, siteNotes, siteSurroundings, signageInspections, signagePhotos, enrichmentRuns, sessionFlags, driverProfiles, pcnRecommendations,
-  enforcementCases, caseEvidence, caseAnalysis,
+  enforcementCases, caseEvidence, caseAnalysis, evidenceBundles,
   type User, type InsertUser, type Camera, type InsertCamera, type Bay, type InsertBay,
   type Evidence, type InsertEvidence, type Detection, type InsertDetection,
   type ParkingEvent, type InsertParkingEvent, type NumberPlate, type InsertNumberPlate,
@@ -15,7 +15,8 @@ import {
   type SessionFlag, type InsertSessionFlag,
   type DriverProfile, type InsertDriverProfile,
   type PcnRecommendation, type InsertPcnRecommendation,
-  type EnforcementCase, type InsertEnforcementCase, type CaseEvidence, type InsertCaseEvidence, type CaseAnalysis, type InsertCaseAnalysis
+  type EnforcementCase, type InsertEnforcementCase, type CaseEvidence, type InsertCaseEvidence, type CaseAnalysis, type InsertCaseAnalysis,
+  type EvidenceBundle, type InsertEvidenceBundle
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
@@ -1160,6 +1161,43 @@ export class DatabaseStorage implements IStorage {
   async getCaseAnalysis(caseId: string): Promise<CaseAnalysis | undefined> {
     const [analysis] = await db.select().from(caseAnalysis).where(eq(caseAnalysis.caseId, caseId));
     return analysis || undefined;
+  }
+
+  async createEvidenceBundle(insertBundle: InsertEvidenceBundle): Promise<EvidenceBundle> {
+    const [created] = await db.insert(evidenceBundles).values(insertBundle).returning();
+    return created;
+  }
+
+  async getEvidenceBundle(id: number): Promise<EvidenceBundle | undefined> {
+    const [bundle] = await db.select().from(evidenceBundles).where(eq(evidenceBundles.id, id));
+    return bundle || undefined;
+  }
+
+  async getEvidenceBundlesByCase(caseId: string): Promise<EvidenceBundle[]> {
+    return await db.select().from(evidenceBundles)
+      .where(eq(evidenceBundles.caseId, caseId))
+      .orderBy(desc(evidenceBundles.createdAt));
+  }
+
+  async updateEvidenceBundle(id: number, update: Partial<EvidenceBundle>): Promise<EvidenceBundle | undefined> {
+    const [updated] = await db.update(evidenceBundles)
+      .set(update)
+      .where(eq(evidenceBundles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getEvidenceByBundle(bundleId: number): Promise<Evidence[]> {
+    return await db.select().from(evidence)
+      .where(eq(evidence.bundleId, bundleId))
+      .orderBy(evidence.timestamp);
+  }
+
+  async updateEvidenceBundleFileCount(bundleId: number): Promise<void> {
+    const files = await this.getEvidenceByBundle(bundleId);
+    await db.update(evidenceBundles)
+      .set({ fileCount: files.length })
+      .where(eq(evidenceBundles.id, bundleId));
   }
 }
 
