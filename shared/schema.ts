@@ -87,6 +87,7 @@ export type Bay = typeof bays.$inferSelect;
 export const evidence = pgTable("evidence", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(), // camera, manual
+  bundleId: integer("bundle_id"),
   siteId: integer("site_id").references(() => parkingSites.id),
   cameraId: integer("camera_id").references(() => cameras.id),
   bayId: integer("bay_id").references(() => bays.id),
@@ -232,6 +233,67 @@ export const insertCaseAnalysisSchema = createInsertSchema(caseAnalysis).omit({
 
 export type InsertCaseAnalysis = z.infer<typeof insertCaseAnalysisSchema>;
 export type CaseAnalysis = typeof caseAnalysis.$inferSelect;
+
+// ==================== EVIDENCE BUNDLES ====================
+export const evidenceBundles = pgTable("evidence_bundles", {
+  id: serial("id").primaryKey(),
+  caseId: varchar("case_id").references(() => enforcementCases.id).notNull(),
+  name: text("name"),
+  status: text("status").notNull().default("pending"), // pending, analyzing, analyzed, failed
+  fileCount: integer("file_count").notNull().default(0),
+  aiResult: jsonb("ai_result").$type<{
+    summary: string;
+    vehicleDetails: {
+      detected: boolean;
+      type: string;
+      plate: string | null;
+      evIndicators: boolean;
+      color?: string;
+    };
+    bayType: string;
+    signageFindings: {
+      visible: boolean;
+      compliant: boolean;
+      notes: string;
+    };
+    humanDetection: {
+      adult: boolean;
+      child: boolean;
+      disabledBadgeVisible: boolean;
+    };
+    violations: Array<{
+      type: string;
+      detected: boolean;
+      confidence: number;
+      explanation: string;
+    }>;
+    timeWindow: {
+      firstSeen: string;
+      lastSeen: string;
+      durationMinutes: number;
+      gaps: string[];
+    };
+    confidenceScore: number;
+    riskAssessment: string;
+    recommendation: string;
+    modelVersion: string;
+  }>(),
+  analysisStartedAt: timestamp("analysis_started_at"),
+  analysisCompletedAt: timestamp("analysis_completed_at"),
+  analysisError: text("analysis_error"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEvidenceBundleSchema = createInsertSchema(evidenceBundles).omit({
+  id: true,
+  createdAt: true,
+  analysisStartedAt: true,
+  analysisCompletedAt: true,
+});
+
+export type InsertEvidenceBundle = z.infer<typeof insertEvidenceBundleSchema>;
+export type EvidenceBundle = typeof evidenceBundles.$inferSelect;
 
 // ==================== DETECTIONS ====================
 export const detections = pgTable("detections", {
