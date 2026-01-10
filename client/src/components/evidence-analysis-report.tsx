@@ -625,19 +625,31 @@ export function EvidenceAnalysisReport({
                   <div className="p-3 rounded-md border bg-muted/50">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm">Entrance Signage</span>
-                      {getComplianceBadge(signage?.entranceSignage || "Unknown")}
+                      {getComplianceBadge(
+                        typeof signage?.entranceSignage === 'object' 
+                          ? signage.entranceSignage?.status || "unknown"
+                          : signage?.entranceSignage || "Unknown"
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {signage?.entranceNotes || "Site entrance signage visibility"}
+                      {typeof signage?.entranceSignage === 'object' 
+                        ? signage.entranceSignage?.notes 
+                        : signage?.entranceNotes || "Site entrance signage visibility"}
                     </p>
                   </div>
                   <div className="p-3 rounded-md border bg-muted/50">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm">Terms Visibility</span>
-                      {getComplianceBadge(signage?.termsVisibility || "Unknown")}
+                      {getComplianceBadge(
+                        typeof signage?.termsVisibility === 'object' 
+                          ? signage.termsVisibility?.status || "unknown"
+                          : signage?.termsVisibility || "Unknown"
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {signage?.termsNotes || "Terms and conditions display"}
+                      {typeof signage?.termsVisibility === 'object' 
+                        ? signage.termsVisibility?.notes 
+                        : signage?.termsNotes || "Terms and conditions display"}
                     </p>
                   </div>
                 </div>
@@ -646,10 +658,21 @@ export function EvidenceAnalysisReport({
                   <span className="font-medium text-sm">Overall Signage Compliance</span>
                   {getComplianceBadge(signage?.overallCompliance || "Unknown")}
                 </div>
-                {signage?.confidenceScore && (
+                {(signage?.overallConfidence || signage?.confidenceScore) && (
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Signage Confidence</span>
-                    <ConfidenceMeter value={signage.confidenceScore * 100} className="w-32" />
+                    <ConfidenceMeter value={(signage.overallConfidence || signage.confidenceScore) * 100} className="w-32" />
+                  </div>
+                )}
+                {signage?.issues?.length > 0 && (
+                  <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-400 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Signage Issues
+                    </p>
+                    <ul className="text-sm text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
+                      {signage.issues.map((issue: string, i: number) => <li key={i}>{issue}</li>)}
+                    </ul>
                   </div>
                 )}
                 {signage?.warnings?.length > 0 && (
