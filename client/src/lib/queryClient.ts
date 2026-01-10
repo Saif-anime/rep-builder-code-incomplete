@@ -22,6 +22,15 @@ async function throwIfResNotOk(res: Response) {
       return;
     }
     const text = (await res.text()) || res.statusText;
+    // Try to parse JSON error response
+    try {
+      const json = JSON.parse(text);
+      if (json.error) {
+        throw new Error(json.error);
+      }
+    } catch (e) {
+      // Not JSON, use raw text
+    }
     throw new Error(`${res.status}: ${text}`);
   }
 }

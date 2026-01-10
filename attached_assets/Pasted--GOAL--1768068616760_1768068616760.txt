@@ -1,0 +1,130 @@
+====================================================
+GOAL
+====================================================
+
+Fix and implement the "Add Parking Bay" feature so that:
+- Bays can be added successfully
+- Errors are handled clearly
+- UI and backend are fully synced
+- No silent failures occur
+
+The current issue shows:
+"Failed to add bay"
+
+====================================================
+PART 1 – DATABASE (REQUIRED)
+====================================================
+
+Ensure a parking_bays table exists.
+
+Create or update schema:
+
+parking_bays
+- id (uuid, primary key)
+- site_id (uuid, foreign key → parking_sites.id, NOT NULL)
+- name (varchar, NOT NULL)
+- type (enum: STANDARD, PARENT_CHILD, DISABLED, EV)
+- location (varchar, nullable)
+- created_at (timestamp)
+- updated_at (timestamp)
+
+Add a unique constraint:
+(site_id, name)
+
+====================================================
+PART 2 – BACKEND API
+====================================================
+
+Implement endpoint:
+
+POST /api/sites/:siteId/bays
+
+Request body:
+{
+  "name": string,
+  "type": "PARENT_CHILD" | "STANDARD" | "DISABLED" | "EV",
+  "location": string | null
+}
+
+Backend validation:
+- siteId must exist
+- name must not be empty
+- type must be valid enum
+- prevent duplicate bay names per site
+
+On success:
+201 Created
+Return newly created bay object
+
+On error:
+400 → validation issue
+409 → duplicate bay
+500 → unexpected failure
+
+Return structured JSON errors.
+
+====================================================
+PART 3 – FRONTEND FIX
+====================================================
+
+Update Add Parking Bay modal:
+
+- Bay Name → required
+- Bay Type → dropdown mapped to backend enum
+- Location → optional
+
+On submit:
+- Disable button while loading
+- Call POST /api/sites/:siteId/bays
+- On success:
+   - Close modal
+   - Refresh bay list
+   - Show success toast
+- On failure:
+   - Show backend error message
+   - Do NOT show generic "Failed to add bay"
+
+====================================================
+PART 4 – ERROR HANDLING (CRITICAL)
+====================================================
+
+Replace generic error with real cause:
+
+Examples:
+- "Bay name already exists for this site"
+- "Invalid bay type selected"
+- "Parking site not found"
+
+Log backend errors to console in development.
+
+====================================================
+PART 5 – UI CONSISTENCY
+====================================================
+
+After adding:
+- New bay appears instantly in list
+- No page reload
+- Modal resets form state
+
+Ensure UI works on:
+- Desktop
+- Tablet
+- Mobile
+
+====================================================
+PART 6 – SECURITY & DATA SAFETY
+====================================================
+
+- Validate input on backend (never trust frontend)
+- Trim bay name
+- Convert bay type labels to enum safely
+
+====================================================
+ACCEPTANCE CHECKS
+====================================================
+
+✔ Adding "Parent & Child" bay works
+✔ Duplicate bay names are blocked with message
+✔ No silent failures
+✔ Error messages are meaningful
+✔ Data persists after refresh

@@ -139,7 +139,13 @@ export default function SettingsPage() {
 
   const addBayMutation = useMutation({
     mutationFn: async (data: BayFormValues) => {
-      return apiRequest("POST", "/api/bays", data);
+      const payload = {
+        name: data.name,
+        type: data.type,
+        location: data.location || undefined,
+        cameraId: data.cameraId ? Number(data.cameraId) : undefined,
+      };
+      return apiRequest("POST", "/api/bays", payload);
     },
     onSuccess: () => {
       toast({ title: "Bay added", description: "Parking bay has been configured successfully." });
@@ -147,8 +153,8 @@ export default function SettingsPage() {
       bayForm.reset();
       setIsBayDialogOpen(false);
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add bay.", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to add bay.", variant: "destructive" });
     },
   });
 

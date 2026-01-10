@@ -434,9 +434,29 @@ export async function registerRoutes(
 
   app.post("/api/bays", authenticateToken, requireRole("admin", "operator"), async (req: AuthRequest, res: Response) => {
     try {
-      const parsed = insertBaySchema.safeParse(req.body);
+      const { name, type, location, cameraId } = req.body;
+      
+      // Normalize incoming data before validation
+      const normalizedData = {
+        name: typeof name === "string" ? name.trim() : name,
+        type: typeof type === "string" ? type.toLowerCase() : type,
+        location: location && typeof location === "string" && location.trim() ? location.trim() : undefined,
+        cameraId: cameraId && cameraId !== "" ? parseInt(cameraId) : undefined,
+        isActive: true,
+      };
+      
+      // Check for NaN from parseInt
+      if (cameraId && cameraId !== "" && isNaN(normalizedData.cameraId as number)) {
+        return res.status(400).json({ error: "Invalid camera ID" });
+      }
+      
+      // Validate using the shared schema
+      const parsed = insertBaySchema.safeParse(normalizedData);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid bay data" });
+        const firstError = parsed.error.errors[0];
+        const fieldName = firstError?.path?.join(".") || "field";
+        const message = firstError?.message || "Invalid data";
+        return res.status(400).json({ error: `${fieldName}: ${message}` });
       }
 
       const bay = await storage.createBay(parsed.data);
