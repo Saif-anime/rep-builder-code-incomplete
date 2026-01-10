@@ -277,6 +277,27 @@ export default function CasesPage() {
     },
   });
 
+  const reanalyzeEvidenceMutation = useMutation({
+    mutationFn: async (caseId: string) => {
+      return apiRequest("POST", `/api/cases/${caseId}/reanalyze-evidence`);
+    },
+    onSuccess: (result: any) => {
+      toast({ 
+        title: "Reanalysis started", 
+        description: `Analyzing ${result.reanalyzed} evidence items with Vision GPT` 
+      });
+      refetchCases();
+      setTimeout(() => {
+        refetchCaseEvidence();
+        refetchVehicles();
+        refetchAnalysis();
+      }, 5000);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reanalysis failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleFileUpload = () => {
     if (!selectedCase || uploadFiles.length === 0) return;
     uploadMutation.mutate({ caseId: selectedCase.id, files: uploadFiles });
@@ -944,23 +965,43 @@ export default function CasesPage() {
                       <Brain className="h-4 w-4" />
                       AI Analysis
                     </h3>
-                    <Button
-                      onClick={() => analyzeMutation.mutate(selectedCase.id)}
-                      disabled={analyzeMutation.isPending || caseEvidence.length === 0}
-                      data-testid="button-analyze-case"
-                    >
-                      {analyzeMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <Brain className="h-4 w-4 mr-2" />
-                          Run Analysis
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => reanalyzeEvidenceMutation.mutate(selectedCase.id)}
+                        disabled={reanalyzeEvidenceMutation.isPending || caseEvidence.length === 0}
+                        data-testid="button-reanalyze-evidence"
+                      >
+                        {reanalyzeEvidenceMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Reanalyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-4 w-4 mr-2" />
+                            Vision Reanalyze
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => analyzeMutation.mutate(selectedCase.id)}
+                        disabled={analyzeMutation.isPending || caseEvidence.length === 0}
+                        data-testid="button-analyze-case"
+                      >
+                        {analyzeMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="h-4 w-4 mr-2" />
+                            Run Analysis
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
                   {caseAnalysis ? (

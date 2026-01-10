@@ -2427,6 +2427,73 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/evidence/:id/reanalyze", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const evidenceId = parseInt(req.params.id);
+      const { reanalyzeEvidenceWithVision } = await import("./evidence-worker");
+      
+      const success = await reanalyzeEvidenceWithVision(evidenceId);
+      if (!success) {
+        return res.status(404).json({ error: "Evidence not found or already analyzing" });
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "reanalyze",
+        entityType: "evidence",
+        entityId: evidenceId.toString(),
+        details: { triggeredBy: "manual" },
+      });
+      
+      res.json({ success: true, message: "Reanalysis with Vision GPT started" });
+    } catch (error: any) {
+      console.error("[Reanalyze] Error:", error.message);
+      res.status(500).json({ error: "Failed to reanalyze evidence" });
+    }
+  });
+
+  app.post("/api/cases/:id/reanalyze-evidence", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const caseId = req.params.id;
+      const caseData = await storage.getCaseById(caseId);
+      
+      if (!caseData) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+      
+      const caseEvidence = await storage.getCaseEvidence(caseId);
+      if (caseEvidence.length === 0) {
+        return res.status(400).json({ error: "No evidence linked to this case" });
+      }
+      
+      const { reanalyzeEvidenceWithVision } = await import("./evidence-worker");
+      
+      let reanalyzed = 0;
+      for (const ce of caseEvidence) {
+        const success = await reanalyzeEvidenceWithVision(ce.evidenceId);
+        if (success) reanalyzed++;
+      }
+      
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "reanalyze",
+        entityType: "enforcement_case",
+        entityId: caseId,
+        details: { evidenceCount: caseEvidence.length, reanalyzedCount: reanalyzed },
+      });
+      
+      res.json({ 
+        success: true, 
+        message: `Reanalysis started for ${reanalyzed} evidence items`,
+        totalEvidence: caseEvidence.length,
+        reanalyzed 
+      });
+    } catch (error: any) {
+      console.error("[Reanalyze Case] Error:", error.message);
+      res.status(500).json({ error: "Failed to reanalyze case evidence" });
+    }
+  });
+
   // ==================== ENFORCEMENT CASES ====================
   app.get("/api/cases", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
