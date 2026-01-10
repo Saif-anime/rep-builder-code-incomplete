@@ -519,56 +519,84 @@ export function EvidenceAnalysisReport({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <CardContent className="pt-0">
-              <div className="space-y-4">
-                {regulations?.rules?.map((rule: any, idx: number) => (
-                  <div key={idx} className={`p-3 rounded-md border ${rule.breached ? 'bg-destructive/10 border-destructive/20' : 'bg-muted/50'}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-sm">{rule.name}</span>
-                      {rule.breached ? (
-                        <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Breached</Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />Compliant
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {rule.description}
-                    </div>
-                    {rule.values && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Actual: {rule.values.actual} | Limit: {rule.values.limit}
-                      </div>
+              <div className="space-y-3">
+                {/* Max Stay Rule */}
+                <div className={`p-3 rounded-md border ${regulations?.evaluation?.breachDetected ? 'bg-destructive/10 border-destructive/20' : 'bg-muted/50'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium text-sm">Maximum Stay</span>
+                    {regulations?.evaluation?.breachDetected ? (
+                      <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Breached</Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />OK
+                      </Badge>
                     )}
                   </div>
-                )) || (
-                  <div className="space-y-3">
-                    <div className={`p-3 rounded-md border ${regulations?.maxStayBreached ? 'bg-destructive/10 border-destructive/20' : 'bg-muted/50'}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-sm">Maximum Stay</span>
-                        {regulations?.maxStayBreached ? (
-                          <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Breached</Badge>
-                        ) : (
-                          <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />OK
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Duration: {regulations?.durationMinutes || "?"} min / Allowed: {siteRules?.maxStayMinutes || regulations?.maxStayAllowed || "?"} min
-                      </p>
+                  <p className="text-sm text-muted-foreground">
+                    {regulations?.evaluation?.numericComparison || 
+                      `Duration: ${regulations?.evaluation?.actualDurationMinutes || "?"} min / Allowed: ${regulations?.rules?.maxStayMinutes || "No limit"}`
+                    }
+                  </p>
+                  {regulations?.evaluation?.breachExplanation && (
+                    <p className="text-xs text-destructive mt-1">{regulations.evaluation.breachExplanation}</p>
+                  )}
+                </div>
+
+                {/* Enforcement Hours */}
+                {(regulations?.rules?.enforcementHours || siteRules?.enforcementHours) && (
+                  <div className={`p-3 rounded-md border ${regulations?.evaluation?.withinEnforcementHours === false ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20' : 'bg-muted/50'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-sm">Enforcement Hours</span>
+                      <Badge variant="outline">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        {regulations?.evaluation?.withinEnforcementHours !== false ? "In Effect" : "Outside Hours"}
+                      </Badge>
                     </div>
-                    {siteRules?.enforcementHours && (
-                      <div className="p-3 rounded-md border bg-muted/50">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-sm">Enforcement Hours</span>
-                          <Badge variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />In Effect</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {siteRules.enforcementHours.start} - {siteRules.enforcementHours.end}
-                        </p>
-                      </div>
-                    )}
+                    <p className="text-sm text-muted-foreground">
+                      {regulations?.rules?.enforcementHours?.start || siteRules?.enforcementHours?.start} - {regulations?.rules?.enforcementHours?.end || siteRules?.enforcementHours?.end}
+                      {regulations?.rules?.enforcementHours?.days && (
+                        <span className="ml-2">({regulations.rules.enforcementHours.days.join(", ")})</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+
+                {/* Permit Required */}
+                {regulations?.rules?.permitRequired && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-sm">Permit Required</span>
+                      <Badge variant="secondary">Required</Badge>
+                    </div>
+                  </div>
+                )}
+
+                {/* Grace Period */}
+                {regulations?.rules?.gracePeriodMinutes && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-sm">Grace Period</span>
+                      <Badge variant="outline">{regulations.rules.gracePeriodMinutes} min</Badge>
+                    </div>
+                  </div>
+                )}
+
+                {/* Special Rules */}
+                {regulations?.rules?.specialRules?.length > 0 && (
+                  <div className="p-3 rounded-md border bg-muted/50">
+                    <span className="font-medium text-sm">Special Rules</span>
+                    <ul className="mt-2 space-y-1">
+                      {regulations.rules.specialRules.map((rule: string, idx: number) => (
+                        <li key={idx} className="text-sm text-muted-foreground">• {rule}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Site Name */}
+                {regulations?.siteName && (
+                  <div className="text-xs text-muted-foreground border-t pt-2 mt-2">
+                    Site: {regulations.siteName}
                   </div>
                 )}
               </div>
