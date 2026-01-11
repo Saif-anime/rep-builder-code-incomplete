@@ -1,0 +1,132 @@
+You are a UK Parking Enforcement System Engineer.
+
+TASK:
+Implement an “EV Bay Analysis” module that determines whether a vehicle
+is AUTHORISED to occupy an Electric Vehicle (EV) bay.
+
+This module ONLY analyses EV bay compliance.
+Do NOT include other bay types or unrelated logic.
+
+--------------------------------------------------
+1️⃣ INPUTS
+--------------------------------------------------
+Inputs provided:
+- Evidence images (one or more)
+- OCR results from images
+- Vehicle details (VRM, make, model if available)
+- Selected bay type = EV BAY
+- Parking site ID
+- Site-specific EV bay regulations
+- Observation timestamps extracted from images:
+  - observe_from
+  - observe_to
+
+--------------------------------------------------
+2️⃣ EVIDENCE QUALITY CHECK
+--------------------------------------------------
+Validate that:
+- At least one clear image shows:
+  - Full vehicle
+  - Charging port / side of vehicle
+  - Charging unit (if present)
+- OCR confidence meets minimum threshold
+
+If evidence is unclear → return REVIEW_REQUIRED
+
+--------------------------------------------------
+3️⃣ VEHICLE TYPE VERIFICATION
+--------------------------------------------------
+Determine if the vehicle is charge-capable:
+- Fully Electric Vehicle (BEV)
+- Plug-in Hybrid (PHEV)
+
+Sources:
+- DVLA lookup
+- Manufacturer database
+- Visible EV badging
+
+If vehicle is NOT BEV or PHEV → NON_COMPLIANT
+
+--------------------------------------------------
+4️⃣ CHARGING ACTIVITY CHECK
+--------------------------------------------------
+Check site signage to determine requirement:
+- “Electric vehicles only”
+- “While charging only”
+
+If charging is REQUIRED:
+- Charging cable must be:
+  - Connected to the vehicle
+  - Connected to the charging point
+- Charging port must be visibly in use
+
+If EV is not actively charging → NON_COMPLIANT
+
+--------------------------------------------------
+5️⃣ SIGNAGE & RULE COMPLIANCE
+--------------------------------------------------
+Verify compliance with:
+- Maximum stay duration
+- Time-of-day restrictions
+- Return restrictions (if stated)
+- “Charge point users only” conditions
+
+Any signage breach → NON_COMPLIANT
+
+--------------------------------------------------
+6️⃣ POSITIONING CHECK
+--------------------------------------------------
+Vehicle must:
+- Be fully inside EV bay markings
+- Not overlap:
+  - Adjacent bays
+  - Hatched areas
+  - Access zones
+
+Incorrect positioning → NON_COMPLIANT
+
+--------------------------------------------------
+7️⃣ TIME COMPLIANCE
+--------------------------------------------------
+Verify:
+- observe_from → observe_to duration
+- Duration complies with EV bay rules
+
+--------------------------------------------------
+8️⃣ DECISION OUTPUT
+--------------------------------------------------
+Return exactly one result:
+- COMPLIANT
+- NON_COMPLIANT
+- REVIEW_REQUIRED
+
+--------------------------------------------------
+9️⃣ ANALYSIS REPORT (MANDATORY)
+--------------------------------------------------
+Generate a structured report including:
+- Bay type: EV BAY
+- Observation window
+- Vehicle EV capability result
+- Charging activity status
+- Signage conditions checked
+- Positioning result
+- Final compliance decision
+- Confidence score (0–100)
+
+--------------------------------------------------
+10️⃣ SAFETY RULE
+--------------------------------------------------
+If:
+- Charging cable not clearly visible
+- Signage unclear
+- Conflicting evidence
+- Low confidence OCR
+
+Return REVIEW_REQUIRED.
+Do NOT assume charging.
+
+--------------------------------------------------
+FINAL RULE:
+"An EV bay is only compliant if all required EV and charging conditions are clearly proven."
+
+END TASK.

@@ -1258,6 +1258,241 @@ Return ONLY the JSON object, no other text."""
                 }
             }
         }
+    
+    async def analyze_ev_bay(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for EV bay compliance using Vision GPT.
+        
+        Detects:
+        - Vehicle EV capability (BEV/PHEV badging)
+        - Charging activity (cable, charger connection)
+        - Signage requirements
+        - Vehicle positioning
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key for EV bay analysis")
+            return self._empty_ev_bay_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_ev_bay_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image for EV BAY (Electric Vehicle Bay) compliance under UK standards.
+
+You are helping determine if a vehicle parked in an EV bay is COMPLIANT with EV bay rules.
+
+ANALYZE THE FOLLOWING:
+
+1. EVIDENCE QUALITY:
+- Is the full vehicle visible in the image?
+- Is the charging port side of the vehicle visible?
+- Is a charging unit/station visible in the image?
+- Overall image quality (0-100)
+
+2. VEHICLE EV CAPABILITY:
+- Look for EV badging on the vehicle (Tesla, Electric, EV, PHEV, Hybrid badges)
+- Is this clearly a Battery Electric Vehicle (BEV)?
+- Is this clearly a Plug-in Hybrid (PHEV)?
+- Look for: Tesla, Nissan Leaf, BMW i3, Audi e-tron, Jaguar I-Pace, VW ID, Polestar, etc.
+- Look for hybrid badges: PHEV, Plug-in Hybrid, GTE, etc.
+- Confidence in EV identification (0-100)
+
+3. CHARGING ACTIVITY:
+- Is there a charging cable visible?
+- Is the cable connected to the vehicle's charging port?
+- Is the cable connected to a charging station/unit?
+- Is the charging port visibly in use (port open, cable inserted)?
+- Type of charging unit if visible (slow, fast, rapid, Tesla Supercharger, etc.)
+- Confidence in charging detection (0-100)
+
+4. SIGNAGE CHECK:
+- Is there "Electric vehicles only" signage visible?
+- Is there "While charging only" signage visible?
+- Is there a maximum stay time indicated?
+- Any time restrictions visible?
+- "Charge point users only" condition visible?
+
+5. VEHICLE POSITION:
+- Is the vehicle FULLY inside the EV bay boundaries?
+- Is the vehicle overlapping any adjacent bays or hatched areas?
+- Is the vehicle correctly positioned near the charging point?
+
+Return a JSON object with:
+{
+  "evBayAnalysis": {
+    "evidenceQuality": {
+      "fullVehicleVisible": true/false,
+      "chargingPortVisible": true/false,
+      "chargingUnitVisible": true/false,
+      "ocrConfidence": 0-100,
+      "notes": "observations"
+    },
+    
+    "vehicleEVCapability": {
+      "evBadgingVisible": true/false,
+      "isBEV": true/false,
+      "isPHEV": true/false,
+      "detectedMakeModel": "string or null",
+      "evIndicators": ["list of EV indicators seen"],
+      "confidence": 0-100,
+      "notes": "observations"
+    },
+    
+    "chargingActivity": {
+      "cableVisible": true/false,
+      "cableConnectedToVehicle": true/false,
+      "cableConnectedToCharger": true/false,
+      "chargingPortInUse": true/false,
+      "chargingUnitType": "string or null",
+      "confidence": 0-100,
+      "notes": "observations"
+    },
+    
+    "signageCheck": {
+      "evOnlySignage": true/false,
+      "whileChargingOnly": true/false,
+      "maxStayMinutes": number or null,
+      "timeRestrictions": "string or null",
+      "chargePointUsersOnly": true/false,
+      "signageNotes": "observations"
+    },
+    
+    "vehiclePosition": {
+      "fullyInsideBay": true/false,
+      "overlapDetected": true/false,
+      "overlapType": "adjacent_bay" | "hatched_area" | "access_zone" | null,
+      "nearChargingPoint": true/false,
+      "positionConfidence": 0-100
+    },
+    
+    "overallAssessment": {
+      "appearsCompliant": true/false,
+      "isEVCapable": true/false,
+      "isCharging": true/false,
+      "confidence": 0-100,
+      "primaryFinding": "main observation"
+    }
+  }
+}
+
+Return ONLY the JSON object, no other text."""
+        
+        try:
+            import json
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 1200
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for EV bay analysis: {response.status_code}")
+                    return self._empty_ev_bay_analysis(evidence_id)
+                
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                
+                parsed = self._parse_ev_bay_response(content, evidence_id)
+                parsed["evidenceId"] = evidence_id
+                parsed["success"] = True
+                return parsed
+                
+        except Exception as e:
+            logger.error(f"Error in EV bay analysis: {e}")
+            return self._empty_ev_bay_analysis(evidence_id)
+    
+    def _parse_ev_bay_response(self, content: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Parse Vision GPT response for EV bay analysis."""
+        import json
+        try:
+            if "```" in content:
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse EV bay analysis JSON, using defaults")
+            return self._empty_ev_bay_analysis()
+    
+    def _empty_ev_bay_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty EV bay analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "evBayAnalysis": {
+                "evidenceQuality": {
+                    "fullVehicleVisible": False,
+                    "chargingPortVisible": False,
+                    "chargingUnitVisible": False,
+                    "ocrConfidence": 0,
+                    "notes": "No analysis available"
+                },
+                "vehicleEVCapability": {
+                    "evBadgingVisible": False,
+                    "isBEV": False,
+                    "isPHEV": False,
+                    "detectedMakeModel": None,
+                    "evIndicators": [],
+                    "confidence": 0,
+                    "notes": "No analysis available"
+                },
+                "chargingActivity": {
+                    "cableVisible": False,
+                    "cableConnectedToVehicle": False,
+                    "cableConnectedToCharger": False,
+                    "chargingPortInUse": False,
+                    "chargingUnitType": None,
+                    "confidence": 0,
+                    "notes": "No analysis available"
+                },
+                "signageCheck": {
+                    "evOnlySignage": False,
+                    "whileChargingOnly": False,
+                    "maxStayMinutes": None,
+                    "timeRestrictions": None,
+                    "chargePointUsersOnly": False,
+                    "signageNotes": "No analysis available"
+                },
+                "vehiclePosition": {
+                    "fullyInsideBay": True,
+                    "overlapDetected": False,
+                    "overlapType": None,
+                    "nearChargingPoint": False,
+                    "positionConfidence": 0
+                },
+                "overallAssessment": {
+                    "appearsCompliant": False,
+                    "isEVCapable": False,
+                    "isCharging": False,
+                    "confidence": 0,
+                    "primaryFinding": "Analysis not performed"
+                }
+            }
+        }
 
 
 ocr_service = OCRService()
