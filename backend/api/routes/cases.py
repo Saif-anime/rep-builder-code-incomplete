@@ -689,6 +689,54 @@ async def run_case_pipeline(
             "parentChildAnalysis": parent_child_result.to_dict()
         }
     
+    # Authorised Bay analysis (if applicable - permit holders, authorised vehicles)
+    authorised_bay_result = None
+    is_authorised_bay = normalized_bay in ("authorised", "authorized", "permitholder", "permitholders", "permit_holders", "authorisedbay", "permit")
+    if is_authorised_bay:
+        logger.info("Authorised Bay detected - running permit/authorisation analysis")
+        from backend.services.authorised_bay_analysis_service import authorised_bay_analysis_service
+        
+        # Run authorised bay analysis on each image
+        authorised_analysis_results = []
+        for evidence in evidence_list:
+            image_path = None
+            if evidence.image_path:
+                relative_path = evidence.image_path.lstrip("/")
+                image_path = os.path.join(os.getcwd(), relative_path)
+            
+            if image_path and os.path.exists(image_path):
+                auth_result = await ocr_service.analyze_authorised_bay(image_path, evidence.id)
+                auth_result["timestamp"] = evidence.timestamp.isoformat() if evidence.timestamp else None
+                authorised_analysis_results.append(auth_result)
+        
+        # Build evidence items for authorised bay analysis
+        evidence_items = [{
+            "id": ev.id,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else None
+        } for ev in evidence_list]
+        
+        # Run authorised bay analysis (bay type already confirmed from site config)
+        authorised_bay_result = await authorised_bay_analysis_service.analyze_authorised_bay(
+            evidence_items=evidence_items,
+            image_analysis_results=authorised_analysis_results,
+            observe_from=first_time,
+            observe_to=last_time,
+            site_id=case.site_id,
+            vrm=vrm,
+            confirmed_bay_type=True
+        )
+        
+        logger.info(f"Authorised Bay analysis result: {authorised_bay_result.to_dict()}")
+        
+        # Update bay rule evaluation with authorised bay analysis
+        bay_rule_evaluation = {
+            "bayType": "AUTHORISED",
+            "bayName": "Authorised Bay / Permit Holders",
+            "decision": authorised_bay_result.decision.value,
+            "explanation": authorised_bay_result.legal_justification,
+            "authorisedBayAnalysis": authorised_bay_result.to_dict()
+        }
+    
     # Generate final decision based on evidence summary validation and loading bay analysis
     # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
     if loading_bay_result is not None:
@@ -798,6 +846,42 @@ async def run_case_pipeline(
                 "plainEnglishExplanation": f"The vehicle was parked in a Parent & Child bay without a child present. {parent_child_result.reason}.",
                 "blockers": [],
                 "parentChildAnalysis": parent_child_result.to_dict()
+            }
+    elif authorised_bay_result is not None:
+        # Authorised Bay / Permit Holder decision
+        if authorised_bay_result.decision.value == "AUTHORISED":
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": authorised_bay_result.confidence_score,
+                "legalRisk": "low",
+                "recommendation": "No PCN - Vehicle is authorised",
+                "reasoning": authorised_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle has valid authorisation to park in this bay. Authorisation type: {authorised_bay_result.authorisation_type or 'Verified'}.",
+                "blockers": [],
+                "authorisedBayAnalysis": authorised_bay_result.to_dict()
+            }
+        elif authorised_bay_result.decision.value == "REVIEW_REQUIRED":
+            decision = {
+                "status": "REVIEW_REQUIRED",
+                "overallConfidence": authorised_bay_result.confidence_score,
+                "legalRisk": "medium",
+                "recommendation": "Manual review required - Authorisation verification inconclusive",
+                "reasoning": authorised_bay_result.legal_justification,
+                "plainEnglishExplanation": "The AI could not confidently verify the vehicle's authorisation. A human operator should review the permit visibility and validity.",
+                "blockers": ["Insufficient confidence for automated decision"],
+                "authorisedBayAnalysis": authorised_bay_result.to_dict()
+            }
+        else:
+            # NOT_AUTHORISED
+            decision = {
+                "status": "PCN_ELIGIBLE",
+                "overallConfidence": authorised_bay_result.confidence_score,
+                "legalRisk": "low" if authorised_bay_result.confidence_score >= 70 else "medium",
+                "recommendation": f"Issue PCN - {authorised_bay_result.reason}",
+                "reasoning": authorised_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle was parked in an Authorised/Permit Holder bay without valid authorisation. {authorised_bay_result.reason}.",
+                "blockers": [],
+                "authorisedBayAnalysis": authorised_bay_result.to_dict()
             }
     elif not evidence_summary.is_valid_for_pcn:
         # Evidence is insufficient for PCN - require review

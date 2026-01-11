@@ -1055,6 +1055,209 @@ Return ONLY the JSON object, no other text."""
                 }
             }
         }
+    
+    async def analyze_authorised_bay(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for Authorised Bay compliance using Vision GPT.
+        
+        Detects:
+        - Evidence quality (full vehicle, windscreen, dashboard visibility)
+        - Permit visibility and readability (number, expiry, site code)
+        - Staff permit/ID visibility
+        - Vehicle position (fully inside bay, no overlap)
+        
+        Returns structured analysis for authorisation decision logic.
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for authorised bay analysis")
+            return self._empty_authorised_bay_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_authorised_bay_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image for AUTHORISED BAY / PERMIT HOLDER BAY compliance under UK standards.
+
+You are helping determine if a vehicle parked in an Authorised/Permit Holder Bay has valid authorisation.
+
+ANALYZE THE FOLLOWING:
+
+1. EVIDENCE QUALITY:
+- Is the full vehicle visible in the image?
+- Is the windscreen/front window clearly visible?
+- Is the dashboard area visible where permits would be displayed?
+- Overall image quality for permit reading (0-100)
+
+2. PERMIT CHECK:
+- Is there a permit visible in the windscreen or on the dashboard?
+- If visible, is the permit readable (text clear enough to read)?
+- Can you read any permit number or identifier?
+- Can you read any expiry date?
+- Can you read any site name or code?
+- Does the permit appear expired (if date visible)?
+- Confidence in permit detection (0-100)
+
+3. STAFF/OPERATOR CHECK:
+- Is there a staff permit or ID card visible?
+- Is there any operator identification visible?
+
+4. VEHICLE POSITION:
+- Is the vehicle FULLY inside the bay boundaries?
+- Is the vehicle overlapping any adjacent parking bay?
+- Is the vehicle overlapping any hatched areas or access zones?
+- Is the vehicle correctly parked (not obstructing)?
+
+Return a JSON object with:
+{
+  "authorisedBayAnalysis": {
+    "evidenceQuality": {
+      "fullVehicleVisible": true/false,
+      "windscreenVisible": true/false,
+      "dashboardVisible": true/false,
+      "ocrConfidence": 0-100,
+      "notes": "Any relevant observations about image quality"
+    },
+    
+    "permitCheck": {
+      "permitVisible": true/false,
+      "permitReadable": true/false,
+      "permitNumber": "string or null",
+      "permitExpiry": "string or null",
+      "permitSiteCode": "string or null",
+      "permitExpired": true/false,
+      "permitValidForSite": true/false,
+      "confidence": 0-100,
+      "notes": "Any relevant observations about the permit"
+    },
+    
+    "staffCheck": {
+      "staffPermitVisible": true/false,
+      "staffIdVisible": true/false,
+      "notes": "Any relevant observations about staff identification"
+    },
+    
+    "vehiclePosition": {
+      "fullyInsideBay": true/false,
+      "overlapDetected": true/false,
+      "overlapType": "adjacent_bay" | "hatched_area" | "access_zone" | null,
+      "correctlyParked": true/false,
+      "positionConfidence": 0-100
+    },
+    
+    "overallAssessment": {
+      "authorisationLikely": true/false,
+      "confidence": 0-100,
+      "primaryFinding": "string describing main observation"
+    }
+  }
+}
+
+Return ONLY the JSON object, no other text."""
+        
+        try:
+            import json
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 1000
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for authorised bay analysis: {response.status_code}")
+                    return self._empty_authorised_bay_analysis(evidence_id)
+                
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                
+                parsed = self._parse_authorised_bay_response(content, evidence_id)
+                parsed["evidenceId"] = evidence_id
+                parsed["success"] = True
+                return parsed
+                
+        except Exception as e:
+            logger.error(f"Error in authorised bay analysis: {e}")
+            return self._empty_authorised_bay_analysis(evidence_id)
+    
+    def _parse_authorised_bay_response(self, content: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Parse Vision GPT response for authorised bay analysis."""
+        import json
+        try:
+            if "```" in content:
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse authorised bay analysis JSON, using defaults")
+            return self._empty_authorised_bay_analysis()
+    
+    def _empty_authorised_bay_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty authorised bay analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "authorisedBayAnalysis": {
+                "evidenceQuality": {
+                    "fullVehicleVisible": False,
+                    "windscreenVisible": False,
+                    "dashboardVisible": False,
+                    "ocrConfidence": 0,
+                    "notes": "No analysis available"
+                },
+                "permitCheck": {
+                    "permitVisible": False,
+                    "permitReadable": False,
+                    "permitNumber": None,
+                    "permitExpiry": None,
+                    "permitSiteCode": None,
+                    "permitExpired": False,
+                    "permitValidForSite": False,
+                    "confidence": 0,
+                    "notes": "No analysis available"
+                },
+                "staffCheck": {
+                    "staffPermitVisible": False,
+                    "staffIdVisible": False,
+                    "notes": "No analysis available"
+                },
+                "vehiclePosition": {
+                    "fullyInsideBay": True,
+                    "overlapDetected": False,
+                    "overlapType": None,
+                    "correctlyParked": True,
+                    "positionConfidence": 0
+                },
+                "overallAssessment": {
+                    "authorisationLikely": False,
+                    "confidence": 0,
+                    "primaryFinding": "Analysis not performed"
+                }
+            }
+        }
 
 
 ocr_service = OCRService()

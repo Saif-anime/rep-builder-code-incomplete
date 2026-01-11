@@ -30,6 +30,10 @@ import {
   Baby,
   Users,
   ShoppingCart,
+  KeyRound,
+  IdCard,
+  FileCheck,
+  ImageOff,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +67,10 @@ function formatBayTypeLabel(bayType: string | null | undefined): string {
     "standard": "Standard",
     "parent_child": "Parent & Child Bay",
     "parent_child_bay": "Parent & Child Bay",
+    "authorised": "Authorised Bay",
+    "authorized": "Authorised Bay",
+    "permit_holders": "Permit Holders Only",
+    "authorised_bay": "Authorised Bay",
   };
   return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
@@ -1031,6 +1039,130 @@ export function EvidenceAnalysisReport({
               <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="h-3 w-3" />
                 <span>Manual review required - Child presence uncertain</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {bayRule?.authorisedBayAnalysis && (
+        <Card data-testid="card-authorised-bay-analysis" className="border-teal-200 dark:border-teal-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+              Authorised Bay Analysis
+              {bayRule.authorisedBayAnalysis.decision === "AUTHORISED" ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Authorised
+                </Badge>
+              ) : bayRule.authorisedBayAnalysis.decision === "REVIEW_REQUIRED" ? (
+                <Badge variant="secondary" className="ml-auto">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Required
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Not Authorised
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                {bayRule.authorisedBayAnalysis.authorisationFound ? (
+                  <FileCheck className="h-4 w-4 text-green-600" />
+                ) : (
+                  <FileCheck className="h-4 w-4 text-destructive" />
+                )}
+                <span>Authorisation:</span>
+                <Badge variant={bayRule.authorisedBayAnalysis.authorisationFound ? "default" : "destructive"} className="text-xs">
+                  {bayRule.authorisedBayAnalysis.authorisationFound ? "Found" : "Not Found"}
+                </Badge>
+              </div>
+              
+              {bayRule.authorisedBayAnalysis.authorisationType && (
+                <div className="flex items-center gap-2">
+                  <IdCard className="h-4 w-4 text-teal-600" />
+                  <span>Type:</span>
+                  <Badge variant="outline" className="text-xs">
+                    {bayRule.authorisedBayAnalysis.authorisationType}
+                  </Badge>
+                </div>
+              )}
+              
+              <div className="flex items-center gap-2">
+                <Eye className={`h-4 w-4 ${bayRule.authorisedBayAnalysis.permitCheck?.permitVisible ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Permit:</span>
+                <Badge variant={bayRule.authorisedBayAnalysis.permitCheck?.permitVisible ? "default" : "outline"} className="text-xs">
+                  {bayRule.authorisedBayAnalysis.permitCheck?.permitVisible 
+                    ? (bayRule.authorisedBayAnalysis.permitCheck?.permitReadable ? "Visible & Readable" : "Visible") 
+                    : "Not Visible"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <ImageOff className={`h-4 w-4 ${bayRule.authorisedBayAnalysis.evidenceQuality?.overallQuality === "HIGH" ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Evidence:</span>
+                <Badge variant={bayRule.authorisedBayAnalysis.evidenceQuality?.overallQuality === "HIGH" ? "default" : "outline"} className="text-xs">
+                  {bayRule.authorisedBayAnalysis.evidenceQuality?.overallQuality || "Unknown"}
+                </Badge>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              {bayRule.authorisedBayAnalysis.permitCheck?.permitNumber && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Permit Number:</span>
+                  <Badge variant="outline">{bayRule.authorisedBayAnalysis.permitCheck.permitNumber}</Badge>
+                </div>
+              )}
+              {bayRule.authorisedBayAnalysis.permitCheck?.permitExpiry && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Expiry:</span>
+                  <Badge variant={bayRule.authorisedBayAnalysis.permitCheck?.permitExpired ? "destructive" : "default"}>
+                    {bayRule.authorisedBayAnalysis.permitCheck.permitExpiry}
+                    {bayRule.authorisedBayAnalysis.permitCheck?.permitExpired && " (Expired)"}
+                  </Badge>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Vehicle Position:</span>
+                <Badge variant={bayRule.authorisedBayAnalysis.vehiclePositionValid ? "default" : "destructive"}>
+                  {bayRule.authorisedBayAnalysis.vehiclePositionValid ? "Correctly Parked" : "Position Issue"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={getConfidenceBadgeVariant(bayRule.authorisedBayAnalysis.confidence)}>
+                  {bayRule.authorisedBayAnalysis.confidenceScore}%
+                </Badge>
+              </div>
+            </div>
+            
+            {bayRule.authorisedBayAnalysis?.reason && bayRule.authorisedBayAnalysis.decision !== "AUTHORISED" && (
+              <>
+                <Separator />
+                <div className="p-2 bg-destructive/10 rounded text-sm flex items-start gap-2">
+                  <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                  <span className="text-destructive">{bayRule.authorisedBayAnalysis.reason}</span>
+                </div>
+              </>
+            )}
+            
+            <div className="p-3 bg-muted/30 rounded text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">Legal Justification</p>
+              <p>{bayRule.authorisedBayAnalysis.legalJustification}</p>
+            </div>
+            
+            {bayRule.authorisedBayAnalysis.manualReviewRequired && (
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Manual review required - Permit verification uncertain</span>
               </div>
             )}
           </CardContent>
