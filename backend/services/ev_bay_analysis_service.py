@@ -416,7 +416,10 @@ class EVBayAnalysisService:
         details = VehicleEVCapability()
         details.checked = True
         
-        # Check DVLA data if available
+        # Check DVLA data first - this is authoritative
+        dvla_is_ev = False
+        dvla_is_non_ev = False
+        
         if vehicle_details:
             fuel_type = vehicle_details.get("fuelType", "").upper()
             details.fuel_type_from_dvla = fuel_type
@@ -426,12 +429,18 @@ class EVBayAnalysisService:
                 details.is_bev = True
                 details.is_ev_capable = True
                 details.confidence = 95
+                dvla_is_ev = True
             elif fuel_type in ["HYBRID ELECTRIC", "PHEV", "PLUG-IN HYBRID", "PETROL/ELECTRIC", "DIESEL/ELECTRIC"]:
                 details.is_phev = True
                 details.is_ev_capable = True
                 details.confidence = 90
+                dvla_is_ev = True
+            elif fuel_type in ["PETROL", "DIESEL", "GAS", "LPG"]:
+                # DVLA confirms non-EV - this is authoritative
+                dvla_is_non_ev = True
+                details.confidence = 90  # High confidence it's NOT an EV
         
-        # Check Vision GPT analysis for EV badging
+        # Check Vision GPT analysis for EV badging (supplementary to DVLA)
         for result in image_analysis_results:
             ev_data = result.get("evBayAnalysis", {})
             vehicle_check = ev_data.get("vehicleEVCapability", {})
@@ -439,7 +448,8 @@ class EVBayAnalysisService:
             if vehicle_check.get("evBadgingVisible", False):
                 details.ev_badging_visible = True
                 
-                if not details.is_ev_capable:
+                # Only use Vision GPT to mark as EV if DVLA didn't confirm non-EV
+                if not details.is_ev_capable and not dvla_is_non_ev:
                     if vehicle_check.get("isBEV", False):
                         details.is_bev = True
                         details.is_ev_capable = True
@@ -450,8 +460,12 @@ class EVBayAnalysisService:
                         details.confidence = max(details.confidence, 75)
             
             badge_conf = vehicle_check.get("confidence", 0)
-            if badge_conf > details.confidence and details.ev_badging_visible:
+            if badge_conf > details.confidence and details.ev_badging_visible and not dvla_is_non_ev:
                 details.confidence = badge_conf
+            
+            # If Vision GPT sees EV badging but DVLA says non-EV, flag for review
+            if details.ev_badging_visible and dvla_is_non_ev:
+                details.confidence = 40  # Low confidence - conflicting evidence
         
         return details
     
@@ -613,10 +627,17 @@ class EVBayAnalysisService:
         if evidence.overall_quality == "LOW":
             needs_review = True
         
-        # Check EV capability
+        # Check EV capability - DVLA is authoritative
         if not ev_capability.is_ev_capable:
             is_compliant = False
-            non_compliance_reasons.append("Vehicle is not EV capable (not BEV or PHEV)")
+            if ev_capability.fuel_type_from_dvla and ev_capability.fuel_type_from_dvla in ["PETROL", "DIESEL", "GAS", "LPG"]:
+                non_compliance_reasons.append(f"Vehicle is not EV capable (DVLA fuel type: {ev_capability.fuel_type_from_dvla})")
+            else:
+                non_compliance_reasons.append("Vehicle is not EV capable (not BEV or PHEV)")
+        
+        # Conflicting evidence check - Vision says EV but DVLA says non-EV
+        if ev_capability.ev_badging_visible and ev_capability.fuel_type_from_dvla in ["PETROL", "DIESEL", "GAS", "LPG"]:
+            needs_review = True  # Conflicting evidence requires manual review
         
         # Check charging if required
         if charging.charging_required_by_signage:

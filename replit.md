@@ -52,6 +52,15 @@ The system employs a full-stack architecture consisting of a React frontend, a P
   5. Final Decision Logic with confidence scoring
   6. UI Output with activity timeline and badges
   7. Phase 8 Fail-Safe (manual review for <70% confidence)
+- **EV Bay Analysis:** UK-compliant Electric Vehicle bay compliance verification:
+  1. Evidence Quality Check (full vehicle, charging port, charging unit visibility)
+  2. Vehicle EV Capability (BEV/PHEV via DVLA fuel type - authoritative, or visual badging)
+  3. Charging Activity Detection (cable connected, port in use, charger connection)
+  4. Signage Compliance (max stay, time restrictions, "while charging only" requirements)
+  5. Vehicle Position Check (fully inside bay, no overlap)
+  6. Decision Logic: COMPLIANT / NON_COMPLIANT / REVIEW_REQUIRED
+  7. DVLA data takes priority over Vision GPT for EV verification
+  8. Conflicting evidence (Vision sees EV badging but DVLA says petrol) triggers REVIEW_REQUIRED
 
 ## External Dependencies
 - **AI Integration:** OpenAI (GPT-4.1 for violation analysis, GPT-4o for Vision GPT image analysis).

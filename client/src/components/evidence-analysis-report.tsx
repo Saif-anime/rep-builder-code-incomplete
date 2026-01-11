@@ -34,6 +34,10 @@ import {
   IdCard,
   FileCheck,
   ImageOff,
+  Zap,
+  BatteryCharging,
+  PlugZap,
+  Cable,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -71,6 +75,11 @@ function formatBayTypeLabel(bayType: string | null | undefined): string {
     "authorized": "Authorised Bay",
     "permit_holders": "Permit Holders Only",
     "authorised_bay": "Authorised Bay",
+    "ev": "Electric Vehicle Bay",
+    "ev_bay": "Electric Vehicle Bay",
+    "electric_vehicle": "Electric Vehicle Bay",
+    "ev_charging": "EV Charging Bay",
+    "charging": "EV Charging Bay",
   };
   return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
@@ -1163,6 +1172,151 @@ export function EvidenceAnalysisReport({
               <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="h-3 w-3" />
                 <span>Manual review required - Permit verification uncertain</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {bayRule?.evBayAnalysis && (
+        <Card data-testid="card-ev-bay-analysis" className="border-green-200 dark:border-green-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Zap className="h-4 w-4 text-green-600 dark:text-green-400" />
+              EV Bay Analysis
+              {bayRule.evBayAnalysis.decision === "COMPLIANT" ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Compliant
+                </Badge>
+              ) : bayRule.evBayAnalysis.decision === "REVIEW_REQUIRED" ? (
+                <Badge variant="secondary" className="ml-auto">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Required
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Non-Compliant
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                <BatteryCharging className={`h-4 w-4 ${bayRule.evBayAnalysis.vehicleEVCapability?.isEVCapable ? 'text-green-600' : 'text-destructive'}`} />
+                <span>EV Vehicle:</span>
+                <Badge variant={bayRule.evBayAnalysis.vehicleEVCapability?.isEVCapable ? "default" : "destructive"} className="text-xs">
+                  {bayRule.evBayAnalysis.vehicleEVCapability?.isEVCapable 
+                    ? (bayRule.evBayAnalysis.vehicleEVCapability?.isBEV ? "Battery Electric" : "Plug-in Hybrid") 
+                    : "Not EV"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Eye className={`h-4 w-4 ${bayRule.evBayAnalysis.vehicleEVCapability?.evBadgingVisible ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>EV Badging:</span>
+                <Badge variant={bayRule.evBayAnalysis.vehicleEVCapability?.evBadgingVisible ? "default" : "outline"} className="text-xs">
+                  {bayRule.evBayAnalysis.vehicleEVCapability?.evBadgingVisible ? "Visible" : "Not Seen"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <PlugZap className={`h-4 w-4 ${bayRule.evBayAnalysis.chargingActivity?.isActivelyCharging ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Charging:</span>
+                <Badge variant={bayRule.evBayAnalysis.chargingActivity?.isActivelyCharging ? "default" : "outline"} className="text-xs">
+                  {bayRule.evBayAnalysis.chargingActivity?.isActivelyCharging ? "Active" : "Not Charging"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Cable className={`h-4 w-4 ${bayRule.evBayAnalysis.chargingActivity?.cableConnectedToVehicle ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Cable:</span>
+                <Badge variant={bayRule.evBayAnalysis.chargingActivity?.cableConnectedToVehicle ? "default" : "outline"} className="text-xs">
+                  {bayRule.evBayAnalysis.chargingActivity?.cableConnectedToVehicle && bayRule.evBayAnalysis.chargingActivity?.cableConnectedToCharger 
+                    ? "Connected" 
+                    : bayRule.evBayAnalysis.chargingActivity?.cableConnectedToVehicle 
+                      ? "Vehicle Only" 
+                      : "Not Connected"}
+                </Badge>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              {bayRule.evBayAnalysis.vehicleEVCapability?.makeModel && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Vehicle:</span>
+                  <Badge variant="outline">{bayRule.evBayAnalysis.vehicleEVCapability.makeModel}</Badge>
+                </div>
+              )}
+              {bayRule.evBayAnalysis.vehicleEVCapability?.fuelTypeFromDVLA && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">DVLA Fuel Type:</span>
+                  <Badge variant="outline">{bayRule.evBayAnalysis.vehicleEVCapability.fuelTypeFromDVLA}</Badge>
+                </div>
+              )}
+              {bayRule.evBayAnalysis.chargingActivity?.chargingUnitType && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Charger Type:</span>
+                  <Badge variant="outline">{bayRule.evBayAnalysis.chargingActivity.chargingUnitType}</Badge>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Charging Required:</span>
+                <Badge variant={bayRule.evBayAnalysis.chargingActivity?.chargingRequiredBySignage ? "secondary" : "outline"}>
+                  {bayRule.evBayAnalysis.chargingActivity?.chargingRequiredBySignage ? "Yes (signage)" : "No"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Vehicle Position:</span>
+                <Badge variant={bayRule.evBayAnalysis.vehiclePosition?.correctlyParked ? "default" : "destructive"}>
+                  {bayRule.evBayAnalysis.vehiclePosition?.correctlyParked ? "Correctly Parked" : "Position Issue"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={getConfidenceBadgeVariant(bayRule.evBayAnalysis.confidence)}>
+                  {bayRule.evBayAnalysis.confidenceScore}%
+                </Badge>
+              </div>
+            </div>
+            
+            {bayRule.evBayAnalysis.signageCompliance?.violations && bayRule.evBayAnalysis.signageCompliance.violations.length > 0 && (
+              <>
+                <Separator />
+                <div className="p-2 bg-destructive/10 rounded text-sm">
+                  <p className="font-medium text-xs text-destructive mb-1">Signage Violations</p>
+                  <ul className="list-disc list-inside text-destructive space-y-1">
+                    {bayRule.evBayAnalysis.signageCompliance.violations.map((violation: string, idx: number) => (
+                      <li key={idx}>{violation}</li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+            
+            {bayRule.evBayAnalysis?.reason && bayRule.evBayAnalysis.decision === "NON_COMPLIANT" && (
+              <>
+                <Separator />
+                <div className="p-2 bg-destructive/10 rounded text-sm flex items-start gap-2">
+                  <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                  <span className="text-destructive">{bayRule.evBayAnalysis.reason}</span>
+                </div>
+              </>
+            )}
+            
+            <div className="p-3 bg-muted/30 rounded text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">Legal Justification</p>
+              <p>{bayRule.evBayAnalysis.legalJustification}</p>
+            </div>
+            
+            {bayRule.evBayAnalysis.manualReviewRequired && (
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Manual review required - EV/Charging verification uncertain</span>
               </div>
             )}
           </CardContent>
