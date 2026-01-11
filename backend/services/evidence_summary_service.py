@@ -203,14 +203,15 @@ class EvidenceSummaryService:
                 warnings.append(f"Evidence {evidence_id}: Future timestamp rejected ({timestamp_str})")
                 continue
             
-            # Validate: Not older than case creation (if available)
-            if case_created_at and timestamp < case_created_at - timedelta(days=7):
-                warnings.append(f"Evidence {evidence_id}: Timestamp before case creation")
+            # Validate: Not unreasonably older than case creation (allow 90 days before)
+            # This allows evidence from historical parking sessions
+            if case_created_at and timestamp < case_created_at - timedelta(days=90):
+                warnings.append(f"Evidence {evidence_id}: Timestamp too old (>90 days before case)")
                 continue
             
-            # Validate: Not unreasonably old (more than 30 days)
-            if timestamp < now - timedelta(days=30):
-                warnings.append(f"Evidence {evidence_id}: Timestamp too old (>30 days)")
+            # Validate: Not unreasonably old (more than 90 days)
+            if timestamp < now - timedelta(days=90):
+                warnings.append(f"Evidence {evidence_id}: Timestamp too old (>90 days)")
                 continue
             
             valid_timestamps.append(timestamp)
