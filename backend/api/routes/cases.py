@@ -521,7 +521,7 @@ async def run_case_pipeline(
             signage_compliance=signage_compliance,
             bay_rule_evaluation=bay_rule_evaluation,
             decision=decision,
-            analysis_started_at=now,
+            analysis_started_at=datetime.utcnow(),
             analysis_completed_at=datetime.utcnow()
         )
         db.add(pipeline_results)
