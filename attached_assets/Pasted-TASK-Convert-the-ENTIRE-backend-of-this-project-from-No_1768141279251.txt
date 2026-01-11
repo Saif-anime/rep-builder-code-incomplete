@@ -1,0 +1,192 @@
+TASK:
+Convert the ENTIRE backend of this project from Node.js / TypeScript
+into Python, while preserving ALL existing logic, APIs, routes,
+responses, database behavior, and integrations.
+
+The frontend must continue working WITHOUT ANY CHANGES.
+
+==================================================
+PHASE 1 — ANALYSIS (DO NOT SKIP)
+==================================================
+
+Before writing code:
+
+1. Scan all backend files, especially:
+   - server/
+   - routes/
+   - controllers/
+   - services/
+   - middleware/
+   - database layer
+2. List all:
+   - API endpoints
+   - request/response schemas
+   - environment variables
+   - background jobs / workers
+   - third-party integrations (Gemini, OCR, storage, auth, etc.)
+3. Preserve:
+   - Route paths
+   - HTTP methods
+   - JSON response structure
+   - Status codes
+   - Error messages
+
+==================================================
+PHASE 2 — PYTHON STACK (MANDATORY)
+==================================================
+
+Use this stack ONLY:
+
+- Framework: FastAPI
+- Server: Uvicorn
+- Validation: Pydantic
+- ORM: SQLAlchemy (or equivalent of existing DB layer)
+- Auth: replicate existing auth logic exactly
+- OCR: PaddleOCR + Tesseract
+- AI calls: Gemini API (same prompt + behavior)
+- File handling: Python native + Pillow + OpenCV
+
+==================================================
+PHASE 3 — PROJECT STRUCTURE
+==================================================
+
+Create this backend structure:
+
+backend/
+├── main.py
+├── api/
+│   ├── routes/
+│   ├── controllers/
+│   ├── schemas/
+│   └── dependencies/
+├── services/
+│   ├── ocr_service.py
+│   ├── ai_service.py
+│   ├── evidence_service.py
+│   └── auth_service.py
+├── db/
+│   ├── session.py
+│   ├── models.py
+│   └── migrations/
+├── utils/
+├── config.py
+└── requirements.txt
+
+==================================================
+PHASE 4 — API & LOGIC MIGRATION
+==================================================
+
+For EACH existing Node.js route:
+
+- Create the equivalent FastAPI route
+- Maintain:
+  - Request body
+  - Query params
+  - Headers
+  - Response JSON format
+- Ensure frontend receives IDENTICAL data
+
+No renaming.
+No restructuring of responses.
+
+==================================================
+PHASE 5 — ASYNC & PERFORMANCE
+==================================================
+
+- Convert async/await logic correctly
+- Do NOT block the event loop
+- Background jobs must use:
+  - FastAPI BackgroundTasks or Celery (if already used)
+
+==================================================
+PHASE 6 — FILE UPLOADS & OCR
+==================================================
+
+- Migrate evidence upload logic
+- Preserve file paths and naming
+- Re-implement OCR pipeline exactly:
+  - Preprocessing
+  - Timestamp extraction
+  - Confidence scoring
+
+==================================================
+PHASE 7 — ENVIRONMENT & STARTUP
+==================================================
+
+- Create `.env.example`
+- Map all existing env vars
+- Add startup command:
+  `uvicorn backend.main:app --host 0.0.0.0 --port 3000`
+
+==================================================
+PHASE 8 — REMOVE NODE BACKEND
+==================================================
+
+After Python backend works:
+
+- Disable Node backend startup
+- Remove Node-only backend code
+- Keep frontend build system intact
+
+==================================================
+PHASE 9 — VERIFICATION
+==================================================
+
+Confirm:
+- All APIs respond correctly
+- Frontend loads without errors
+- Evidence analysis works end-to-end
+- OCR timestamps populate Observe From / Observe To
+- No 500 errors
+- No missing routes
+
+==================================================
+HARD RULES
+==================================================
+
+🚫 DO NOT:
+- Change frontend code
+- Change API paths
+- Change response formats
+- Skip routes
+- Leave partial Node logic
+
+✅ DO:
+- Fully migrate
+- Fully test
+- Ensure production readiness
+
+This is a COMPLETE backend replacement.
+🚀 What this will do for you
+✔ Clean Python backend
+✔ Same functionality
+✔ Faster OCR & image handling
+✔ Easier compliance & audits
+✔ No frontend rewrite
+
+🧠 Strong recommendation (next step)
+After migration, ask me to:
+
+✅ Review FastAPI routes for bugs
+
+⚡ Optimize OCR speed
+
+🔐 Harden security for PCN compliance
+
+📄 Generate API documentation (OpenAPI PDF)
+
+If you want, I can also give you:
+
+Exact requirements.txt
+
+Dockerfile
+
+Replit deployment config
+
+Just tell me 👍
+
+
+
+
+
+
