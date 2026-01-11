@@ -553,10 +553,18 @@ async def run_case_pipeline(
         
         # Get DVLA vehicle data if available
         dvla_vehicle_data = None
-        if bundle:
-            case_vehicle = db.query(CaseVehicle).filter(CaseVehicle.bundle_id == bundle.id).first()
-            if case_vehicle and case_vehicle.dvla_data:
-                dvla_vehicle_data = case_vehicle.dvla_data
+        if case_id:
+            case_vehicle = db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).first()
+            if case_vehicle:
+                # Build DVLA data from case_vehicle fields
+                dvla_vehicle_data = {
+                    "make": case_vehicle.make,
+                    "model": case_vehicle.model,
+                    "colour": case_vehicle.colour,
+                    "fuel_type": case_vehicle.fuel_type,
+                    "tax_status": case_vehicle.tax_status,
+                    "mot_status": case_vehicle.mot_status
+                }
         
         # Build evidence items for loading analysis
         evidence_items = [{
