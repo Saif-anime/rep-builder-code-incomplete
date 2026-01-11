@@ -243,20 +243,42 @@ async def run_case_pipeline(
     
     return {"message": "Pipeline started", "caseId": case_id}
 
-@router.post("/{case_id}/reanalyze-evidence")
+@router.post("/{id}/reanalyze-evidence")
 async def reanalyze_case_evidence(
-    case_id: str,
+    id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+    # Try to find by case ID first
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == id).first()
+    
+    # If not found, try to find by bundle ID and get its case
     if not case:
+        try:
+            bundle_id = int(id)
+            bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+            if bundle and bundle.case_id:
+                case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+        except (ValueError, TypeError):
+            pass
+    
+    if not case:
+        # If still no case, create a mock analysis response for bundles without cases
+        try:
+            bundle_id = int(id)
+            bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+            if bundle:
+                bundle.status = "analyzing"
+                db.commit()
+                return {"message": "Analysis started", "bundleId": id, "status": "ANALYSING"}
+        except (ValueError, TypeError):
+            pass
         raise HTTPException(status_code=404, detail={"error": "Case not found"})
     
     case.status = "ANALYSING"
     db.commit()
     
-    bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case_id).all()
+    bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).all()
     for bundle in bundles:
         bundle.status = "analyzing"
     db.commit()
@@ -265,13 +287,13 @@ async def reanalyze_case_evidence(
         user_id=current_user.id,
         action="reanalyze",
         entity_type="enforcement_case",
-        entity_id=case_id,
+        entity_id=case.id,
         details={"triggered_by": "manual"}
     )
     db.add(audit_log)
     db.commit()
     
-    return {"message": "Analysis started", "caseId": case_id, "status": "ANALYSING"}
+    return {"message": "Analysis started", "caseId": case.id, "status": "ANALYSING"}
 
 @router.get("/{case_id}/pcn")
 async def get_case_pcn(
