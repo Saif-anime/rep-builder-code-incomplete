@@ -69,11 +69,21 @@ export default function EvidencePage() {
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const [selectedBayType, setSelectedBayType] = useState<string>("");
   const [manualVrmLookup, setManualVrmLookup] = useState("");
-  const [dvlaLookupResult, setDvlaLookupResult] = useState<{
-    make?: string;
-    colour?: string;
-    fuelType?: string;
+  
+  // DVLA Lookup State - refactored for data-driven UI
+  const [vehicleData, setVehicleData] = useState<{
+    vrm: string;
+    make: string;
+    model?: string;
+    colour: string;
+    fuelType: string;
+    taxStatus?: string;
+    motStatus?: string;
+    yearOfManufacture?: number;
+    co2Emissions?: number;
   } | null>(null);
+  const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [lookupError, setLookupError] = useState<string | null>(null);
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
     queryKey: ["/api/evidence/bundles"],
@@ -136,35 +146,68 @@ export default function EvidencePage() {
 
   const dvlaLookupMutation = useMutation({
     mutationFn: async ({ bundleId, registrationNumber }: { bundleId: string; registrationNumber: string }) => {
+      setLookupStatus("loading");
+      setLookupError(null);
       const response = await apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
       return response.json();
     },
     onSuccess: (result: any) => {
       console.log("DVLA Lookup Response:", result);
+      
       if (result.success && result.vehicle) {
+        // SUCCESS: Update vehicle data and status
         console.log("Vehicle Data:", {
           make: result.vehicle.make,
           colour: result.vehicle.colour,
           fuelType: result.vehicle.fuelType
         });
-        setDvlaLookupResult({
+        
+        setVehicleData({
+          vrm: result.vehicle.vrm,
           make: result.vehicle.make,
+          model: result.vehicle.model,
           colour: result.vehicle.colour,
-          fuelType: result.vehicle.fuelType
+          fuelType: result.vehicle.fuelType,
+          taxStatus: result.vehicle.taxStatus,
+          motStatus: result.vehicle.motStatus,
+          yearOfManufacture: result.vehicle.yearOfManufacture,
+          co2Emissions: result.vehicle.co2Emissions
         });
+        setLookupStatus("success");
+        setLookupError(null);
+        
         toast({ title: "Vehicle verified", description: `${result.vehicle.make} - ${result.vehicle.colour}` });
         queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       } else {
+        // FAILURE: Only show error if NO existing vehicleData
         console.error("DVLA Lookup Failed:", result.error);
-        setDvlaLookupResult(null);
-        toast({ title: "Lookup failed", description: result.error || "Unable to verify vehicle", variant: "destructive" });
+        
+        if (vehicleData === null) {
+          // No previous data - show error
+          setLookupStatus("error");
+          setLookupError(result.error || "Unable to verify vehicle");
+          toast({ title: "Lookup failed", description: result.error || "Unable to verify vehicle", variant: "destructive" });
+        } else {
+          // Previous data exists - keep it, don't show error
+          setLookupStatus("success"); // Keep showing success state with existing data
+          console.log("Keeping existing vehicle data despite lookup failure");
+        }
       }
       setManualVrmLookup("");
     },
     onError: (error: Error) => {
       console.error("DVLA Lookup Error:", error);
-      setDvlaLookupResult(null);
-      toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
+      
+      // Only show error if NO existing vehicleData
+      if (vehicleData === null) {
+        setLookupStatus("error");
+        setLookupError(error.message);
+        toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
+      } else {
+        // Previous data exists - keep it
+        setLookupStatus("success");
+        console.log("Keeping existing vehicle data despite network error");
+      }
     },
   });
 
@@ -467,7 +510,10 @@ export default function EvidencePage() {
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedBundle(bundle);
-                              setDvlaLookupResult(null);
+                              // Reset lookup state for new bundle
+                              setVehicleData(null);
+                              setLookupStatus("idle");
+                              setLookupError(null);
                             }}
                             data-testid={`button-view-${bundle.id}`}
                           >
@@ -618,26 +664,68 @@ export default function EvidencePage() {
                   </Button>
                 </div>
                 
-                {dvlaLookupResult && (
+                {/* Loading State */}
+                {lookupStatus === "loading" && (
+                  <div className="mt-3 p-4 bg-muted rounded-md flex items-center gap-3" data-testid="dvla-lookup-loading">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span className="text-sm">Looking up vehicle details...</span>
+                  </div>
+                )}
+                
+                {/* Vehicle Data Display - ALWAYS show when data exists */}
+                {vehicleData && (
                   <Card className="mt-3 border-green-500/50 bg-green-50 dark:bg-green-950/20" data-testid="dvla-lookup-result">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
                         <span className="font-semibold text-green-700 dark:text-green-400">DVLA Vehicle Verified</span>
+                        <Badge variant="outline" className="ml-auto font-mono">{vehicleData.vrm}</Badge>
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <div className="text-center p-2 bg-background rounded-md">
                           <span className="text-xs text-muted-foreground block">Make</span>
-                          <p className="font-bold text-lg">{dvlaLookupResult.make || "N/A"}</p>
+                          <p className="font-bold text-lg">{vehicleData.make || "N/A"}</p>
                         </div>
                         <div className="text-center p-2 bg-background rounded-md">
                           <span className="text-xs text-muted-foreground block">Colour</span>
-                          <p className="font-bold text-lg">{dvlaLookupResult.colour || "N/A"}</p>
+                          <p className="font-bold text-lg">{vehicleData.colour || "N/A"}</p>
                         </div>
                         <div className="text-center p-2 bg-background rounded-md">
                           <span className="text-xs text-muted-foreground block">Fuel Type</span>
-                          <p className="font-bold text-lg">{dvlaLookupResult.fuelType || "N/A"}</p>
+                          <p className="font-bold text-lg">{vehicleData.fuelType || "N/A"}</p>
                         </div>
+                      </div>
+                      {(vehicleData.taxStatus || vehicleData.motStatus) && (
+                        <div className="grid grid-cols-2 gap-4 mt-3">
+                          {vehicleData.taxStatus && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Tax:</span>
+                              <Badge variant={vehicleData.taxStatus === "Taxed" ? "outline" : "destructive"} className="text-xs">
+                                {vehicleData.taxStatus}
+                              </Badge>
+                            </div>
+                          )}
+                          {vehicleData.motStatus && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">MOT:</span>
+                              <Badge variant={vehicleData.motStatus === "Valid" ? "outline" : "destructive"} className="text-xs">
+                                {vehicleData.motStatus}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {/* Error State - ONLY show when NO vehicle data exists */}
+                {lookupStatus === "error" && vehicleData === null && lookupError && (
+                  <Card className="mt-3 border-destructive/50 bg-destructive/10" data-testid="dvla-lookup-error">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-destructive" />
+                        <span className="text-sm text-destructive">{lookupError}</span>
                       </div>
                     </CardContent>
                   </Card>

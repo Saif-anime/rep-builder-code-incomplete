@@ -1,0 +1,137 @@
+You are a senior frontend + backend engineer.
+
+TASK
+Fix the DVLA vehicle lookup flow so that:
+1. Vehicle details always appear in the “View Details” section after lookup
+2. Previous successful data is NEVER hidden by lookup errors
+3. Lookup failure messages are NOT shown once valid data exists
+4. Cached or successful responses are always rendered
+
+--------------------------------------------------
+CURRENT PROBLEMS
+--------------------------------------------------
+- Vehicle details are fetched successfully (API success = true)
+- But UI sometimes still shows lookup failure
+- “View Details” does not consistently render fetched data
+- Error state overrides valid response state
+
+--------------------------------------------------
+GOAL
+--------------------------------------------------
+Make the UI strictly data-driven:
+- If vehicle data exists → SHOW IT
+- Only show lookup error when NO data exists
+- Never clear valid data on lookup failure
+
+--------------------------------------------------
+PHASE 1 — BACKEND RESPONSE CONTRACT (DO NOT CHANGE DATA)
+--------------------------------------------------
+Ensure backend always returns:
+
+{
+  success: boolean,
+  cached: boolean,
+  vehicle?: {
+    vrm: string,
+    make: string,
+    model: string,
+    colour: string,
+    fuelType: string,
+    taxStatus: string,
+    motStatus: string,
+    co2Emissions?: number,
+    yearOfManufacture?: number
+  },
+  error?: string
+}
+
+IMPORTANT:
+- If cached data exists → success MUST be true
+- error field must ONLY exist when success = false AND no vehicle data
+
+--------------------------------------------------
+PHASE 2 — FRONTEND STATE FIX
+--------------------------------------------------
+Refactor lookup state into:
+
+vehicleData = null | Vehicle
+lookupStatus = "idle" | "loading" | "success" | "error"
+
+Rules:
+- vehicleData is updated ONLY when success = true
+- vehicleData is NEVER cleared on error
+- lookupStatus = error ONLY if success = false AND vehicleData == null
+
+--------------------------------------------------
+PHASE 3 — LOOKUP HANDLER LOGIC
+--------------------------------------------------
+On lookup submit:
+
+1. Set lookupStatus = "loading"
+2. Call DVLA API
+3. If response.success === true:
+   - set vehicleData = response.vehicle
+   - set lookupStatus = "success"
+4. If response.success === false:
+   - IF vehicleData exists:
+       → keep showing existing vehicle data
+       → DO NOT show error UI
+     ELSE:
+       → set lookupStatus = "error"
+
+--------------------------------------------------
+PHASE 4 — VIEW DETAILS RENDER RULES
+--------------------------------------------------
+Render “View Details” section ONLY based on vehicleData
+
+IF vehicleData exists:
+- Always render View Details section
+- Populate all vehicle fields
+- Ignore lookupStatus completely
+
+IF vehicleData is null AND lookupStatus === "error":
+- Show lookup failure message
+
+--------------------------------------------------
+PHASE 5 — UI ERROR HANDLING (STRICT)
+--------------------------------------------------
+REMOVE:
+- Any toast or banner that triggers on API error alone
+- Any conditional like:
+  if (!success) show error
+
+REPLACE WITH:
+- Show error ONLY when:
+  success === false AND vehicleData === null
+
+--------------------------------------------------
+PHASE 6 — EDGE CASES TO HANDLE
+--------------------------------------------------
+✔ Cached lookup success  
+✔ Repeated searches for same VRM  
+✔ Temporary API failure after success  
+✔ Page refresh with stored data  
+✔ Slow network / retry  
+
+--------------------------------------------------
+PHASE 7 — TEST CASES
+--------------------------------------------------
+Add tests for:
+1. Successful lookup → View Details visible
+2. Cached response → View Details visible
+3. API failure AFTER success → View Details still visible
+4. First lookup failure → Error shown
+5. New lookup success after failure → Error removed
+
+--------------------------------------------------
+EXPECTED RESULT
+--------------------------------------------------
+- “View Details” ALWAYS shows vehicle info when available
+- No false “lookup failed” messages
+- Clean, deterministic UI behavior
+- Backend + frontend fully aligned
+
+After implementation:
+1. List state variables used
+2. Show updated lookup handler
+3. Confirm error logic removal
