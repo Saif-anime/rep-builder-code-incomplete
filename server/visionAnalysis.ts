@@ -147,37 +147,15 @@ Return ONLY valid JSON in this exact format:
 export async function analyzeImageWithVision(input: VisionAnalysisInput): Promise<VisionAnalysisResponse> {
   console.log("[Vision] Analyzing image:", input.imagePath);
   
-  // Check if Gemini is configured
-  if (!geminiModel) {
-    return { success: false, error: "GEMINI_API_KEY not configured - cannot analyze image" };
-  }
-  
-  const imageHash = computeImageHash(input.imagePath);
-  if (!imageHash) {
-    return { success: false, error: "Could not read or hash image file" };
-  }
-  
-  // Verify image file exists
+  // Verify image file exists FIRST
   const fullImagePath = path.join(process.cwd(), input.imagePath.startsWith("/") ? input.imagePath.slice(1) : input.imagePath);
   if (!fs.existsSync(fullImagePath)) {
+    console.error("[Vision] Image file not found:", fullImagePath);
     return { success: false, error: "Image file not found" };
   }
   
-  // Run YOLOv8 detection if available (non-blocking, for enhanced accuracy)
-  let yoloResult: YoloResult | null = null;
-  if (yoloStatus === "available") {
-    try {
-      console.log("[YOLO] Running object detection...");
-      yoloResult = await runYoloDetection(input.imagePath);
-      if (yoloResult.success) {
-        console.log(`[YOLO] Found: ${yoloResult.vehicles.length} vehicles, ${yoloResult.persons.length} persons`);
-      }
-    } catch (e: any) {
-      console.log("[YOLO] Detection skipped:", e.message);
-    }
-  }
-  
-  // Run dedicated OCR timestamp extraction (Tesseract-based - much more reliable than Vision GPT)
+  // CRITICAL: Run OCR timestamp extraction BEFORE Gemini check
+  // OCR (Tesseract) is independent of Gemini API and MUST always run
   let ocrTimestamp: string | null = null;
   let ocrConfidence: number = 0;
   let ocrReviewRequired: boolean = true;
@@ -195,6 +173,52 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     }
   } catch (e: any) {
     console.log("[Vision] OCR extraction failed:", e.message);
+  }
+  
+  // Check if Gemini is configured - if not, return partial result with OCR data only
+  if (!geminiModel) {
+    console.warn("[Vision] GEMINI_API_KEY not configured - returning OCR-only result");
+    const imageHash = computeImageHash(input.imagePath);
+    return { 
+      success: true, 
+      result: {
+        vehicleDetected: false,
+        vehicleType: "unknown",
+        bayTypeVisible: "unclear",
+        evIndicators: false,
+        disabledBadgeVisible: false,
+        humansDetected: { adult: false, child: false },
+        signageVisible: false,
+        visibilityQuality: "partial",
+        numberPlateDetected: undefined,
+        timestampOverlay: ocrTimestamp || undefined,
+        ocrTimestampConfidence: ocrConfidence,
+        ocrReviewRequired: ocrReviewRequired,
+        confidenceNotes: "Gemini API not configured - OCR timestamp extraction only",
+        analysedAt: new Date().toISOString(),
+        modelVersion: "ocr-only-v1",
+        imageHash: imageHash || "unknown",
+      }
+    };
+  }
+  
+  const imageHash = computeImageHash(input.imagePath);
+  if (!imageHash) {
+    return { success: false, error: "Could not read or hash image file" };
+  }
+  
+  // Run YOLOv8 detection if available (non-blocking, for enhanced accuracy)
+  let yoloResult: YoloResult | null = null;
+  if (yoloStatus === "available") {
+    try {
+      console.log("[YOLO] Running object detection...");
+      yoloResult = await runYoloDetection(input.imagePath);
+      if (yoloResult.success) {
+        console.log(`[YOLO] Found: ${yoloResult.vehicles.length} vehicles, ${yoloResult.persons.length} persons`);
+      }
+    } catch (e: any) {
+      console.log("[YOLO] Detection skipped:", e.message);
+    }
   }
   
   // Build context with YOLO pre-detection hints
