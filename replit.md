@@ -7,7 +7,7 @@ This project is an AI-powered parking enforcement system designed for Euro Parki
 I prefer detailed explanations and clear communication. I want the agent to adopt an iterative development approach, making small, testable changes. Please ask for confirmation before making any major architectural changes or significant code refactors. Do not make changes to the `shared/schema.ts` file without explicit instruction.
 
 ## System Architecture
-The system employs a full-stack architecture consisting of a React frontend, an Express.js backend, and a PostgreSQL database.
+The system employs a full-stack architecture consisting of a React frontend, a Python/FastAPI backend, and a PostgreSQL database.
 
 **UI/UX Decisions:**
 - **Frontend:** Built with React, Vite, TypeScript, Tailwind CSS, and Shadcn UI for a modern and responsive user experience.
@@ -24,8 +24,8 @@ The system employs a full-stack architecture consisting of a React frontend, an 
   - Touch-friendly padding and spacing on mobile devices
 
 **Technical Implementations:**
-- **Backend:** Express.js with TypeScript for a scalable and maintainable API.
-- **Database:** PostgreSQL managed with Drizzle ORM, ensuring type-safe and efficient data access.
+- **Backend:** Python FastAPI with SQLAlchemy ORM for a scalable and maintainable API (migrated from Express.js).
+- **Database:** PostgreSQL managed with SQLAlchemy ORM (models defined in `backend/db/models.py`).
 - **Authentication:** JWT for secure API access, with bcrypt for password hashing.
 - **Role-Based Access Control:** Differentiates between Admin, Operator, and Enforcement Officer roles with specific permissions.
 - **Evidence Management:** Supports camera feed integration, manual uploads, and SHA256 hashing for integrity. Handles image and video evidence.
