@@ -136,7 +136,8 @@ export default function EvidencePage() {
 
   const dvlaLookupMutation = useMutation({
     mutationFn: async ({ bundleId, registrationNumber }: { bundleId: string; registrationNumber: string }) => {
-      return apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
+      const response = await apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
+      return response.json();
     },
     onSuccess: (result: any) => {
       console.log("DVLA Lookup Response:", result);
