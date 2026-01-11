@@ -474,31 +474,36 @@ function parseTimestampOverlay(timestampStr: string): string | null {
   
   // Patterns for various camera timestamp formats
   // UK Hikvision format: "30-12-2025 Tue 14:32:27" (DD-MM-YYYY Day HH:MM:SS)
-  const patterns = [
-    /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,  // DD-MM-YYYY Day HH:MM:SS
-    /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, // DD/MM/YYYY Day HH:MM:SS
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,         // DD/MM/YYYY HH:MM:SS
-    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,           // YYYY-MM-DD HH:MM:SS
-    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,             // YYYY-MM-DDTHH:MM:SS
-    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,           // DD-MM-YYYY HH:MM:SS
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,                 // DD/MM/YYYY HH:MM
-    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,         // YYYY/MM/DD HH:MM:SS
+  // Also supports 2-digit year: "01-01-26 14:41:16" (DD-MM-YY HH:MM:SS)
+  const patterns: Array<{
+    regex: RegExp;
+    type: "4digit" | "2digit" | "iso";
+    dateOrder: "dmy" | "ymd" | "mdy";
+  }> = [
+    // 4-digit year patterns
+    { regex: /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },  // DD-MM-YYYY Day HH:MM:SS
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" }, // DD/MM/YYYY Day HH:MM:SS
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },         // DD/MM/YYYY HH:MM:SS
+    { regex: /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "ymd" },           // YYYY-MM-DD HH:MM:SS
+    { regex: /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/, type: "iso", dateOrder: "ymd" },             // YYYY-MM-DDTHH:MM:SS
+    { regex: /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },           // DD-MM-YYYY HH:MM:SS
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },                 // DD/MM/YYYY HH:MM
+    { regex: /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "ymd" },         // YYYY/MM/DD HH:MM:SS
+    // 2-digit year patterns (Hikvision often uses these)
+    { regex: /(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },           // DD-MM-YY HH:MM:SS
+    { regex: /(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },         // DD/MM/YY HH:MM:SS
+    { regex: /(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },                   // DD-MM-YY HH:MM
+    { regex: /(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },                 // DD/MM/YY HH:MM
   ];
   
   for (const pattern of patterns) {
-    const match = timestampStr.match(pattern);
+    const match = timestampStr.match(pattern.regex);
     if (match) {
       try {
         let year: number, month: number, day: number, hour: number, minute: number, second: number;
         
-        if (pattern.source.startsWith("(\\d{2})\\/")) {
-          day = parseInt(match[1]);
-          month = parseInt(match[2]);
-          year = parseInt(match[3]);
-          hour = parseInt(match[4]);
-          minute = parseInt(match[5]);
-          second = match[6] ? parseInt(match[6]) : 0;
-        } else if (pattern.source.startsWith("(\\d{4})")) {
+        if (pattern.dateOrder === "ymd") {
+          // YYYY-MM-DD or YYYY/MM/DD format
           year = parseInt(match[1]);
           month = parseInt(match[2]);
           day = parseInt(match[3]);
@@ -506,16 +511,25 @@ function parseTimestampOverlay(timestampStr: string): string | null {
           minute = parseInt(match[5]);
           second = match[6] ? parseInt(match[6]) : 0;
         } else {
+          // DD-MM-YYYY, DD/MM/YYYY, DD-MM-YY, DD/MM/YY format
           day = parseInt(match[1]);
           month = parseInt(match[2]);
-          year = parseInt(match[3]);
+          let yearValue = parseInt(match[3]);
+          
+          // Handle 2-digit years
+          if (pattern.type === "2digit") {
+            // Assume 2000s for years < 70, 1900s otherwise
+            yearValue = yearValue < 70 ? 2000 + yearValue : 1900 + yearValue;
+          }
+          
+          year = yearValue;
           hour = parseInt(match[4]);
           minute = parseInt(match[5]);
           second = match[6] ? parseInt(match[6]) : 0;
         }
         
         const date = new Date(year, month - 1, day, hour, minute, second);
-        if (!isNaN(date.getTime())) {
+        if (!isNaN(date.getTime()) && year >= 2000 && year <= 2100) {
           return date.toISOString();
         }
       } catch {
