@@ -27,7 +27,8 @@ import {
   FileVideo,
   CheckCircle2,
   AlertTriangle,
-  Eye
+  Eye,
+  Trash2
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -144,6 +145,19 @@ export default function EvidencePage() {
     },
     onError: (error: Error) => {
       toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteCaseMutation = useMutation({
+    mutationFn: async (caseId: string) => {
+      return apiRequest("DELETE", `/api/cases/${caseId}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Case deleted", description: "The case and its evidence have been removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -451,6 +465,24 @@ export default function EvidencePage() {
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm("Are you sure you want to delete this case? This action cannot be undone.")) {
+                                deleteCaseMutation.mutate(bundle.id);
+                              }
+                            }}
+                            disabled={deleteCaseMutation.isPending}
+                            data-testid={`button-delete-${bundle.id}`}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            {deleteCaseMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </Button>
                         </div>
                       </div>

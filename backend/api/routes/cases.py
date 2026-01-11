@@ -172,6 +172,37 @@ async def create_case(
     
     return case_to_dict(case)
 
+@router.delete("/{case_id}")
+async def delete_case(
+    case_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+    
+    # Delete related records
+    db.query(CaseEvidence).filter(CaseEvidence.case_id == case_id).delete()
+    db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).delete()
+    db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).delete()
+    db.query(PipelineResult).filter(PipelineResult.case_id == case_id).delete()
+    
+    # Log the deletion
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="delete",
+        entity_type="enforcement_case",
+        entity_id=case_id,
+        details={"caseReference": case.case_reference, "vrm": case.vrm}
+    )
+    db.add(audit_log)
+    
+    db.delete(case)
+    db.commit()
+    
+    return {"success": True, "message": "Case deleted successfully"}
+
 @router.get("/{case_id}/evidence")
 async def get_case_evidence(
     case_id: str,
