@@ -72,7 +72,11 @@ export default function EvidencePage() {
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
     queryKey: ["/api/evidence/bundles"],
-    refetchInterval: 10000,
+    refetchInterval: (query) => {
+      const data = query.state.data as EvidenceBundle[] | undefined;
+      const hasPending = data?.some(b => b.status === "pending" || b.status === "analysing");
+      return hasPending ? 5000 : false;
+    },
   });
 
   const { data: parkingSites = [] } = useQuery<ParkingSite[]>({

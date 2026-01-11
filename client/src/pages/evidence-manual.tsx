@@ -64,7 +64,11 @@ export default function ManualUploadPage() {
   const { data: evidence, isLoading } = useQuery<Evidence[]>({
     queryKey: ["/api/evidence"],
     select: (data) => data.filter(e => e.type === "manual"),
-    refetchInterval: 10000,
+    refetchInterval: (query) => {
+      const data = query.state.data as Evidence[] | undefined;
+      const hasPending = data?.some(e => e.status === "pending" || e.status === "analysing");
+      return hasPending ? 5000 : false;
+    },
   });
 
   const { data: bays } = useQuery<Bay[]>({
