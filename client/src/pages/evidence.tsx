@@ -618,26 +618,28 @@ export default function EvidencePage() {
                 </div>
                 
                 {dvlaLookupResult && (
-                  <div className="mt-3 p-3 bg-muted rounded-md" data-testid="dvla-lookup-result">
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <span className="text-sm font-medium">Vehicle Details</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Make:</span>
-                        <p className="font-medium">{dvlaLookupResult.make || "N/A"}</p>
+                  <Card className="mt-3 border-green-500/50 bg-green-50 dark:bg-green-950/20" data-testid="dvla-lookup-result">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        <span className="font-semibold text-green-700 dark:text-green-400">DVLA Vehicle Verified</span>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">Colour:</span>
-                        <p className="font-medium">{dvlaLookupResult.colour || "N/A"}</p>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center p-2 bg-background rounded-md">
+                          <span className="text-xs text-muted-foreground block">Make</span>
+                          <p className="font-bold text-lg">{dvlaLookupResult.make || "N/A"}</p>
+                        </div>
+                        <div className="text-center p-2 bg-background rounded-md">
+                          <span className="text-xs text-muted-foreground block">Colour</span>
+                          <p className="font-bold text-lg">{dvlaLookupResult.colour || "N/A"}</p>
+                        </div>
+                        <div className="text-center p-2 bg-background rounded-md">
+                          <span className="text-xs text-muted-foreground block">Fuel Type</span>
+                          <p className="font-bold text-lg">{dvlaLookupResult.fuelType || "N/A"}</p>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">Fuel Type:</span>
-                        <p className="font-medium">{dvlaLookupResult.fuelType || "N/A"}</p>
-                      </div>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 )}
                 
                 {selectedBundle.vehicles.length > 0 && (
