@@ -9,7 +9,7 @@ import uuid
 from backend.db import get_db
 from backend.db.models import (
     User, Evidence, EvidenceBundle, CaseEvidence, EnforcementCase,
-    CasePipelineResults, AuditLog
+    CasePipelineResults, AuditLog, ParkingSite
 )
 from backend.api.dependencies import get_current_user
 from backend.config import settings
@@ -182,19 +182,37 @@ async def upload_evidence(
 @router.post("/bundles/upload", status_code=status.HTTP_201_CREATED)
 async def upload_evidence_bundle(
     files: List[UploadFile] = File(...),
-    caseId: str = Form(...),
-    name: Optional[str] = Form(default=None),
-    siteId: Optional[int] = Form(default=None),
+    siteId: Optional[str] = Form(default=None),
+    cameraId: Optional[str] = Form(default=None),
+    bayType: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    case = db.query(EnforcementCase).filter(EnforcementCase.id == caseId).first()
-    if not case:
-        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+    site_id_int = int(siteId) if siteId and siteId != "none" else None
+    camera_id_int = int(cameraId) if cameraId and cameraId != "none" else None
+    
+    site_name = "Unknown Site"
+    if site_id_int:
+        site = db.query(ParkingSite).filter(ParkingSite.id == site_id_int).first()
+        if site:
+            site_name = site.name
+    
+    case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
+    case = EnforcementCase(
+        id=case_id,
+        site_id=site_id_int,
+        status="open",
+        priority="medium",
+        source="manual",
+        evidence_count=len(files),
+        created_by=current_user.id
+    )
+    db.add(case)
+    db.commit()
     
     bundle = EvidenceBundle(
-        case_id=caseId,
-        name=name or f"Bundle uploaded {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        case_id=case_id,
+        name=f"Bundle uploaded {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         status="pending",
         file_count=len(files),
         created_by=current_user.id
@@ -203,7 +221,7 @@ async def upload_evidence_bundle(
     db.commit()
     db.refresh(bundle)
     
-    evidence_items = []
+    evidence_ids = []
     for file in files:
         unique_suffix = f"{int(datetime.utcnow().timestamp())}-{uuid.uuid4().hex[:12]}"
         ext = os.path.splitext(file.filename)[1] if file.filename else ".jpg"
@@ -220,13 +238,15 @@ async def upload_evidence_bundle(
         evidence = Evidence(
             type="manual",
             bundle_id=bundle.id,
-            site_id=siteId or case.site_id,
+            site_id=site_id_int,
+            camera_id=camera_id_int,
+            bay_id=None,
             uploaded_by=current_user.id,
             image_path=None if is_video else f"/uploads/{filename}",
             video_path=f"/uploads/{filename}" if is_video else None,
             timestamp=datetime.utcnow(),
             sha256_hash=file_hash,
-            file_metadata={"fileSize": len(content), "originalFilename": file.filename},
+            file_metadata={"fileSize": len(content), "originalFilename": file.filename, "bayType": bayType},
             status="pending"
         )
         db.add(evidence)
@@ -234,20 +254,26 @@ async def upload_evidence_bundle(
         db.refresh(evidence)
         
         case_evidence = CaseEvidence(
-            case_id=caseId,
+            case_id=case_id,
             evidence_id=evidence.id,
             source="manual"
         )
         db.add(case_evidence)
         
-        evidence_items.append(evidence)
+        evidence_ids.append(evidence.id)
     
-    case.evidence_count = (case.evidence_count or 0) + len(files)
     db.commit()
     
     return {
-        "bundle": bundle_to_dict(bundle),
-        "evidence": [evidence_to_dict(e) for e in evidence_items]
+        "bundleId": bundle.id,
+        "caseId": case_id,
+        "evidenceIds": evidence_ids,
+        "siteName": site_name,
+        "siteId": site_id_int,
+        "bayType": bayType,
+        "uploadSource": "camera" if camera_id_int else "manual",
+        "evidenceCount": len(files),
+        "status": "pending"
     }
 
 @router.get("/bundles/{bundle_id}")
