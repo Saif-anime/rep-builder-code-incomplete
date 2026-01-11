@@ -122,13 +122,16 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
     let detectedPlate: string | null = null;
 
     if (evidenceItem.imagePath) {
+      console.log(`[Evidence Worker] Evidence ${evidenceId} has imagePath: ${evidenceItem.imagePath}`);
       try {
         const fullImagePath = path.join(process.cwd(), evidenceItem.imagePath.replace(/^\//, ''));
+        console.log(`[Evidence Worker] Full image path: ${fullImagePath}`);
         
         if (fs.existsSync(fullImagePath)) {
-          console.log(`[Evidence Worker] Running Vision GPT analysis for evidence ID: ${evidenceId}`);
+          console.log(`[Evidence Worker] Image EXISTS - Running Vision GPT + OCR analysis for evidence ID: ${evidenceId}`);
           // Pass the RELATIVE path (as stored in DB) - visionAnalysis.ts will add cwd
           const visionResponse = await analyzeImageWithVision({ imagePath: evidenceItem.imagePath });
+          console.log(`[Evidence Worker] Vision response success: ${visionResponse.success}, has result: ${!!visionResponse.result}`);
           
           if (visionResponse.success && visionResponse.result) {
             visionResult = visionResponse.result;
@@ -373,6 +376,8 @@ export async function retryFailedAnalysis(evidenceId: number): Promise<boolean> 
 }
 
 export async function reanalyzeEvidenceWithVision(evidenceId: number): Promise<boolean> {
+  console.log(`[Evidence Worker] reanalyzeEvidenceWithVision called for ID: ${evidenceId}`);
+  
   const [item] = await db.select()
     .from(evidence)
     .where(eq(evidence.id, evidenceId));
@@ -382,10 +387,19 @@ export async function reanalyzeEvidenceWithVision(evidenceId: number): Promise<b
     return false;
   }
 
+  console.log(`[Evidence Worker] Found evidence ID ${evidenceId}, imagePath: ${item.imagePath}`);
+
   await db.update(evidence)
     .set({ status: "pending", analysisError: null })
     .where(eq(evidence.id, evidenceId));
 
-  await processEvidenceItem(item);
+  console.log(`[Evidence Worker] Starting processEvidenceItem for ID: ${evidenceId}`);
+  try {
+    await processEvidenceItem(item);
+    console.log(`[Evidence Worker] processEvidenceItem completed for ID: ${evidenceId}`);
+  } catch (error: any) {
+    console.error(`[Evidence Worker] processEvidenceItem FAILED for ID: ${evidenceId}:`, error.message);
+    throw error;
+  }
   return true;
 }

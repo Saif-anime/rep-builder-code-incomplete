@@ -1,0 +1,138 @@
+You are a senior full-stack engineer + computer vision specialist.
+
+TASK: 
+The system is STILL failing to extract timestamps from inside evidence images.
+This must be resolved NOW by checking code, OCR pipeline, image preprocessing,
+API usage, execution order, and fallback logic.
+
+--------------------------------------------------
+STEP 1 — FULL CODE AUDIT (MANDATORY)
+--------------------------------------------------
+
+Search the entire backend and frontend for:
+- OCR logic (PaddleOCR / Tesseract)
+- Timestamp parsing
+- Gemini / Vision API usage
+- Evidence analysis pipeline
+
+Specifically inspect:
+- server/routes.ts
+- any OCR helper/service files
+- evidence analysis functions
+- re-analyse handler
+- image upload processing
+
+Identify:
+- Where OCR is called
+- Whether it is skipped, short-circuited, or overwritten
+- Any try/catch that swallows OCR errors
+- Any fallback that replaces OCR time with system time
+
+--------------------------------------------------
+STEP 2 — FIX EXECUTION ORDER (CRITICAL)
+--------------------------------------------------
+
+Enforce this order with NO EXCEPTIONS:
+
+1️⃣ Image preprocessing  
+2️⃣ OCR timestamp extraction (ALWAYS RUN)  
+3️⃣ Timestamp validation & confidence scoring  
+4️⃣ Store OCR result in DB  
+5️⃣ Gemini / Vision analysis (OPTIONAL, NEVER BLOCKING)
+
+OCR MUST:
+- Run even if Gemini fails
+- Run even if Gemini key is missing
+- Run even if Vision analysis errors
+
+REMOVE any logic like:
+- "if gemini enabled then OCR"
+- "if OCR confidence < X then use upload time"
+
+--------------------------------------------------
+STEP 3 — IMAGE PREPROCESSING (ROOT CAUSE FIX)
+--------------------------------------------------
+
+Before OCR, apply ALL of the following automatically:
+
+- Crop TOP 20–25% of image (camera timestamp zone)
+- Convert to grayscale
+- Increase contrast
+- Apply adaptive threshold
+- Resize image (2x–3x scale)
+- Denoise lightly
+
+OCR MUST target:
+- White/bright overlay text
+- Formats like:
+  DD-MM-YYYY HH:MM:SS
+  YYYY/MM/DD HH:MM
+  Tue 30-12-2025 14:32:27
+
+--------------------------------------------------
+STEP 4 — OCR CONFIGURATION (MANDATORY)
+--------------------------------------------------
+
+Configure OCR with:
+- Numeric priority
+- Time/date regex post-processing
+- Multiple passes (normal + inverted)
+
+If first OCR attempt fails:
+→ Retry with inverted colors
+→ Retry with tighter crop
+
+--------------------------------------------------
+STEP 5 — TIMESTAMP SELECTION LOGIC
+--------------------------------------------------
+
+From ALL extracted timestamps across all images:
+
+- Sort by datetime
+- Observe From = earliest timestamp
+- Observe To = latest timestamp
+- Duration = difference ONLY between these two
+
+NEVER:
+- Use upload time
+- Use system time
+- Use Gemini guessed time
+
+--------------------------------------------------
+STEP 6 — ERROR TRANSPARENCY (NO HIDING)
+--------------------------------------------------
+
+If OCR truly fails AFTER all retries:
+
+- Keep timestamps EMPTY
+- Set:
+  timeSource = "IMAGE_OCR_FAILED"
+  decision = "REVIEW REQUIRED"
+- Log exact failure reason in backend logs
+
+--------------------------------------------------
+STEP 7 — API & DEPENDENCY CHECK
+--------------------------------------------------
+
+Verify:
+- PaddleOCR / Tesseract is actually installed
+- OCR binaries are available in runtime
+- Image files are not compressed or resized before OCR
+- Correct image path is passed to OCR (not thumbnails)
+
+--------------------------------------------------
+STEP 8 — AUTO TEST & VERIFY
+--------------------------------------------------
+
+After fixing:
+- Re-analyse an existing bundle
+- Confirm timestamp matches visible overlay text in image
+- Confirm duration is correct
+- Confirm Gemini failure does NOT affect OCR
+
+DO NOT STOP until:
+- OCR extracts timestamp from the image overlay shown
+- “IMAGE OCR FAILED” no longer appears for valid images
+- Observe From / Observe To exactly match image timestamp
+
+This is a production-blocking issue. Fix it completely.
