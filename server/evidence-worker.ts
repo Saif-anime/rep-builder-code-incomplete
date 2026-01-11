@@ -30,31 +30,41 @@ interface AIResult {
     signageVisible: boolean;
     visibilityQuality: string;
     timestampOverlay?: string | null;
-    ocrTimestampConfidence?: number;
+    timestampConfidence?: number;
   };
 }
 
-function parseOcrTimestamp(timestampStr: string): Date | null {
+function parseVisionTimestamp(timestampStr: string): Date | null {
   if (!timestampStr) return null;
   
-  const patterns = [
-    /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,
-    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+  const patterns: Array<{
+    regex: RegExp;
+    type: "4digit" | "2digit";
+    dateOrder: "dmy" | "ymd";
+  }> = [
+    // 4-digit year patterns
+    { regex: /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },
+    { regex: /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },
+    { regex: /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "dmy" },
+    { regex: /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "ymd" },
+    { regex: /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "ymd" },
+    { regex: /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "4digit", dateOrder: "ymd" },
+    // 2-digit year patterns (Hikvision cameras)
+    { regex: /(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },
+    { regex: /(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },
+    { regex: /(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },
+    { regex: /(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/, type: "2digit", dateOrder: "dmy" },
   ];
   
   for (const pattern of patterns) {
-    const match = timestampStr.match(pattern);
+    const match = timestampStr.match(pattern.regex);
     if (match) {
       try {
         let year: number, month: number, day: number, hour: number, minute: number, second: number;
         
-        if (pattern.source.startsWith("(\\d{4})")) {
+        if (pattern.dateOrder === "ymd") {
           year = parseInt(match[1]);
           month = parseInt(match[2]);
           day = parseInt(match[3]);
@@ -64,14 +74,21 @@ function parseOcrTimestamp(timestampStr: string): Date | null {
         } else {
           day = parseInt(match[1]);
           month = parseInt(match[2]);
-          year = parseInt(match[3]);
+          let yearValue = parseInt(match[3]);
+          
+          // Handle 2-digit years
+          if (pattern.type === "2digit") {
+            yearValue = yearValue < 70 ? 2000 + yearValue : 1900 + yearValue;
+          }
+          
+          year = yearValue;
           hour = parseInt(match[4]);
           minute = parseInt(match[5]);
           second = match[6] ? parseInt(match[6]) : 0;
         }
         
         const date = new Date(year, month - 1, day, hour, minute, second);
-        if (!isNaN(date.getTime())) {
+        if (!isNaN(date.getTime()) && year >= 2000 && year <= 2100) {
           return date;
         }
       } catch {
@@ -128,7 +145,7 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
         console.log(`[Evidence Worker] Full image path: ${fullImagePath}`);
         
         if (fs.existsSync(fullImagePath)) {
-          console.log(`[Evidence Worker] Image EXISTS - Running Vision GPT + OCR analysis for evidence ID: ${evidenceId}`);
+          console.log(`[Evidence Worker] Image EXISTS - Running Vision GPT analysis for evidence ID: ${evidenceId}`);
           // Pass the RELATIVE path (as stored in DB) - visionAnalysis.ts will add cwd
           const visionResponse = await analyzeImageWithVision({ imagePath: evidenceItem.imagePath });
           console.log(`[Evidence Worker] Vision response success: ${visionResponse.success}, has result: ${!!visionResponse.result}`);
@@ -215,7 +232,7 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
         signageVisible: visionResult.signageVisible,
         visibilityQuality: visionResult.visibilityQuality,
         timestampOverlay: visionResult.timestampOverlay || null,
-        ocrTimestampConfidence: visionResult.ocrTimestampConfidence ?? 0,
+        timestampConfidence: visionResult.timestampConfidence ?? 0,
       };
       
       if (visionResult.vehicleDetected && !analysisResult.isViolation) {
@@ -229,7 +246,6 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
     }
 
     // Update evidence with analysis results
-    // CRITICAL: If OCR extracted a valid timestamp, use it to override the upload timestamp
     const updateData: any = {
       status: "completed",
       analysisCompletedAt: new Date(),
@@ -238,14 +254,14 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
       analysisError: null,
     };
     
-    // Parse OCR timestamp and update the evidence timestamp field
+    // Parse Vision GPT timestamp and update the evidence timestamp field
     if (visionResult?.timestampOverlay) {
-      const ocrParsed = parseOcrTimestamp(visionResult.timestampOverlay);
-      if (ocrParsed) {
-        updateData.timestamp = ocrParsed;
-        console.log(`[Evidence Worker] Updated timestamp from OCR: ${visionResult.timestampOverlay} -> ${ocrParsed.toISOString()}`);
+      const parsedTimestamp = parseVisionTimestamp(visionResult.timestampOverlay);
+      if (parsedTimestamp) {
+        updateData.timestamp = parsedTimestamp;
+        console.log(`[Evidence Worker] Updated timestamp from Vision GPT: ${visionResult.timestampOverlay} -> ${parsedTimestamp.toISOString()}`);
       } else {
-        console.log(`[Evidence Worker] OCR timestamp could not be parsed: ${visionResult.timestampOverlay}`);
+        console.log(`[Evidence Worker] Vision GPT timestamp could not be parsed: ${visionResult.timestampOverlay}`);
       }
     }
 

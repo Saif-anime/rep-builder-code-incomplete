@@ -420,7 +420,7 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
   totalSteps: integer("total_steps").notNull().default(9),
   
   // Step 1: Evidence Normalisation
-  // CRITICAL: Timestamps MUST be extracted from visible image text (OCR) only
+  // CRITICAL: Timestamps MUST be extracted from visible image text via Vision GPT only
   // Do NOT use upload time, file metadata, EXIF data, or backend timestamps
   evidenceTimeline: jsonb("evidence_timeline").$type<{
     evidenceCount: number;
@@ -429,9 +429,9 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
     timestamps: Array<{
       evidenceId: number;
       timestamp: string;
-      source: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time";
+      source: "vision_gpt" | "exif" | "camera_overlay" | "filename" | "upload_time";
       confidence: number;
-      rawOcrText?: string;
+      rawText?: string;
     }>;
     entryWindow: { start: string; end: string; confidence: number } | null;
     exitWindow: { start: string; end: string; confidence: number } | null;

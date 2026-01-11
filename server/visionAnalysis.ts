@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { runYoloDetection, isYoloAvailable, mapYoloToVehicleType, hasPersonsDetected, type YoloResult } from "./yoloDetection";
-import { extractTimestampFromImage } from "./ocrTimestampExtractor";
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 if (!geminiApiKey) {
@@ -49,8 +48,7 @@ export interface VisionAnalysisResult {
   confidenceNotes: string;
   numberPlateDetected?: string;
   timestampOverlay?: string;
-  ocrTimestampConfidence?: number;
-  ocrReviewRequired?: boolean;
+  timestampConfidence?: number;
   analysedAt: string;
   modelVersion: string;
   imageHash: string;
@@ -97,24 +95,28 @@ function imageToBase64(imagePath: string): string | null {
   }
 }
 
-const VISION_PROMPT = `You are analysing parking enforcement evidence.
+const VISION_PROMPT = `You are analysing parking enforcement CCTV camera evidence images.
 
-Identify ONLY what is clearly visible.
-Do NOT guess.
-If unsure, say 'uncertain'.
+***** CRITICAL: TIMESTAMP EXTRACTION *****
+Your MOST IMPORTANT task is to extract the camera timestamp overlay text.
+This is CRITICAL for legal enforcement and MUST be extracted accurately.
 
-***** MOST IMPORTANT - TIMESTAMP EXTRACTION (OCR) *****
-LOOK CAREFULLY at the TOP-LEFT and TOP-RIGHT corners of the image for camera timestamp overlay text.
-This is CRITICAL for enforcement and MUST be extracted accurately.
-Common formats:
+LOOK VERY CAREFULLY at:
+1. TOP-LEFT corner of the image
+2. TOP-RIGHT corner of the image  
+3. BOTTOM-LEFT corner of the image
+4. BOTTOM-RIGHT corner of the image
+
+Camera timestamps appear as burned-in white, yellow, or colored text.
+Common Hikvision formats:
+- "01-01-26 14:41:16" (DD-MM-YY HH:MM:SS)
 - "01-01-2026 Thu 14:33:57" (DD-MM-YYYY Day HH:MM:SS)
-- "30-12-2025 Tue 14:32:27" 
-- "10/01/2026 14:35:22"
-- "2026-01-10 14:35"
-The timestamp is usually white or colored text burned into the image by the camera.
-Extract the EXACT text including date, day of week (if present), and time.
-DO NOT RETURN NULL if you can see any date/time text in the image corners.
-*****************************************************
+- "30/12/2025 14:32:27" (DD/MM/YYYY HH:MM:SS)
+- "2026-01-10 14:35:22" (YYYY-MM-DD HH:MM:SS)
+
+READ THE TIMESTAMP CHARACTER BY CHARACTER to ensure accuracy.
+If you see any date/time text, EXTRACT IT EXACTLY as shown.
+*******************************************
 
 Also detect:
 - Vehicle presence and type (car, van, motorcycle)
@@ -123,24 +125,22 @@ Also detect:
 - Disabled badge visibility (blue badge on dashboard)
 - Humans (adult, child)
 - Signage visibility
-- Number plate if visible
+- Number plate if visible (UK format)
 - Visibility quality
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON:
 {
   "vehicleDetected": boolean,
   "vehicleType": "car" | "van" | "motorcycle" | "unknown",
   "bayTypeVisible": "disabled" | "parent-child" | "ev" | "standard" | "unclear",
   "evIndicators": boolean,
   "disabledBadgeVisible": boolean,
-  "humansDetected": {
-    "adult": boolean,
-    "child": boolean
-  },
+  "humansDetected": { "adult": boolean, "child": boolean },
   "signageVisible": boolean,
   "visibilityQuality": "clear" | "partial" | "poor",
   "numberPlateDetected": "string or null",
-  "timestampOverlay": "CRITICAL - The exact date/time text visible in the camera overlay (usually top-left corner). Examples: '01-01-2026 Thu 14:33:57', '30-12-2025 14:32:27'. Return null ONLY if absolutely no timestamp text is visible anywhere in the image.",
+  "timestampOverlay": "EXACT camera timestamp text from image corners. Examples: '01-01-26 14:41:16', '30/12/2025 14:32:27'. Return null ONLY if no timestamp visible.",
+  "timestampConfidence": "high" | "medium" | "low",
   "confidenceNotes": "string explaining any uncertainties"
 }`;
 
@@ -154,51 +154,13 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     return { success: false, error: "Image file not found" };
   }
   
-  // CRITICAL: Run OCR timestamp extraction BEFORE Gemini check
-  // OCR (Tesseract) is independent of Gemini API and MUST always run
-  let ocrTimestamp: string | null = null;
-  let ocrConfidence: number = 0;
-  let ocrReviewRequired: boolean = true;
-  try {
-    console.log("[Vision] Running OCR timestamp extraction...");
-    const ocrResult = await extractTimestampFromImage(input.imagePath);
-    ocrConfidence = ocrResult.confidence;
-    ocrReviewRequired = ocrResult.reviewRequired;
-    
-    if (ocrResult.success && ocrResult.timestamp && ocrResult.timestamp !== "NO_VALID_TIMESTAMP") {
-      ocrTimestamp = ocrResult.normalizedTimestamp || ocrResult.timestamp;
-      console.log(`[Vision] OCR extracted: ${ocrResult.timestamp} -> ${ocrTimestamp} (${ocrResult.timestampRegion}, conf: ${ocrConfidence.toFixed(1)}%, review: ${ocrReviewRequired})`);
-    } else {
-      console.log(`[Vision] OCR: NO_VALID_TIMESTAMP (notes: ${ocrResult.notes || "none"}, raw: ${ocrResult.rawOcrText.substring(0, 100)})`);
-    }
-  } catch (e: any) {
-    console.log("[Vision] OCR extraction failed:", e.message);
-  }
-  
-  // Check if Gemini is configured - if not, return partial result with OCR data only
+  // Check if Gemini is configured
   if (!geminiModel) {
-    console.warn("[Vision] GEMINI_API_KEY not configured - returning OCR-only result");
+    console.warn("[Vision] GEMINI_API_KEY not configured - cannot analyze image");
     const imageHash = computeImageHash(input.imagePath);
     return { 
-      success: true, 
-      result: {
-        vehicleDetected: false,
-        vehicleType: "unknown",
-        bayTypeVisible: "unclear",
-        evIndicators: false,
-        disabledBadgeVisible: false,
-        humansDetected: { adult: false, child: false },
-        signageVisible: false,
-        visibilityQuality: "partial",
-        numberPlateDetected: undefined,
-        timestampOverlay: ocrTimestamp || undefined,
-        ocrTimestampConfidence: ocrConfidence,
-        ocrReviewRequired: ocrReviewRequired,
-        confidenceNotes: "Gemini API not configured - OCR timestamp extraction only",
-        analysedAt: new Date().toISOString(),
-        modelVersion: "ocr-only-v1",
-        imageHash: imageHash || "unknown",
-      }
+      success: false, 
+      error: "Gemini API not configured - Vision GPT required for timestamp extraction"
     };
   }
   
@@ -307,10 +269,13 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     }
     
     // Internal model tracking (not exposed to UI)
-    const detectionMethod = yoloResult?.success ? "hybrid" : "vision";
+    const detectionMethod = yoloResult?.success ? "hybrid" : "vision_gpt";
     
-    // Use OCR timestamp (Tesseract) as primary source, fallback to Vision GPT if available
-    const finalTimestamp = ocrTimestamp || parsed.timestampOverlay || undefined;
+    // Convert confidence string to number
+    const confMap: Record<string, number> = { high: 95, medium: 75, low: 50 };
+    const timestampConf = parsed.timestampConfidence 
+      ? confMap[parsed.timestampConfidence] || 75
+      : (parsed.timestampOverlay ? 80 : 0);
     
     const result: VisionAnalysisResult = {
       vehicleDetected,
@@ -323,52 +288,24 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       visibilityQuality: parsed.visibilityQuality || "partial",
       confidenceNotes: parsed.confidenceNotes || "",
       numberPlateDetected: parsed.numberPlateDetected || undefined,
-      timestampOverlay: finalTimestamp,
-      ocrTimestampConfidence: ocrTimestamp ? ocrConfidence : undefined,
-      ocrReviewRequired: ocrTimestamp ? ocrReviewRequired : undefined,
+      timestampOverlay: parsed.timestampOverlay || undefined,
+      timestampConfidence: timestampConf,
       analysedAt: new Date().toISOString(),
       modelVersion: detectionMethod,
       imageHash,
     };
     
     if (result.timestampOverlay) {
-      const source = ocrTimestamp ? "OCR (Tesseract)" : "Vision GPT";
-      console.log(`[Vision] Timestamp extracted via ${source}: ${result.timestampOverlay}`);
+      console.log(`[Vision GPT] Timestamp extracted: ${result.timestampOverlay} (confidence: ${timestampConf}%)`);
     } else {
-      console.log("[Vision] No timestamp could be extracted from image overlay");
+      console.log("[Vision GPT] No timestamp could be extracted from image overlay");
     }
     
-    // Cache disabled - each case gets fresh analysis
     console.log(`[Vision] Analysis complete (${detectionMethod}):`, result.vehicleDetected ? "Vehicle detected" : "No vehicle");
     
     return { success: true, result };
   } catch (error: any) {
     console.error("[Gemini Vision] API error:", error.message);
-    // CRITICAL: Return OCR-only result when Gemini fails (OCR is independent of Gemini)
-    if (ocrTimestamp || ocrConfidence > 0) {
-      console.log(`[Vision] Gemini failed but OCR extracted timestamp: ${ocrTimestamp || "partial"}`);
-      return { 
-        success: true, 
-        result: {
-          vehicleDetected: false,
-          vehicleType: "unknown",
-          bayTypeVisible: "unclear",
-          evIndicators: false,
-          disabledBadgeVisible: false,
-          humansDetected: { adult: false, child: false },
-          signageVisible: false,
-          visibilityQuality: "partial",
-          numberPlateDetected: undefined,
-          timestampOverlay: ocrTimestamp || undefined,
-          ocrTimestampConfidence: ocrConfidence,
-          ocrReviewRequired: ocrReviewRequired,
-          confidenceNotes: `Gemini API unavailable: ${error.message} - OCR timestamp extraction only`,
-          analysedAt: new Date().toISOString(),
-          modelVersion: "ocr-only-v1",
-          imageHash: imageHash || "unknown",
-        }
-      };
-    }
     return { success: false, error: error.message };
   }
 }

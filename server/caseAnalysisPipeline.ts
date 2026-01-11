@@ -96,9 +96,9 @@ interface EvidenceTimelineResult {
   timestamps: Array<{
     evidenceId: number;
     timestamp: string;
-    source: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time";
+    source: "vision_gpt" | "exif" | "camera_overlay" | "filename" | "upload_time";
     confidence: number;
-    rawOcrText?: string;
+    rawText?: string;
   }>;
   entryWindow: { start: string; end: string; confidence: number } | null;
   exitWindow: { start: string; end: string; confidence: number } | null;
@@ -362,13 +362,13 @@ async function stepEvidenceNormalisation(
       if (ev.imagePath) imageCount++;
       if (ev.videoPath) videoCount++;
       
-      // Initial placeholder - will be replaced by OCR-extracted timestamps after Vision analysis
-      // Do NOT use metadata sources (EXIF, upload time, etc.) - only OCR from visible image text
+      // Initial placeholder - will be replaced by Vision GPT extracted timestamps after analysis
+      // Do NOT use metadata sources (EXIF, upload time, etc.) - only Vision GPT from visible image text
       timestamps.push({
         evidenceId: ev.id,
-        timestamp: ev.timestamp.toISOString(), // Placeholder - will be overwritten by OCR
-        source: "upload_time" as const, // Will be replaced with "ocr" after Vision analysis
-        confidence: 0.1, // Low confidence until OCR extraction
+        timestamp: ev.timestamp.toISOString(), // Placeholder - will be overwritten by Vision GPT
+        source: "upload_time" as const, // Will be replaced with "vision_gpt" after Vision analysis
+        confidence: 0.1, // Low confidence until Vision GPT extraction
       });
     }
     
@@ -387,9 +387,9 @@ async function stepEvidenceNormalisation(
     let timestampQuality: "high" | "medium" | "low" | "invalid" = "high";
     
     // Check timestamp source quality - CRITICAL: 85% confidence threshold per enforcement spec
-    // Note: Tesseract returns confidence as 0-100, not 0-1
-    const OCR_CONFIDENCE_THRESHOLD = 85;
-    const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
+    // Vision GPT confidence uses 0-100 scale (high=95, medium=75, low=50)
+    const VISION_CONFIDENCE_THRESHOLD = 85;
+    const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= VISION_CONFIDENCE_THRESHOLD);
     const lowConfidenceCount = timestamps.filter(t => t.source === "upload_time").length;
     
     if (timestamps.length === 0) {
@@ -570,23 +570,23 @@ async function stepVisionAnalysis(
     for (const ev of imageEvidence) {
       if (!ev.imagePath) continue;
       
-      // CRITICAL: First check if evidence already has OCR data saved from previous analysis
+      // CRITICAL: First check if evidence already has Vision GPT data saved from previous analysis
       // This avoids re-running vision analysis (which may fail due to Gemini quota)
       const existingAiResult = ev.aiResult as any;
       const existingVisionAnalysis = existingAiResult?.visionAnalysis;
       
       if (existingVisionAnalysis?.timestampOverlay) {
-        // Use existing OCR timestamp data from database
+        // Use existing Vision GPT timestamp data from database
         const parsedDate = parseTimestampOverlay(existingVisionAnalysis.timestampOverlay);
-        const ocrConf = existingVisionAnalysis.ocrTimestampConfidence ?? (parsedDate ? 90 : 50);
+        const conf = existingVisionAnalysis.timestampConfidence ?? (parsedDate ? 85 : 50);
         
         timestampExtractions.push({
           evidenceId: ev.id,
           extractedTimestamp: existingVisionAnalysis.timestampOverlay,
           parsedDate,
-          confidence: ocrConf,
+          confidence: conf,
         });
-        console.log(`[Pipeline] Using saved OCR timestamp for evidence ${ev.id}: ${existingVisionAnalysis.timestampOverlay} -> ${parsedDate} (conf: ${ocrConf.toFixed(1)}%)`);
+        console.log(`[Pipeline] Using saved Vision GPT timestamp for evidence ${ev.id}: ${existingVisionAnalysis.timestampOverlay} -> ${parsedDate} (conf: ${conf}%)`);
         
         // Also extract other vision data from saved aiResult
         vehicleDetections.push({
@@ -616,7 +616,7 @@ async function stepVisionAnalysis(
         continue; // Skip re-running vision analysis for this evidence
       }
       
-      // No existing OCR data - run fresh vision analysis
+      // No existing Vision GPT data - run fresh vision analysis
       const result = await analyzeImageWithVision({
         imagePath: ev.imagePath,
         caseId: ctx.caseId,
@@ -651,16 +651,15 @@ async function stepVisionAnalysis(
         
         if (result.result.timestampOverlay) {
           const parsedDate = parseTimestampOverlay(result.result.timestampOverlay);
-          // CRITICAL: Use actual OCR confidence from Tesseract, NOT hardcoded values
-          // Tesseract returns 0-100 scale; pipeline thresholds expect 0-100 (85 = 85%)
-          const ocrConf = result.result.ocrTimestampConfidence ?? (parsedDate ? 90 : 50);
+          // Use Vision GPT confidence for timestamp extraction
+          const conf = result.result.timestampConfidence ?? (parsedDate ? 85 : 50);
           timestampExtractions.push({
             evidenceId: ev.id,
             extractedTimestamp: result.result.timestampOverlay,
             parsedDate,
-            confidence: ocrConf,
+            confidence: conf,
           });
-          console.log(`[Pipeline] Extracted timestamp for evidence ${ev.id}: ${result.result.timestampOverlay} -> ${parsedDate} (conf: ${ocrConf.toFixed(1)}%)`);
+          console.log(`[Pipeline] Vision GPT extracted timestamp for evidence ${ev.id}: ${result.result.timestampOverlay} -> ${parsedDate} (conf: ${conf}%)`);
         }
       }
     }
@@ -1356,14 +1355,14 @@ function stepDecisionEngine(
   behaviourProfiling: BehaviourProfilingOutput,
   bayRuleEvaluation: BayRuleEvaluationOutput
 ): DecisionOutput {
-  // CRITICAL: Check for valid OCR timestamps first - enforcement requires reliable time data
+  // CRITICAL: Check for valid Vision GPT timestamps first - enforcement requires reliable time data
   const timestampQuality = ctx.evidenceTimeline?.timeRange?.timestampQuality;
   const validationIssue = ctx.evidenceTimeline?.timeRange?.validationIssue;
-  const hasOcrTimestamps = ctx.evidenceTimeline?.timestamps?.some(t => t.source === "ocr") ?? false;
-  const hasValidOcrTimestamps = timestampQuality === "high" && hasOcrTimestamps;
+  const hasVisionTimestamps = ctx.evidenceTimeline?.timestamps?.some(t => t.source === "vision_gpt") ?? false;
+  const hasValidVisionTimestamps = timestampQuality === "high" && hasVisionTimestamps;
   
-  // If no valid OCR timestamps or timestamp quality is not high, immediately return REVIEW_REQUIRED
-  if (!hasValidOcrTimestamps || timestampQuality !== "high") {
+  // If no valid Vision GPT timestamps or timestamp quality is not high, immediately return REVIEW_REQUIRED
+  if (!hasValidVisionTimestamps || timestampQuality !== "high") {
     return {
       status: "REVIEW_REQUIRED",
       eligibilityGates: {
@@ -1645,102 +1644,102 @@ export async function runCaseAnalysisPipeline(
     console.log(`[Pipeline] Step 2: Vision Analysis`);
     ctx.visionResults = await stepVisionAnalysis(ctx, evidenceItems);
     
-    // CRITICAL: Rebuild timeline using ONLY OCR-extracted timestamps from visible image text
+    // CRITICAL: Rebuild timeline using ONLY Vision GPT extracted timestamps from visible image text
     // Do NOT use upload time, file metadata, EXIF data, or backend timestamps
-    console.log(`[Pipeline] Rebuilding timeline with OCR-only timestamps (${ctx.visionResults.timestampExtractions.length} extractions)`);
+    console.log(`[Pipeline] Rebuilding timeline with Vision GPT timestamps (${ctx.visionResults.timestampExtractions.length} extractions)`);
     
-    // Filter to only valid OCR extractions with successfully parsed dates
-    const validOcrTimestamps = ctx.visionResults.timestampExtractions
+    // Filter to only valid Vision GPT extractions with successfully parsed dates
+    const validVisionTimestamps = ctx.visionResults.timestampExtractions
       .filter(extraction => extraction.parsedDate)
       .map(extraction => ({
         evidenceId: extraction.evidenceId,
         timestamp: extraction.parsedDate!,
-        source: "ocr" as const,
+        source: "vision_gpt" as const,
         confidence: extraction.confidence,
-        rawOcrText: extraction.extractedTimestamp,
+        rawText: extraction.extractedTimestamp,
       }));
     
-    // Replace timeline timestamps with OCR-only data
-    ctx.evidenceTimeline.timestamps = validOcrTimestamps;
+    // Replace timeline timestamps with Vision GPT data
+    ctx.evidenceTimeline.timestamps = validVisionTimestamps;
     
-    // Determine timestamp quality based on OCR results
+    // Determine timestamp quality based on Vision GPT results
     // CRITICAL: 85% confidence threshold per enforcement specification
-    // Note: Tesseract returns confidence as 0-100, not 0-1
-    const OCR_CONFIDENCE_THRESHOLD = 85;
-    let ocrTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
-    let ocrValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
-    let ocrTimeSource: string = "IMAGE OCR FAILED";
+    // Vision GPT confidence uses 0-100 scale (high=95, medium=75, low=50)
+    const VISION_TIMESTAMP_THRESHOLD = 85;
+    let visionTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
+    let visionValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
+    let visionTimeSource: string = "IMAGE TIMESTAMP FAILED";
     
     // Count timestamps meeting the 85% confidence threshold
-    const highConfidenceOcrTimestamps = validOcrTimestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
-    const lowConfidenceOcrTimestamps = validOcrTimestamps.filter(t => t.confidence < OCR_CONFIDENCE_THRESHOLD);
+    const highConfidenceTimestamps = validVisionTimestamps.filter(t => t.confidence >= VISION_TIMESTAMP_THRESHOLD);
+    const lowConfidenceTimestamps = validVisionTimestamps.filter(t => t.confidence < VISION_TIMESTAMP_THRESHOLD);
     
-    if (highConfidenceOcrTimestamps.length >= 2) {
-      ocrTimestampQuality = "high";
-      ocrValidationIssue = null;
-      ocrTimeSource = "Evidence Image Timestamp (OCR)";
-    } else if (highConfidenceOcrTimestamps.length === 1 && lowConfidenceOcrTimestamps.length >= 1) {
-      ocrTimestampQuality = "medium";
-      ocrValidationIssue = "Some timestamps below 85% confidence threshold - manual review recommended";
-      ocrTimeSource = "Evidence Image Timestamp (OCR) - REVIEW REQUIRED";
-    } else if (validOcrTimestamps.length >= 2 && highConfidenceOcrTimestamps.length < 2) {
-      ocrTimestampQuality = "low";
-      ocrValidationIssue = "OCR timestamps below 85% confidence threshold - REVIEW_REQUIRED";
-      ocrTimeSource = "Evidence Image Timestamp (OCR) - LOW CONFIDENCE";
-    } else if (validOcrTimestamps.length === 1) {
-      ocrTimestampQuality = "low";
-      ocrValidationIssue = "Only one OCR timestamp - cannot calculate duration accurately";
-      ocrTimeSource = "Evidence Image Timestamp (OCR) - SINGLE IMAGE";
+    if (highConfidenceTimestamps.length >= 2) {
+      visionTimestampQuality = "high";
+      visionValidationIssue = null;
+      visionTimeSource = "Evidence Image Timestamp (Vision GPT)";
+    } else if (highConfidenceTimestamps.length === 1 && lowConfidenceTimestamps.length >= 1) {
+      visionTimestampQuality = "medium";
+      visionValidationIssue = "Some timestamps below 85% confidence threshold - manual review recommended";
+      visionTimeSource = "Evidence Image Timestamp (Vision GPT) - REVIEW REQUIRED";
+    } else if (validVisionTimestamps.length >= 2 && highConfidenceTimestamps.length < 2) {
+      visionTimestampQuality = "low";
+      visionValidationIssue = "Vision GPT timestamps below 85% confidence threshold - REVIEW_REQUIRED";
+      visionTimeSource = "Evidence Image Timestamp (Vision GPT) - LOW CONFIDENCE";
+    } else if (validVisionTimestamps.length === 1) {
+      visionTimestampQuality = "low";
+      visionValidationIssue = "Only one Vision GPT timestamp - cannot calculate duration accurately";
+      visionTimeSource = "Evidence Image Timestamp (Vision GPT) - SINGLE IMAGE";
     } else {
-      ocrTimestampQuality = "invalid";
-      ocrValidationIssue = "NO_VALID_TIMESTAMP - Unable to reliably extract timestamp from evidence images";
-      ocrTimeSource = "IMAGE OCR FAILED";
+      visionTimestampQuality = "invalid";
+      visionValidationIssue = "NO_VALID_TIMESTAMP - Unable to reliably extract timestamp from evidence images";
+      visionTimeSource = "IMAGE TIMESTAMP FAILED";
     }
     
     // Log confidence details for audit trail
-    console.log(`[Pipeline] OCR confidence check: ${highConfidenceOcrTimestamps.length}/${validOcrTimestamps.length} timestamps >= 85% threshold`);
+    console.log(`[Pipeline] Vision GPT confidence check: ${highConfidenceTimestamps.length}/${validVisionTimestamps.length} timestamps >= 85% threshold`);
     
-    // Sort OCR timestamps chronologically
+    // Sort Vision GPT timestamps chronologically
     ctx.evidenceTimeline.timestamps.sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     
-    const ocrTimestamps = ctx.evidenceTimeline.timestamps;
-    // CRITICAL: Do NOT fallback to current time - if no OCR timestamps found, leave as null
-    const ocrFirst = ocrTimestamps.length > 0 ? ocrTimestamps[0].timestamp : null;
-    const ocrLast = ocrTimestamps.length > 0 ? ocrTimestamps[ocrTimestamps.length - 1].timestamp : null;
-    const ocrDurationMinutes = (ocrFirst && ocrLast && validOcrTimestamps.length >= 2)
-      ? Math.round((new Date(ocrLast).getTime() - new Date(ocrFirst).getTime()) / (1000 * 60))
+    const visionTimestamps = ctx.evidenceTimeline.timestamps;
+    // CRITICAL: Do NOT fallback to current time - if no Vision GPT timestamps found, leave as null
+    const visionFirst = visionTimestamps.length > 0 ? visionTimestamps[0].timestamp : null;
+    const visionLast = visionTimestamps.length > 0 ? visionTimestamps[visionTimestamps.length - 1].timestamp : null;
+    const visionDurationMinutes = (visionFirst && visionLast && validVisionTimestamps.length >= 2)
+      ? Math.round((new Date(visionLast).getTime() - new Date(visionFirst).getTime()) / (1000 * 60))
       : 0;
     
     ctx.evidenceTimeline.timeRange = { 
-      first: ocrFirst, 
-      last: ocrLast, 
-      durationMinutes: ocrDurationMinutes,
-      timestampQuality: ocrTimestampQuality,
-      validationIssue: ocrValidationIssue,
-      timeSource: ocrTimeSource,
+      first: visionFirst, 
+      last: visionLast, 
+      durationMinutes: visionDurationMinutes,
+      timestampQuality: visionTimestampQuality,
+      validationIssue: visionValidationIssue,
+      timeSource: visionTimeSource,
     };
     
-    if (ocrTimestamps.length >= 2) {
+    if (visionTimestamps.length >= 2) {
       ctx.evidenceTimeline.entryWindow = {
-        start: ocrTimestamps[0].timestamp,
-        end: ocrTimestamps[Math.min(1, ocrTimestamps.length - 1)].timestamp,
-        confidence: ocrTimestamps[0].confidence,
+        start: visionTimestamps[0].timestamp,
+        end: visionTimestamps[Math.min(1, visionTimestamps.length - 1)].timestamp,
+        confidence: visionTimestamps[0].confidence,
       };
       ctx.evidenceTimeline.exitWindow = {
-        start: ocrTimestamps[Math.max(0, ocrTimestamps.length - 2)].timestamp,
-        end: ocrTimestamps[ocrTimestamps.length - 1].timestamp,
-        confidence: ocrTimestamps[ocrTimestamps.length - 1].confidence,
+        start: visionTimestamps[Math.max(0, visionTimestamps.length - 2)].timestamp,
+        end: visionTimestamps[visionTimestamps.length - 1].timestamp,
+        confidence: visionTimestamps[visionTimestamps.length - 1].confidence,
       };
     } else {
       ctx.evidenceTimeline.entryWindow = null;
       ctx.evidenceTimeline.exitWindow = null;
     }
     
-    console.log(`[Pipeline] OCR timeline: ${ocrFirst} to ${ocrLast} (${ocrDurationMinutes} minutes, quality: ${ocrTimestampQuality})`);
-    if (ocrValidationIssue) {
-      console.log(`[Pipeline] Timestamp issue: ${ocrValidationIssue}`);
+    console.log(`[Pipeline] Vision GPT timeline: ${visionFirst} to ${visionLast} (${visionDurationMinutes} minutes, quality: ${visionTimestampQuality})`);
+    if (visionValidationIssue) {
+      console.log(`[Pipeline] Timestamp issue: ${visionValidationIssue}`);
     }
     
     pipelineResults = await storage.updateCasePipelineResults(caseId, {
