@@ -9,7 +9,7 @@ import uuid
 from backend.db import get_db
 from backend.db.models import (
     User, Evidence, EvidenceBundle, CaseEvidence, EnforcementCase,
-    CasePipelineResults, AuditLog, ParkingSite
+    CasePipelineResults, AuditLog, ParkingSite, CaseAnalysis
 )
 from backend.api.dependencies import get_current_user
 from backend.config import settings
@@ -107,10 +107,52 @@ async def get_evidence_bundles(
     
     result = []
     for b in bundles:
-        pipeline_results = db.query(CasePipelineResults).filter(
-            CasePipelineResults.case_id == b.case_id
-        ).first()
-        result.append(bundle_to_dict(b, pipeline_results))
+        case = db.query(EnforcementCase).filter(EnforcementCase.id == b.case_id).first()
+        evidence_items = db.query(Evidence).filter(Evidence.bundle_id == b.id).all()
+        case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == b.case_id).first()
+        
+        site_name = "Unknown Site"
+        site_id = None
+        if case and case.site_id:
+            site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
+            if site:
+                site_name = site.site_name
+                site_id = site.id
+        
+        has_camera = any(e.camera_id for e in evidence_items)
+        
+        time_window = None
+        if evidence_items:
+            timestamps = [e.timestamp for e in evidence_items if e.timestamp]
+            if timestamps:
+                time_window = {
+                    "start": min(timestamps).isoformat(),
+                    "end": max(timestamps).isoformat()
+                }
+        
+        result.append({
+            "id": str(b.id),
+            "caseReference": b.case_id or f"CASE-{b.id}",
+            "siteName": site_name,
+            "siteId": site_id,
+            "bayType": case.bay_type if case else None,
+            "uploadSource": "camera" if has_camera else "manual",
+            "evidenceCount": len(evidence_items),
+            "status": b.status or "pending",
+            "timeWindow": time_window,
+            "createdAt": b.created_at.isoformat() if b.created_at else None,
+            "vrm": case.vrm if case else None,
+            "evidenceFiles": [evidence_to_dict(e) for e in evidence_items],
+            "analysis": {
+                "id": case_analysis.id,
+                "caseId": case_analysis.case_id,
+                "summary": case_analysis.summary,
+                "recommendation": case_analysis.recommendation,
+                "confidenceScore": case_analysis.confidence_score,
+                "generatedAt": case_analysis.generated_at.isoformat() if case_analysis.generated_at else None
+            } if case_analysis else None,
+            "vehicles": []
+        })
     
     return result
 
