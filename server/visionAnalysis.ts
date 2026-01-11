@@ -1,11 +1,16 @@
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { runYoloDetection, isYoloAvailable, mapYoloToVehicleType, hasPersonsDetected, type YoloResult } from "./yoloDetection";
 import { extractTimestampFromImage } from "./ocrTimestampExtractor";
 
-const openai = new OpenAI();
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (!geminiApiKey) {
+  console.warn("[Vision] GEMINI_API_KEY not found - image analysis will fail until key is provided");
+}
+const genAI = geminiApiKey ? new GoogleGenerativeAI(geminiApiKey) : null;
+const geminiModel = genAI?.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" }) || null;
 
 let yoloStatus: "checking" | "available" | "unavailable" = "checking";
 
@@ -140,17 +145,20 @@ Return ONLY valid JSON in this exact format:
 export async function analyzeImageWithVision(input: VisionAnalysisInput): Promise<VisionAnalysisResponse> {
   console.log("[Vision] Analyzing image:", input.imagePath);
   
+  // Check if Gemini is configured
+  if (!geminiModel) {
+    return { success: false, error: "GEMINI_API_KEY not configured - cannot analyze image" };
+  }
+  
   const imageHash = computeImageHash(input.imagePath);
   if (!imageHash) {
     return { success: false, error: "Could not read or hash image file" };
   }
   
-  // Cache disabled to ensure each case gets fresh analysis
-  // Results must be unique per case, not shared across cases
-  
-  const base64Image = imageToBase64(input.imagePath);
-  if (!base64Image) {
-    return { success: false, error: "Could not load image file" };
+  // Verify image file exists
+  const fullImagePath = path.join(process.cwd(), input.imagePath.startsWith("/") ? input.imagePath.slice(1) : input.imagePath);
+  if (!fs.existsSync(fullImagePath)) {
+    return { success: false, error: "Image file not found" };
   }
   
   // Run YOLOv8 detection if available (non-blocking, for enhanced accuracy)
@@ -206,39 +214,37 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     : "Analyze this parking enforcement evidence image.";
   
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 1000,
-      messages: [
-        {
-          role: "system",
-          content: VISION_PROMPT,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            { type: "image_url", image_url: { url: base64Image, detail: "high" } },
-          ],
-        },
-      ],
-    });
+    // Prepare image for Gemini (reuse fullImagePath from earlier check)
+    const imageBuffer = fs.readFileSync(fullImagePath);
+    const ext = path.extname(input.imagePath).toLowerCase();
+    const mimeType = ext === ".png" ? "image/png" : ext === ".gif" ? "image/gif" : "image/jpeg";
     
-    const content = response.choices[0]?.message?.content;
+    const imagePart = {
+      inlineData: {
+        data: imageBuffer.toString("base64"),
+        mimeType,
+      },
+    };
+    
+    const combinedPrompt = `${VISION_PROMPT}\n\n${userPrompt}`;
+    
+    const response = await geminiModel.generateContent([combinedPrompt, imagePart]);
+    
+    const content = response.response.text();
     if (!content) {
-      return { success: false, error: "No response from Vision GPT" };
+      return { success: false, error: "No response from Gemini Vision" };
     }
     
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("[Vision GPT] Could not parse JSON from response:", content);
+      console.error("[Gemini Vision] Could not parse JSON from response:", content);
       return { success: false, error: "Could not parse structured response" };
     }
     
     const parsed = JSON.parse(jsonMatch[0]);
     
     // Log the parsed response for debugging timestamp extraction
-    console.log("[Vision GPT] Parsed response:", JSON.stringify({
+    console.log("[Gemini Vision] Parsed response:", JSON.stringify({
       timestampOverlay: parsed.timestampOverlay,
       numberPlateDetected: parsed.numberPlateDetected,
       vehicleDetected: parsed.vehicleDetected,
@@ -304,7 +310,7 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     
     return { success: true, result };
   } catch (error: any) {
-    console.error("[Vision GPT] API error:", error.message);
+    console.error("[Gemini Vision] API error:", error.message);
     return { success: false, error: error.message };
   }
 }
