@@ -37,7 +37,7 @@ def evidence_to_dict(e: Evidence):
         "thumbnailPath": e.thumbnail_path,
         "timestamp": e.timestamp.isoformat() if e.timestamp else None,
         "sha256Hash": e.sha256_hash,
-        "metadata": e.metadata,
+        "metadata": e.file_metadata,
         "notes": e.notes,
         "status": e.status,
         "reviewedBy": e.reviewed_by,
@@ -159,7 +159,7 @@ async def upload_evidence(
         video_path=f"/uploads/{filename}" if is_video else None,
         timestamp=datetime.utcnow(),
         sha256_hash=file_hash,
-        metadata={"fileSize": len(content), "originalFilename": file.filename},
+        file_metadata={"fileSize": len(content), "originalFilename": file.filename},
         notes=notes,
         status="pending"
     )
@@ -226,7 +226,7 @@ async def upload_evidence_bundle(
             video_path=f"/uploads/{filename}" if is_video else None,
             timestamp=datetime.utcnow(),
             sha256_hash=file_hash,
-            metadata={"fileSize": len(content), "originalFilename": file.filename},
+            file_metadata={"fileSize": len(content), "originalFilename": file.filename},
             status="pending"
         )
         db.add(evidence)

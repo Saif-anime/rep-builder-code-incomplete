@@ -100,7 +100,7 @@ class Evidence(Base):
     thumbnail_path = Column(Text)
     timestamp = Column(DateTime, nullable=False)
     sha256_hash = Column(Text)
-    metadata = Column(JSONB)
+    file_metadata = Column("metadata", JSONB)
     notes = Column(Text)
     status = Column(Text, nullable=False, default="pending")
     reviewed_by = Column(String, ForeignKey("users.id"))
@@ -512,7 +512,7 @@ class SignagePhoto(Base):
     caption = Column(Text)
     sha256_hash = Column(Text)
     uploaded_by = Column(String, ForeignKey("users.id"))
-    metadata = Column(JSONB)
+    photo_metadata = Column("metadata", JSONB)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 class EnrichmentRun(Base):
