@@ -3423,19 +3423,33 @@ export async function registerRoutes(
         if (success) reanalyzed++;
       }
       
+      // CRITICAL: After all evidence items are reanalyzed with OCR timestamps,
+      // trigger the full Case Analysis Pipeline to recalculate timeRange with 
+      // proper timeSource labels (e.g., "Evidence Image Timestamp (OCR)" or "IMAGE OCR FAILED")
+      console.log(`[Reanalyze Case] Evidence reanalysis complete, triggering case pipeline for ${caseId}`);
+      try {
+        const { runCaseAnalysisPipeline } = await import("./caseAnalysisPipeline");
+        await runCaseAnalysisPipeline(caseId, req.user?.id);
+        console.log(`[Reanalyze Case] Pipeline completed for case ${caseId}`);
+      } catch (pipelineError: any) {
+        console.error(`[Reanalyze Case] Pipeline error for case ${caseId}:`, pipelineError.message);
+        // Don't fail the request - evidence was reanalyzed successfully, pipeline is supplementary
+      }
+      
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "reanalyze",
         entityType: "enforcement_case",
         entityId: caseId,
-        details: { evidenceCount: caseEvidence.length, reanalyzedCount: reanalyzed },
+        details: { evidenceCount: caseEvidence.length, reanalyzedCount: reanalyzed, pipelineTriggered: true },
       });
       
       res.json({ 
         success: true, 
         message: `Reanalysis started for ${reanalyzed} evidence items`,
         totalEvidence: caseEvidence.length,
-        reanalyzed 
+        reanalyzed,
+        pipelineTriggered: true
       });
     } catch (error: any) {
       console.error("[Reanalyze Case] Error:", error.message);

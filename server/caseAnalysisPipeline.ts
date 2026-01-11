@@ -590,13 +590,16 @@ async function stepVisionAnalysis(
         
         if (result.result.timestampOverlay) {
           const parsedDate = parseTimestampOverlay(result.result.timestampOverlay);
+          // CRITICAL: Use actual OCR confidence from Tesseract, NOT hardcoded values
+          // Tesseract returns 0-100 scale; pipeline thresholds expect 0-100 (85 = 85%)
+          const ocrConf = result.result.ocrTimestampConfidence ?? (parsedDate ? 90 : 50);
           timestampExtractions.push({
             evidenceId: ev.id,
             extractedTimestamp: result.result.timestampOverlay,
             parsedDate,
-            confidence: parsedDate ? 0.9 : 0.5,
+            confidence: ocrConf,
           });
-          console.log(`[Pipeline] Extracted timestamp for evidence ${ev.id}: ${result.result.timestampOverlay} -> ${parsedDate}`);
+          console.log(`[Pipeline] Extracted timestamp for evidence ${ev.id}: ${result.result.timestampOverlay} -> ${parsedDate} (conf: ${ocrConf.toFixed(1)}%)`);
         }
       }
     }

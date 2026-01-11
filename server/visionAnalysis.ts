@@ -49,6 +49,8 @@ export interface VisionAnalysisResult {
   confidenceNotes: string;
   numberPlateDetected?: string;
   timestampOverlay?: string;
+  ocrTimestampConfidence?: number;
+  ocrReviewRequired?: boolean;
   analysedAt: string;
   modelVersion: string;
   imageHash: string;
@@ -298,6 +300,8 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       confidenceNotes: parsed.confidenceNotes || "",
       numberPlateDetected: parsed.numberPlateDetected || undefined,
       timestampOverlay: finalTimestamp,
+      ocrTimestampConfidence: ocrTimestamp ? ocrConfidence : undefined,
+      ocrReviewRequired: ocrTimestamp ? ocrReviewRequired : undefined,
       analysedAt: new Date().toISOString(),
       modelVersion: detectionMethod,
       imageHash,

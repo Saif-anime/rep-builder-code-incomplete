@@ -29,7 +29,67 @@ interface AIResult {
     disabledBadgeVisible: boolean;
     signageVisible: boolean;
     visibilityQuality: string;
+    timestampOverlay?: string | null;
+    ocrTimestampConfidence?: number;
   };
+}
+
+function parseOcrTimestamp(timestampStr: string): Date | null {
+  if (!timestampStr) return null;
+  
+  const patterns = [
+    /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,
+    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = timestampStr.match(pattern);
+    if (match) {
+      try {
+        let year: number, month: number, day: number, hour: number, minute: number, second: number;
+        
+        if (pattern.source.startsWith("(\\d{4})")) {
+          year = parseInt(match[1]);
+          month = parseInt(match[2]);
+          day = parseInt(match[3]);
+          hour = parseInt(match[4]);
+          minute = parseInt(match[5]);
+          second = match[6] ? parseInt(match[6]) : 0;
+        } else {
+          day = parseInt(match[1]);
+          month = parseInt(match[2]);
+          year = parseInt(match[3]);
+          hour = parseInt(match[4]);
+          minute = parseInt(match[5]);
+          second = match[6] ? parseInt(match[6]) : 0;
+        }
+        
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  
+  try {
+    const parsed = new Date(timestampStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  } catch {
+    return null;
+  }
+  
+  return null;
 }
 
 async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): Promise<void> {
@@ -150,6 +210,8 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
         disabledBadgeVisible: visionResult.disabledBadgeVisible,
         signageVisible: visionResult.signageVisible,
         visibilityQuality: visionResult.visibilityQuality,
+        timestampOverlay: visionResult.timestampOverlay || null,
+        ocrTimestampConfidence: visionResult.ocrTimestampConfidence ?? 0,
       };
       
       if (visionResult.vehicleDetected && !analysisResult.isViolation) {
@@ -162,14 +224,29 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
       }
     }
 
+    // Update evidence with analysis results
+    // CRITICAL: If OCR extracted a valid timestamp, use it to override the upload timestamp
+    const updateData: any = {
+      status: "completed",
+      analysisCompletedAt: new Date(),
+      aiResult: aiResult,
+      confidenceScore: analysisResult.confidence,
+      analysisError: null,
+    };
+    
+    // Parse OCR timestamp and update the evidence timestamp field
+    if (visionResult?.timestampOverlay) {
+      const ocrParsed = parseOcrTimestamp(visionResult.timestampOverlay);
+      if (ocrParsed) {
+        updateData.timestamp = ocrParsed;
+        console.log(`[Evidence Worker] Updated timestamp from OCR: ${visionResult.timestampOverlay} -> ${ocrParsed.toISOString()}`);
+      } else {
+        console.log(`[Evidence Worker] OCR timestamp could not be parsed: ${visionResult.timestampOverlay}`);
+      }
+    }
+
     await db.update(evidence)
-      .set({
-        status: "completed",
-        analysisCompletedAt: new Date(),
-        aiResult: aiResult,
-        confidenceScore: analysisResult.confidence,
-        analysisError: null,
-      })
+      .set(updateData)
       .where(eq(evidence.id, evidenceId));
 
     const [existingEvent] = await db.select()
