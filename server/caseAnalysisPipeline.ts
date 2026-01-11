@@ -1605,7 +1605,7 @@ export async function runCaseAnalysisPipeline(
     const OCR_CONFIDENCE_THRESHOLD = 85;
     let ocrTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
     let ocrValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
-    const ocrTimeSource = "Evidence Image Timestamp (OCR)";
+    let ocrTimeSource: string = "IMAGE OCR FAILED";
     
     // Count timestamps meeting the 85% confidence threshold
     const highConfidenceOcrTimestamps = validOcrTimestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
@@ -1614,18 +1614,23 @@ export async function runCaseAnalysisPipeline(
     if (highConfidenceOcrTimestamps.length >= 2) {
       ocrTimestampQuality = "high";
       ocrValidationIssue = null;
+      ocrTimeSource = "Evidence Image Timestamp (OCR)";
     } else if (highConfidenceOcrTimestamps.length === 1 && lowConfidenceOcrTimestamps.length >= 1) {
       ocrTimestampQuality = "medium";
       ocrValidationIssue = "Some timestamps below 85% confidence threshold - manual review recommended";
+      ocrTimeSource = "Evidence Image Timestamp (OCR) - REVIEW REQUIRED";
     } else if (validOcrTimestamps.length >= 2 && highConfidenceOcrTimestamps.length < 2) {
       ocrTimestampQuality = "low";
       ocrValidationIssue = "OCR timestamps below 85% confidence threshold - REVIEW_REQUIRED";
+      ocrTimeSource = "Evidence Image Timestamp (OCR) - LOW CONFIDENCE";
     } else if (validOcrTimestamps.length === 1) {
       ocrTimestampQuality = "low";
       ocrValidationIssue = "Only one OCR timestamp - cannot calculate duration accurately";
+      ocrTimeSource = "Evidence Image Timestamp (OCR) - SINGLE IMAGE";
     } else {
       ocrTimestampQuality = "invalid";
       ocrValidationIssue = "NO_VALID_TIMESTAMP - Unable to reliably extract timestamp from evidence images";
+      ocrTimeSource = "IMAGE OCR FAILED";
     }
     
     // Log confidence details for audit trail

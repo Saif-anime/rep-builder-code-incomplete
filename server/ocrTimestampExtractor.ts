@@ -18,6 +18,7 @@ export interface TimestampExtractionResult {
   source: "IMAGE_OVERLAY";
   reviewRequired: boolean;
   notes: string | null;
+  failureReason: string | null;
 }
 
 const TIMESTAMP_PATTERNS = [
@@ -130,23 +131,23 @@ interface RegionConfig {
 const REGIONS: RegionConfig[] = [
   {
     name: "top-left",
-    extract: (w, h) => ({ left: 0, top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.15) }),
+    extract: (w, h) => ({ left: 0, top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.25) }),
   },
   {
     name: "top-center",
-    extract: (w, h) => ({ left: Math.round(w * 0.25), top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.15) }),
+    extract: (w, h) => ({ left: Math.round(w * 0.25), top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.25) }),
   },
   {
     name: "top-right",
-    extract: (w, h) => ({ left: Math.round(w * 0.5), top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.15) }),
+    extract: (w, h) => ({ left: Math.round(w * 0.5), top: 0, width: Math.round(w * 0.5), height: Math.round(h * 0.25) }),
   },
   {
     name: "bottom-left",
-    extract: (w, h) => ({ left: 0, top: Math.round(h * 0.85), width: Math.round(w * 0.5), height: Math.round(h * 0.15) }),
+    extract: (w, h) => ({ left: 0, top: Math.round(h * 0.75), width: Math.round(w * 0.5), height: Math.round(h * 0.25) }),
   },
   {
     name: "bottom-right",
-    extract: (w, h) => ({ left: Math.round(w * 0.5), top: Math.round(h * 0.85), width: Math.round(w * 0.5), height: Math.round(h * 0.15) }),
+    extract: (w, h) => ({ left: Math.round(w * 0.5), top: Math.round(h * 0.75), width: Math.round(w * 0.5), height: Math.round(h * 0.25) }),
   },
 ];
 
@@ -285,6 +286,7 @@ export async function extractTimestampFromImage(imagePath: string): Promise<Time
       source: "IMAGE_OVERLAY",
       reviewRequired: true,
       notes: "Image file not found",
+      failureReason: "IMAGE_FILE_NOT_FOUND",
     };
   }
   
@@ -347,6 +349,7 @@ export async function extractTimestampFromImage(imagePath: string): Promise<Time
         source: "IMAGE_OVERLAY",
         reviewRequired: true,
         notes: "No readable timestamp found in any image region",
+        failureReason: "NO_TIMESTAMP_TEXT_FOUND",
       };
     }
     
@@ -375,6 +378,7 @@ export async function extractTimestampFromImage(imagePath: string): Promise<Time
         source: "IMAGE_OVERLAY",
         reviewRequired: true,
         notes: `OCR confidence ${bestCandidate.confidence.toFixed(1)}% below ${OCR_REJECTION_THRESHOLD}% rejection threshold`,
+        failureReason: "LOW_CONFIDENCE_OCR",
       };
     }
     
@@ -400,6 +404,7 @@ export async function extractTimestampFromImage(imagePath: string): Promise<Time
       source: "IMAGE_OVERLAY",
       reviewRequired: reviewRequired,
       notes: notes,
+      failureReason: null,
     };
   } catch (error: any) {
     console.error("[OCR] Extraction failed:", error.message);
@@ -416,6 +421,7 @@ export async function extractTimestampFromImage(imagePath: string): Promise<Time
       source: "IMAGE_OVERLAY",
       reviewRequired: true,
       notes: `OCR extraction failed: ${error.message}`,
+      failureReason: "OCR_EXTRACTION_ERROR",
     };
   }
 }
