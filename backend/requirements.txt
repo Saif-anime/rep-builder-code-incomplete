@@ -1,0 +1,13 @@
+bcrypt
+fastapi
+httpx
+numpy
+onnxruntime
+pillow
+psycopg2-binary
+pyjwt
+python-multipart
+requests
+sqlalchemy
+uvicorn
+yolov8-onnx
