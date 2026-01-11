@@ -96,8 +96,9 @@ interface EvidenceTimelineResult {
   timestamps: Array<{
     evidenceId: number;
     timestamp: string;
-    source: "exif" | "camera_overlay" | "filename" | "upload_time";
+    source: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time";
     confidence: number;
+    rawOcrText?: string;
   }>;
   entryWindow: { start: string; end: string; confidence: number } | null;
   exitWindow: { start: string; end: string; confidence: number } | null;
@@ -108,6 +109,7 @@ interface EvidenceTimelineResult {
     rawDurationMinutes?: number;
     timestampQuality?: "high" | "medium" | "low" | "invalid";
     validationIssue?: string | null;
+    timeSource?: string;
   };
 }
 
@@ -360,29 +362,13 @@ async function stepEvidenceNormalisation(
       if (ev.imagePath) imageCount++;
       if (ev.videoPath) videoCount++;
       
-      let source: "exif" | "camera_overlay" | "filename" | "upload_time" = "upload_time";
-      let confidence = 0.5;
-      
-      if (ev.metadata && typeof ev.metadata === "object") {
-        if ("exifTimestamp" in ev.metadata) {
-          source = "exif";
-          confidence = 0.9;
-        } else if ("cameraOverlayTime" in ev.metadata) {
-          source = "camera_overlay";
-          confidence = 0.85;
-        }
-      }
-      
-      if (ev.notes?.includes("filename_derived")) {
-        source = "filename";
-        confidence = 0.7;
-      }
-      
+      // Initial placeholder - will be replaced by OCR-extracted timestamps after Vision analysis
+      // Do NOT use metadata sources (EXIF, upload time, etc.) - only OCR from visible image text
       timestamps.push({
         evidenceId: ev.id,
-        timestamp: ev.timestamp.toISOString(),
-        source,
-        confidence,
+        timestamp: ev.timestamp.toISOString(), // Placeholder - will be overwritten by OCR
+        source: "upload_time" as const, // Will be replaced with "ocr" after Vision analysis
+        confidence: 0.1, // Low confidence until OCR extraction
       });
     }
     
@@ -1562,47 +1548,80 @@ export async function runCaseAnalysisPipeline(
     console.log(`[Pipeline] Step 2: Vision Analysis`);
     ctx.visionResults = await stepVisionAnalysis(ctx, evidenceItems);
     
-    if (ctx.visionResults.timestampExtractions.length > 0) {
-      console.log(`[Pipeline] Updating timeline with ${ctx.visionResults.timestampExtractions.length} extracted timestamps`);
-      
-      for (const extraction of ctx.visionResults.timestampExtractions) {
-        if (extraction.parsedDate) {
-          const existingTs = ctx.evidenceTimeline.timestamps.find(t => t.evidenceId === extraction.evidenceId);
-          if (existingTs) {
-            existingTs.timestamp = extraction.parsedDate;
-            existingTs.source = "camera_overlay";
-            existingTs.confidence = extraction.confidence;
-          }
-        }
-      }
-      
-      ctx.evidenceTimeline.timestamps.sort((a, b) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
-      
-      const timestamps = ctx.evidenceTimeline.timestamps;
-      const first = timestamps[0]?.timestamp || new Date().toISOString();
-      const last = timestamps[timestamps.length - 1]?.timestamp || first;
-      const durationMinutes = Math.round(
-        (new Date(last).getTime() - new Date(first).getTime()) / (1000 * 60)
-      );
-      
-      ctx.evidenceTimeline.timeRange = { first, last, durationMinutes };
-      
-      if (timestamps.length >= 2) {
-        ctx.evidenceTimeline.entryWindow = {
-          start: timestamps[0].timestamp,
-          end: timestamps[Math.min(1, timestamps.length - 1)].timestamp,
-          confidence: timestamps[0].confidence,
-        };
-        ctx.evidenceTimeline.exitWindow = {
-          start: timestamps[Math.max(0, timestamps.length - 2)].timestamp,
-          end: last,
-          confidence: timestamps[timestamps.length - 1].confidence,
-        };
-      }
-      
-      console.log(`[Pipeline] Updated timeline: ${first} to ${last} (${durationMinutes} minutes)`);
+    // CRITICAL: Rebuild timeline using ONLY OCR-extracted timestamps from visible image text
+    // Do NOT use upload time, file metadata, EXIF data, or backend timestamps
+    console.log(`[Pipeline] Rebuilding timeline with OCR-only timestamps (${ctx.visionResults.timestampExtractions.length} extractions)`);
+    
+    // Filter to only valid OCR extractions with successfully parsed dates
+    const validOcrTimestamps = ctx.visionResults.timestampExtractions
+      .filter(extraction => extraction.parsedDate)
+      .map(extraction => ({
+        evidenceId: extraction.evidenceId,
+        timestamp: extraction.parsedDate!,
+        source: "ocr" as const,
+        confidence: extraction.confidence,
+        rawOcrText: extraction.extractedTimestamp,
+      }));
+    
+    // Replace timeline timestamps with OCR-only data
+    ctx.evidenceTimeline.timestamps = validOcrTimestamps;
+    
+    // Determine timestamp quality based on OCR results
+    let ocrTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
+    let ocrValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
+    const ocrTimeSource = "Evidence Image Timestamp (OCR)";
+    
+    if (validOcrTimestamps.length >= 2) {
+      ocrTimestampQuality = "high";
+      ocrValidationIssue = null;
+    } else if (validOcrTimestamps.length === 1) {
+      ocrTimestampQuality = "low";
+      ocrValidationIssue = "Only one OCR timestamp - cannot calculate duration accurately";
+    } else {
+      ocrTimestampQuality = "invalid";
+      ocrValidationIssue = "Unable to reliably extract timestamp from evidence images";
+    }
+    
+    // Sort OCR timestamps chronologically
+    ctx.evidenceTimeline.timestamps.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    
+    const ocrTimestamps = ctx.evidenceTimeline.timestamps;
+    const ocrFirst = ocrTimestamps[0]?.timestamp || new Date().toISOString();
+    const ocrLast = ocrTimestamps[ocrTimestamps.length - 1]?.timestamp || ocrFirst;
+    const ocrDurationMinutes = validOcrTimestamps.length >= 2 
+      ? Math.round((new Date(ocrLast).getTime() - new Date(ocrFirst).getTime()) / (1000 * 60))
+      : 0;
+    
+    ctx.evidenceTimeline.timeRange = { 
+      first: ocrFirst, 
+      last: ocrLast, 
+      durationMinutes: ocrDurationMinutes,
+      timestampQuality: ocrTimestampQuality,
+      validationIssue: ocrValidationIssue,
+      timeSource: ocrTimeSource,
+    };
+    
+    if (ocrTimestamps.length >= 2) {
+      ctx.evidenceTimeline.entryWindow = {
+        start: ocrTimestamps[0].timestamp,
+        end: ocrTimestamps[Math.min(1, ocrTimestamps.length - 1)].timestamp,
+        confidence: ocrTimestamps[0].confidence,
+      };
+      ctx.evidenceTimeline.exitWindow = {
+        start: ocrTimestamps[Math.max(0, ocrTimestamps.length - 2)].timestamp,
+        end: ocrLast,
+        confidence: ocrTimestamps[ocrTimestamps.length - 1].confidence,
+      };
+    } else {
+      ctx.evidenceTimeline.entryWindow = null;
+      ctx.evidenceTimeline.exitWindow = null;
+    }
+    
+    console.log(`[Pipeline] OCR timeline: ${ocrFirst} to ${ocrLast} (${ocrDurationMinutes} minutes, quality: ${ocrTimestampQuality})`);
+    if (ocrValidationIssue) {
+      console.log(`[Pipeline] Timestamp issue: ${ocrValidationIssue}`);
     }
     
     pipelineResults = await storage.updateCasePipelineResults(caseId, {

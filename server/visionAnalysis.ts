@@ -95,6 +95,13 @@ Identify ONLY what is clearly visible.
 Do NOT guess.
 If unsure, say 'uncertain'.
 
+CRITICAL: TIMESTAMP EXTRACTION (OCR)
+Look for visible date/time text in the image. This is typically:
+- Camera overlay text at top or bottom of image
+- Format examples: "30-12-2025 Tue 14:32:27", "10/01/2026 14:35:22", "2026-01-10 14:35"
+- White or colored text on the image itself
+Extract the EXACT text as shown - do not interpret or modify it.
+
 Detect and return:
 - Vehicle presence
 - Vehicle type (car, van, motorcycle)
@@ -106,7 +113,7 @@ Detect and return:
 - Signage visibility
 - Number plate if visible
 - Obstructions or unclear view
-- TIMESTAMP/DATE overlay text (camera overlays often show date/time like "10/01/2026 14:35:22" or "2026-01-10 14:35")
+- TIMESTAMP/DATE overlay text - EXTRACT EXACTLY AS VISIBLE IN IMAGE
 
 Return ONLY valid JSON in this exact format:
 {
@@ -122,7 +129,7 @@ Return ONLY valid JSON in this exact format:
   "signageVisible": boolean,
   "visibilityQuality": "clear" | "partial" | "poor",
   "numberPlateDetected": "string or null",
-  "timestampOverlay": "string or null - if a date/time is visible in camera overlay text, extract it exactly as shown",
+  "timestampOverlay": "string or null - CRITICAL: extract the exact date/time text visible in the image (camera overlay). Return null ONLY if no timestamp is visible.",
   "confidenceNotes": "string explaining any uncertainties"
 }`;
 
