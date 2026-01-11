@@ -177,14 +177,19 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
   
   // Run dedicated OCR timestamp extraction (Tesseract-based - much more reliable than Vision GPT)
   let ocrTimestamp: string | null = null;
+  let ocrConfidence: number = 0;
+  let ocrReviewRequired: boolean = true;
   try {
     console.log("[Vision] Running OCR timestamp extraction...");
     const ocrResult = await extractTimestampFromImage(input.imagePath);
-    if (ocrResult.success && ocrResult.timestamp) {
-      ocrTimestamp = ocrResult.timestamp;
-      console.log(`[Vision] OCR extracted timestamp: ${ocrTimestamp} (confidence: ${(ocrResult.confidence * 100).toFixed(1)}%)`);
+    ocrConfidence = ocrResult.confidence;
+    ocrReviewRequired = ocrResult.reviewRequired;
+    
+    if (ocrResult.success && ocrResult.timestamp && ocrResult.timestamp !== "NO_VALID_TIMESTAMP") {
+      ocrTimestamp = ocrResult.normalizedTimestamp || ocrResult.timestamp;
+      console.log(`[Vision] OCR extracted: ${ocrResult.timestamp} -> ${ocrTimestamp} (${ocrResult.timestampRegion}, conf: ${ocrConfidence.toFixed(1)}%, review: ${ocrReviewRequired})`);
     } else {
-      console.log("[Vision] OCR did not find a valid timestamp, raw text:", ocrResult.rawOcrText.substring(0, 100));
+      console.log(`[Vision] OCR: NO_VALID_TIMESTAMP (notes: ${ocrResult.notes || "none"}, raw: ${ocrResult.rawOcrText.substring(0, 100)})`);
     }
   } catch (e: any) {
     console.log("[Vision] OCR extraction failed:", e.message);

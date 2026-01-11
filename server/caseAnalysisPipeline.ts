@@ -387,7 +387,8 @@ async function stepEvidenceNormalisation(
     let timestampQuality: "high" | "medium" | "low" | "invalid" = "high";
     
     // Check timestamp source quality - CRITICAL: 85% confidence threshold per enforcement spec
-    const OCR_CONFIDENCE_THRESHOLD = 0.85;
+    // Note: Tesseract returns confidence as 0-100, not 0-1
+    const OCR_CONFIDENCE_THRESHOLD = 85;
     const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
     const lowConfidenceCount = timestamps.filter(t => t.source === "upload_time").length;
     
@@ -1600,7 +1601,8 @@ export async function runCaseAnalysisPipeline(
     
     // Determine timestamp quality based on OCR results
     // CRITICAL: 85% confidence threshold per enforcement specification
-    const OCR_CONFIDENCE_THRESHOLD = 0.85;
+    // Note: Tesseract returns confidence as 0-100, not 0-1
+    const OCR_CONFIDENCE_THRESHOLD = 85;
     let ocrTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
     let ocrValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
     const ocrTimeSource = "Evidence Image Timestamp (OCR)";

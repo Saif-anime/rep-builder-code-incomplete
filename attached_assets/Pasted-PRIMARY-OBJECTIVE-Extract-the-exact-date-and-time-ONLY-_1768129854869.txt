@@ -1,0 +1,70 @@
+PRIMARY OBJECTIVE:
+Extract the exact date and time ONLY from the camera timestamp printed INSIDE the evidence image using OCR.
+
+ABSOLUTE RULES (NON-NEGOTIABLE):
+1. You MUST use OCR (PaddleOCR or Tesseract) to read text from the image.
+2. You MUST extract timestamp ONLY from the visible camera overlay inside the image.
+3. DO NOT use:
+   - upload time
+   - EXIF metadata
+   - image order
+   - inference or estimation
+4. If no readable timestamp exists → FAIL SAFELY.
+
+OCR ZONE STRATEGY (MANDATORY):
+1. Focus OCR on the following regions (priority order):
+   - Top-left
+   - Top-center
+   - Top-right
+   - Bottom-left
+   - Bottom-right
+2. Ignore text in the middle of the image unless timestamp is clearly printed there.
+
+TIMESTAMP PATTERN MATCHING:
+Accept ONLY these formats:
+- DD-MM-YYYY HH:MM
+- DD-MM-YYYY HH:MM:SS
+- YYYY-MM-DD HH:MM
+- DD/MM/YYYY HH:MM
+- Textual day allowed (e.g. Tue 30-12-2025 14:32:27)
+
+Reject:
+- Partial timestamps
+- Time without date
+- Date without time
+
+MULTIPLE OCR RESULTS:
+- Extract all timestamp candidates.
+- Choose the clearest and most complete one.
+- Prefer timestamps with seconds if available.
+
+NORMALIZATION:
+Convert final timestamp to:
+DD/MM/YYYY HH:MM
+
+MULTIPLE IMAGE HANDLING:
+- Process each image independently.
+- DO NOT reuse timestamps from other images.
+- Sort timestamps chronologically ONLY AFTER extraction.
+
+FAILURE CONDITIONS:
+Return NO_VALID_TIMESTAMP if:
+- OCR confidence < 80
+- Timestamp text is truncated or unclear
+- Timestamp conflicts across regions
+
+OUTPUT FORMAT (STRICT JSON ONLY):
+{
+  "timestamp": "DD/MM/YYYY HH:MM | NO_VALID_TIMESTAMP",
+  "raw_ocr_text": "exact OCR text used",
+  "confidence": 0-100,
+  "ocr_engine": "PaddleOCR | Tesseract",
+  "timestamp_region": "top-left | top-right | bottom-left | bottom-right",
+  "source": "IMAGE_OVERLAY",
+  "review_required": true | false,
+  "notes": "reason if review_required = true"
+}
+
+ENFORCEMENT SAFETY RULE:
+If confidence < 85 → review_required MUST be true.
+Never allow enforcement decision on uncertain timestamps.
