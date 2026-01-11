@@ -436,8 +436,8 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
     entryWindow: { start: string; end: string; confidence: number } | null;
     exitWindow: { start: string; end: string; confidence: number } | null;
     timeRange: { 
-      first: string; 
-      last: string; 
+      first: string | null; 
+      last: string | null; 
       durationMinutes: number;
       timestampQuality?: "high" | "medium" | "low" | "invalid";
       validationIssue?: string | null;

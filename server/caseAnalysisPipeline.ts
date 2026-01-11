@@ -103,8 +103,8 @@ interface EvidenceTimelineResult {
   entryWindow: { start: string; end: string; confidence: number } | null;
   exitWindow: { start: string; end: string; confidence: number } | null;
   timeRange: { 
-    first: string; 
-    last: string; 
+    first: string | null; 
+    last: string | null; 
     durationMinutes: number;
     rawDurationMinutes?: number;
     timestampQuality?: "high" | "medium" | "low" | "invalid";
@@ -470,13 +470,17 @@ async function stepEvidenceNormalisation(
 function parseTimestampOverlay(timestampStr: string): string | null {
   if (!timestampStr) return null;
   
+  // Patterns for various camera timestamp formats
+  // UK Hikvision format: "30-12-2025 Tue 14:32:27" (DD-MM-YYYY Day HH:MM:SS)
   const patterns = [
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,
-    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+    /(\d{2})-(\d{2})-(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/,  // DD-MM-YYYY Day HH:MM:SS
+    /(\d{2})\/(\d{2})\/(\d{4})\s+\w{3}\s+(\d{2}):(\d{2}):(\d{2})/, // DD/MM/YYYY Day HH:MM:SS
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,         // DD/MM/YYYY HH:MM:SS
+    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,           // YYYY-MM-DD HH:MM:SS
+    /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,             // YYYY-MM-DDTHH:MM:SS
+    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,           // DD-MM-YYYY HH:MM:SS
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/,                 // DD/MM/YYYY HH:MM
+    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,         // YYYY/MM/DD HH:MM:SS
   ];
   
   for (const pattern of patterns) {
@@ -1615,9 +1619,10 @@ export async function runCaseAnalysisPipeline(
     );
     
     const ocrTimestamps = ctx.evidenceTimeline.timestamps;
-    const ocrFirst = ocrTimestamps[0]?.timestamp || new Date().toISOString();
-    const ocrLast = ocrTimestamps[ocrTimestamps.length - 1]?.timestamp || ocrFirst;
-    const ocrDurationMinutes = validOcrTimestamps.length >= 2 
+    // CRITICAL: Do NOT fallback to current time - if no OCR timestamps found, leave as null
+    const ocrFirst = ocrTimestamps.length > 0 ? ocrTimestamps[0].timestamp : null;
+    const ocrLast = ocrTimestamps.length > 0 ? ocrTimestamps[ocrTimestamps.length - 1].timestamp : null;
+    const ocrDurationMinutes = (ocrFirst && ocrLast && validOcrTimestamps.length >= 2)
       ? Math.round((new Date(ocrLast).getTime() - new Date(ocrFirst).getTime()) / (1000 * 60))
       : 0;
     
@@ -1638,7 +1643,7 @@ export async function runCaseAnalysisPipeline(
       };
       ctx.evidenceTimeline.exitWindow = {
         start: ocrTimestamps[Math.max(0, ocrTimestamps.length - 2)].timestamp,
-        end: ocrLast,
+        end: ocrTimestamps[ocrTimestamps.length - 1].timestamp,
         confidence: ocrTimestamps[ocrTimestamps.length - 1].confidence,
       };
     } else {
