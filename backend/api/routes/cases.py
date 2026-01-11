@@ -642,6 +642,53 @@ async def run_case_pipeline(
             "disabledBayAnalysis": disabled_bay_result.to_dict()
         }
     
+    # Parent & Child bay analysis (if applicable)
+    parent_child_result = None
+    is_parent_child_bay = normalized_bay in ("parentchild", "parentandchild", "parent&child", "parentchildbay")
+    if is_parent_child_bay:
+        logger.info("Parent & Child bay detected - running child presence analysis")
+        from backend.services.parent_child_bay_analysis_service import parent_child_bay_analysis_service
+        
+        # Run parent child analysis on each image
+        parent_child_analysis_results = []
+        for evidence in evidence_list:
+            image_path = None
+            if evidence.image_path:
+                relative_path = evidence.image_path.lstrip("/")
+                image_path = os.path.join(os.getcwd(), relative_path)
+            
+            if image_path and os.path.exists(image_path):
+                pc_result = await ocr_service.analyze_parent_child_bay(image_path, evidence.id)
+                pc_result["timestamp"] = evidence.timestamp.isoformat() if evidence.timestamp else None
+                parent_child_analysis_results.append(pc_result)
+        
+        # Build evidence items for parent child analysis
+        evidence_items = [{
+            "id": ev.id,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else None
+        } for ev in evidence_list]
+        
+        # Run parent child bay analysis (bay type already confirmed from site config)
+        parent_child_result = await parent_child_bay_analysis_service.analyze_parent_child_bay(
+            evidence_items=evidence_items,
+            image_analysis_results=parent_child_analysis_results,
+            observe_from=first_time,
+            observe_to=last_time,
+            duration_minutes=duration_minutes,
+            confirmed_bay_type=True
+        )
+        
+        logger.info(f"Parent & Child bay analysis result: {parent_child_result.to_dict()}")
+        
+        # Update bay rule evaluation with parent child analysis
+        bay_rule_evaluation = {
+            "bayType": "PARENT_CHILD",
+            "bayName": "Parent & Child Bay",
+            "decision": parent_child_result.decision.value,
+            "explanation": parent_child_result.legal_justification,
+            "parentChildAnalysis": parent_child_result.to_dict()
+        }
+    
     # Generate final decision based on evidence summary validation and loading bay analysis
     # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
     if loading_bay_result is not None:
@@ -715,6 +762,42 @@ async def run_case_pipeline(
                 "plainEnglishExplanation": f"The vehicle was parked in a disabled bay without displaying a valid Blue Badge correctly. {disabled_bay_result.reason}.",
                 "blockers": [],
                 "disabledBayAnalysis": disabled_bay_result.to_dict()
+            }
+    elif parent_child_result is not None:
+        # Parent & Child bay decision
+        if parent_child_result.decision.value == "COMPLIANT":
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": parent_child_result.confidence_score,
+                "legalRisk": "low",
+                "recommendation": "No PCN - Child detected with vehicle",
+                "reasoning": parent_child_result.legal_justification,
+                "plainEnglishExplanation": f"A child was observed with the vehicle in the Parent & Child bay. This is legitimate use of the bay.",
+                "blockers": [],
+                "parentChildAnalysis": parent_child_result.to_dict()
+            }
+        elif parent_child_result.decision.value == "REVIEW_REQUIRED":
+            decision = {
+                "status": "REVIEW_REQUIRED",
+                "overallConfidence": parent_child_result.confidence_score,
+                "legalRisk": "medium",
+                "recommendation": "Manual review required - Child presence inconclusive",
+                "reasoning": parent_child_result.legal_justification,
+                "plainEnglishExplanation": "The AI could not confidently determine if a child was present. A human operator should review the evidence.",
+                "blockers": ["Insufficient confidence for automated decision"],
+                "parentChildAnalysis": parent_child_result.to_dict()
+            }
+        else:
+            # NON_COMPLIANT for parent child bay
+            decision = {
+                "status": "PCN_ELIGIBLE",
+                "overallConfidence": parent_child_result.confidence_score,
+                "legalRisk": "low" if parent_child_result.confidence_score >= 70 else "medium",
+                "recommendation": f"Issue PCN - {parent_child_result.reason}",
+                "reasoning": parent_child_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle was parked in a Parent & Child bay without a child present. {parent_child_result.reason}.",
+                "blockers": [],
+                "parentChildAnalysis": parent_child_result.to_dict()
             }
     elif not evidence_summary.is_valid_for_pcn:
         # Evidence is insufficient for PCN - require review

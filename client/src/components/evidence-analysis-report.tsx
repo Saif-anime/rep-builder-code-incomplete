@@ -27,6 +27,9 @@ import {
   Calendar,
   Hash,
   Sparkles,
+  Baby,
+  Users,
+  ShoppingCart,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -58,6 +61,8 @@ function formatBayTypeLabel(bayType: string | null | undefined): string {
     "drop_off_pickup": "Drop-off / Pick-up",
     "staff_parking": "Staff Parking",
     "standard": "Standard",
+    "parent_child": "Parent & Child Bay",
+    "parent_child_bay": "Parent & Child Bay",
   };
   return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
@@ -912,6 +917,120 @@ export function EvidenceAnalysisReport({
               <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="h-3 w-3" />
                 <span>Manual review required - Blue Badge visibility uncertain</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {bayRule?.parentChildAnalysis && (
+        <Card data-testid="card-parent-child-analysis" className="border-pink-200 dark:border-pink-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Baby className="h-4 w-4 text-pink-600 dark:text-pink-400" />
+              Parent & Child Bay Analysis
+              {bayRule.parentChildAnalysis.decision === "COMPLIANT" ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Compliant
+                </Badge>
+              ) : bayRule.parentChildAnalysis.decision === "REVIEW_REQUIRED" ? (
+                <Badge variant="secondary" className="ml-auto">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Required
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Non-Compliant
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                {bayRule.parentChildAnalysis.childDetected ? (
+                  <Baby className="h-4 w-4 text-green-600" />
+                ) : (
+                  <Baby className="h-4 w-4 text-destructive" />
+                )}
+                <span>Child Detected:</span>
+                <Badge variant={bayRule.parentChildAnalysis.childDetected ? "default" : "destructive"} className="text-xs">
+                  {bayRule.parentChildAnalysis.childDetected ? "Yes" : "No"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span>People:</span>
+                <span className="font-medium">
+                  {bayRule.parentChildAnalysis.childDetection?.adultCount || 0} Adults, {bayRule.parentChildAnalysis.childDetection?.childCount || 0} Children
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <ShoppingCart className={`h-4 w-4 ${bayRule.parentChildAnalysis.childDetection?.pramWithChild ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Pram/Buggy:</span>
+                <Badge variant={bayRule.parentChildAnalysis.childDetection?.pramWithChild ? "default" : "outline"} className="text-xs">
+                  {bayRule.parentChildAnalysis.childDetection?.pramWithChild ? "With Child" : 
+                   bayRule.parentChildAnalysis.childDetection?.pramOnly ? "Empty" : "Not Seen"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span>Observation:</span>
+                <Badge variant="outline" className="text-xs">
+                  {bayRule.parentChildAnalysis.observationDurationMinutes 
+                    ? `${bayRule.parentChildAnalysis.observationDurationMinutes.toFixed(1)} min` 
+                    : "—"}
+                </Badge>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Vehicle Position:</span>
+                <Badge variant={bayRule.parentChildAnalysis.vehiclePositionValid ? "default" : "destructive"}>
+                  {bayRule.parentChildAnalysis.vehiclePositionValid ? "Inside Bay" : "Overlap Detected"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={getConfidenceBadgeVariant(bayRule.parentChildAnalysis.confidence)}>
+                  {bayRule.parentChildAnalysis.confidenceScore}%
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Action:</span>
+                <Badge variant={bayRule.parentChildAnalysis.action === "DO NOT ISSUE" ? "default" : "destructive"}>
+                  {bayRule.parentChildAnalysis.action}
+                </Badge>
+              </div>
+            </div>
+            
+            {bayRule.parentChildAnalysis?.reason && bayRule.parentChildAnalysis.decision !== "COMPLIANT" && (
+              <>
+                <Separator />
+                <div className="p-2 bg-destructive/10 rounded text-sm flex items-start gap-2">
+                  <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                  <span className="text-destructive">{bayRule.parentChildAnalysis.reason}</span>
+                </div>
+              </>
+            )}
+            
+            <div className="p-3 bg-muted/30 rounded text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">Legal Justification</p>
+              <p>{bayRule.parentChildAnalysis.legalJustification}</p>
+            </div>
+            
+            {bayRule.parentChildAnalysis.manualReviewRequired && (
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Manual review required - Child presence uncertain</span>
               </div>
             )}
           </CardContent>

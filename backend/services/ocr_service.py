@@ -867,4 +867,194 @@ Return ONLY the JSON object, no other text."""
             }
         }
 
+    async def analyze_parent_child_bay(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for Parent & Child Bay compliance using Vision GPT.
+        
+        Detects:
+        - Bay confirmation (child/buggy symbol, signage, ground markings)
+        - Vehicle position (fully inside bay, no overlap)
+        - Child presence (children entering/exiting/near vehicle, with pram)
+        - Adult and child counts
+        
+        Returns structured analysis for P&C bay decision logic.
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for parent child bay analysis")
+            return self._empty_parent_child_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_parent_child_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image for PARENT & CHILD BAY compliance under UK standards.
+
+You are helping determine if a vehicle parked in a Parent & Child Bay is COMPLIANT or NON-COMPLIANT.
+Child seat alone is NOT sufficient evidence of compliance - an actual child must be detected.
+
+ANALYZE THE FOLLOWING:
+
+1. PARENT & CHILD BAY CONFIRMATION:
+- Is there a child/baby symbol visible on the ground or signage?
+- Is there a buggy/pram/stroller symbol visible?
+- Is there vertical signage indicating "Parent & Child" or similar?
+- Are there ground markings showing this is a P&C parking space?
+
+2. VEHICLE POSITION:
+- Is the vehicle FULLY inside the bay boundaries?
+- Is the vehicle overlapping any adjacent parking bay?
+- Is the vehicle overlapping any hatched markings or access zones?
+
+3. CHILD PRESENCE DETECTION (CRITICAL):
+- Can you see any child exiting the vehicle?
+- Can you see any child entering the vehicle?
+- Can you see any child standing near the vehicle?
+- Is there a pram/pushchair with a child IN it?
+- Is there just an empty pram visible (no child)?
+- Is there just a child seat visible in the vehicle (no actual child)?
+- How many adults are visible?
+- How many children are visible?
+
+Return a JSON object with:
+{
+  "parentChildAnalysis": {
+    "isParentChildBay": true/false,
+    "groundMarkingsVisible": true/false,
+    "signageVisible": true/false,
+    "childSymbolVisible": true/false,
+    "buggySymbolVisible": true/false,
+    "bayConfirmationConfidence": 0-100,
+    
+    "vehiclePosition": {
+      "fullyInsideBay": true/false,
+      "overlapDetected": true/false,
+      "overlapType": "adjacent_bay" | "hatched_area" | "access_zone" | null,
+      "positionConfidence": 0-100
+    },
+    
+    "childDetection": {
+      "childDetected": true/false,
+      "childExitingVehicle": true/false,
+      "childEnteringVehicle": true/false,
+      "childNearVehicle": true/false,
+      "pramWithChild": true/false,
+      "pramOnly": true/false,
+      "childSeatOnly": true/false,
+      "adultCount": number,
+      "childCount": number,
+      "confidence": 0-100,
+      "notes": "Any relevant observations about people detected"
+    },
+
+    "overallAssessment": {
+      "likelyCompliant": true/false,
+      "confidence": 0-100,
+      "primaryIssue": "string describing main finding"
+    }
+  }
+}
+
+Return ONLY the JSON object, no other text."""
+        
+        try:
+            import json
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 1000
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for parent child analysis: {response.status_code}")
+                    return self._empty_parent_child_analysis(evidence_id)
+                
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                
+                parsed = self._parse_parent_child_response(content, evidence_id)
+                parsed["evidenceId"] = evidence_id
+                parsed["success"] = True
+                return parsed
+                
+        except Exception as e:
+            logger.error(f"Error in parent child bay analysis: {e}")
+            return self._empty_parent_child_analysis(evidence_id)
+    
+    def _parse_parent_child_response(self, content: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Parse Vision GPT response for parent child analysis."""
+        import json
+        try:
+            if "```" in content:
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse parent child analysis JSON, using defaults")
+            return self._empty_parent_child_analysis()
+    
+    def _empty_parent_child_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty parent child analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "parentChildAnalysis": {
+                "isParentChildBay": False,
+                "groundMarkingsVisible": False,
+                "signageVisible": False,
+                "childSymbolVisible": False,
+                "buggySymbolVisible": False,
+                "bayConfirmationConfidence": 0,
+                "vehiclePosition": {
+                    "fullyInsideBay": True,
+                    "overlapDetected": False,
+                    "overlapType": None,
+                    "positionConfidence": 0
+                },
+                "childDetection": {
+                    "childDetected": False,
+                    "childExitingVehicle": False,
+                    "childEnteringVehicle": False,
+                    "childNearVehicle": False,
+                    "pramWithChild": False,
+                    "pramOnly": False,
+                    "childSeatOnly": False,
+                    "adultCount": 0,
+                    "childCount": 0,
+                    "confidence": 0,
+                    "notes": "No analysis available"
+                },
+                "overallAssessment": {
+                    "likelyCompliant": False,
+                    "confidence": 0,
+                    "primaryIssue": "Analysis not performed"
+                }
+            }
+        }
+
+
 ocr_service = OCRService()
