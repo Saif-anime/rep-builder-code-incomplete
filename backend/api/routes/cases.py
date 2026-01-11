@@ -182,11 +182,22 @@ async def delete_case(
     if not case:
         raise HTTPException(status_code=404, detail={"error": "Case not found"})
     
-    # Delete related records
-    db.query(CaseEvidence).filter(CaseEvidence.case_id == case_id).delete()
-    db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).delete()
-    db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).delete()
-    db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case_id).delete()
+    # Find all bundles linked to this case
+    bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case_id).all()
+    bundle_ids = [b.id for b in bundles]
+    
+    # Delete evidence items linked to these bundles
+    if bundle_ids:
+        db.query(Evidence).filter(Evidence.bundle_id.in_(bundle_ids)).delete(synchronize_session=False)
+    
+    # Delete evidence bundles linked to this case
+    db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case_id).delete(synchronize_session=False)
+    
+    # Delete other related records
+    db.query(CaseEvidence).filter(CaseEvidence.case_id == case_id).delete(synchronize_session=False)
+    db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).delete(synchronize_session=False)
+    db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).delete(synchronize_session=False)
+    db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case_id).delete(synchronize_session=False)
     
     # Log the deletion
     audit_log = AuditLog(
