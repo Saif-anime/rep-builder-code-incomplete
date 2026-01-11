@@ -474,7 +474,7 @@ class EVBayAnalysisService:
         image_analysis_results: List[Dict[str, Any]],
         site_ev_regulations: Optional[Dict[str, Any]]
     ) -> ChargingActivityDetails:
-        """Check charging activity status."""
+        """Check charging activity status with cross-frame aggregation."""
         
         details = ChargingActivityDetails()
         
@@ -484,15 +484,24 @@ class EVBayAnalysisService:
                 "chargingRequired", False
             )
         
+        # Track evidence across ALL frames (cross-frame aggregation)
+        cable_visible_count = 0
         cable_to_vehicle_count = 0
         cable_to_charger_count = 0
         port_in_use_count = 0
+        charger_lights_count = 0
+        vehicle_display_count = 0
         total_frames = len(image_analysis_results) if image_analysis_results else 1
         confidence_sum = 0
+        cable_descriptions = []
         
         for result in image_analysis_results:
             ev_data = result.get("evBayAnalysis", {})
             charging = ev_data.get("chargingActivity", {})
+            
+            # Track cable visibility
+            if charging.get("cableVisible", False):
+                cable_visible_count += 1
             
             if charging.get("cableConnectedToVehicle", False):
                 cable_to_vehicle_count += 1
@@ -503,6 +512,16 @@ class EVBayAnalysisService:
             if charging.get("chargingPortInUse", False):
                 port_in_use_count += 1
             
+            # New fields for enhanced detection
+            if charging.get("chargerIndicatorLights", False):
+                charger_lights_count += 1
+            
+            if charging.get("vehicleChargingDisplay", False):
+                vehicle_display_count += 1
+            
+            if charging.get("cableDescription"):
+                cable_descriptions.append(charging["cableDescription"])
+            
             if charging.get("chargingUnitType"):
                 details.charging_unit_type = charging["chargingUnitType"]
             
@@ -511,19 +530,62 @@ class EVBayAnalysisService:
             if signage.get("whileChargingOnly", False):
                 details.charging_required_by_signage = True
             
+            # Also check overall assessment for charging status
+            overall = ev_data.get("overallAssessment", {})
+            if overall.get("isCharging", False):
+                # Vision GPT explicitly says vehicle is charging
+                cable_to_vehicle_count += 1
+                cable_to_charger_count += 1
+            
             confidence_sum += charging.get("confidence", 0)
         
         details.cable_connected_to_vehicle = cable_to_vehicle_count > 0
         details.cable_connected_to_charger = cable_to_charger_count > 0
         details.charging_port_in_use = port_in_use_count > 0
         
-        # Determine if actively charging
+        # Cross-frame aggregation: combine evidence from multiple frames
+        # If cable is visible in ANY frame and connected to charger in ANY frame,
+        # consider it evidence of charging activity
+        cable_visible = cable_visible_count > 0
+        charger_lights = charger_lights_count > 0
+        vehicle_display = vehicle_display_count > 0
+        
+        # Determine if actively charging with enhanced logic
+        charging_signals = []
+        
         if details.cable_connected_to_vehicle and details.cable_connected_to_charger:
-            details.is_actively_charging = True
-        elif details.cable_connected_to_vehicle and details.charging_port_in_use:
+            charging_signals.append("cable_connected_both_ends")
             details.is_actively_charging = True
         
-        details.confidence = int(confidence_sum / total_frames) if total_frames > 0 else 0
+        if details.cable_connected_to_vehicle and details.charging_port_in_use:
+            charging_signals.append("port_in_use")
+            details.is_actively_charging = True
+        
+        # Additional charging indicators boost confidence
+        if charger_lights:
+            charging_signals.append("charger_indicator_lights")
+            if cable_visible:
+                details.is_actively_charging = True
+        
+        if vehicle_display:
+            charging_signals.append("vehicle_charging_display")
+            if cable_visible:
+                details.is_actively_charging = True
+        
+        # If cable visible and EITHER connected to vehicle OR charger (not both verified)
+        # still consider potential charging with lower confidence
+        if cable_visible and (details.cable_connected_to_vehicle or details.cable_connected_to_charger):
+            if not details.is_actively_charging:
+                details.is_actively_charging = True
+                charging_signals.append("cable_visible_partial_connection")
+        
+        # Calculate confidence with bonus for multiple signals
+        base_confidence = int(confidence_sum / total_frames) if total_frames > 0 else 0
+        signal_bonus = min(len(charging_signals) * 10, 30)  # Up to 30% bonus
+        details.confidence = min(base_confidence + signal_bonus, 100)
+        
+        logger.info(f"Charging activity check: signals={charging_signals}, "
+                   f"is_charging={details.is_actively_charging}, confidence={details.confidence}")
         
         return details
     

@@ -1282,7 +1282,7 @@ Return ONLY the JSON object, no other text."""
         
         prompt = """Analyze this parking enforcement evidence image for EV BAY (Electric Vehicle Bay) compliance under UK standards.
 
-You are helping determine if a vehicle parked in an EV bay is COMPLIANT with EV bay rules.
+You are helping determine if a vehicle parked in an EV bay is COMPLIANT with EV bay rules. PAY SPECIAL ATTENTION to charging cables and charging activity - this is CRITICAL for compliance.
 
 ANALYZE THE FOLLOWING:
 
@@ -1300,13 +1300,28 @@ ANALYZE THE FOLLOWING:
 - Look for hybrid badges: PHEV, Plug-in Hybrid, GTE, etc.
 - Confidence in EV identification (0-100)
 
-3. CHARGING ACTIVITY:
-- Is there a charging cable visible?
-- Is the cable connected to the vehicle's charging port?
-- Is the cable connected to a charging station/unit?
-- Is the charging port visibly in use (port open, cable inserted)?
-- Type of charging unit if visible (slow, fast, rapid, Tesla Supercharger, etc.)
-- Confidence in charging detection (0-100)
+3. CHARGING ACTIVITY (CRITICAL - Examine very carefully):
+CABLE DETECTION - Look for:
+- ANY cable/wire running between the vehicle and a charging station
+- A thick black or orange cable on the ground or suspended
+- Cable connectors/plugs at either end
+- Cable attached to or entering the vehicle's charging port area
+- Cable attached to or coming from a charging pedestal/unit
+
+VEHICLE CHARGING PORT - Look for:
+- Open charging flap on vehicle (usually on front/rear wing or nose)
+- Cable plug inserted into vehicle's charging socket
+- Charging port lights (green, blue, or amber LEDs)
+- Vehicle dashboard charging indicator visible through windscreen
+
+CHARGING STATION - Look for:
+- Charging unit/pedestal/bollard in the image
+- LED indicator lights on the charger (green=charging, blue=ready)
+- Display screen showing charging status
+- Cable coming FROM the charging unit
+- Type of charger: slow (3kW), fast (7-22kW), rapid (50kW+), Tesla Supercharger
+
+IMPORTANT: If you see ANY cable connecting vehicle to charger, mark cableConnectedToVehicle AND cableConnectedToCharger as TRUE.
 
 4. SIGNAGE CHECK:
 - Is there "Electric vehicles only" signage visible?
@@ -1346,9 +1361,12 @@ Return a JSON object with:
       "cableConnectedToVehicle": true/false,
       "cableConnectedToCharger": true/false,
       "chargingPortInUse": true/false,
+      "chargerIndicatorLights": true/false,
+      "vehicleChargingDisplay": true/false,
       "chargingUnitType": "string or null",
+      "cableDescription": "describe the cable path if visible",
       "confidence": 0-100,
-      "notes": "observations"
+      "notes": "detailed observations about charging activity"
     },
     
     "signageCheck": {
