@@ -372,4 +372,20 @@ async def analyze_bundle(
     bundle.analysis_started_at = datetime.utcnow()
     db.commit()
     
+    # Import here to avoid circular imports
+    from backend.api.routes.cases import run_case_pipeline_internal
+    
+    # Run the full pipeline for the associated case
+    if bundle.case_id:
+        try:
+            result = await run_case_pipeline_internal(bundle.case_id, db, current_user)
+            bundle.status = "analyzed"
+            db.commit()
+            return {"message": "Bundle analysis complete", "bundleId": bundle_id, "pipelineResult": result}
+        except Exception as e:
+            bundle.status = "error"
+            db.commit()
+            logger.error(f"Bundle analysis failed: {str(e)}")
+            raise HTTPException(status_code=500, detail={"error": f"Analysis failed: {str(e)}"})
+    
     return {"message": "Bundle analysis started", "bundleId": bundle_id}

@@ -586,6 +586,208 @@ async def run_case_pipeline(
     
     return {"message": "Pipeline completed", "caseId": case.id, "status": "ANALYSED"}
 
+# Internal function that can be called from other routes (e.g., evidence bundle analyze)
+async def run_case_pipeline_internal(case_id: int, db: Session, current_user) -> dict:
+    """Run the case pipeline analysis. Called internally by other routes."""
+    from backend.api.routes.cases import resolve_case_from_id
+    
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+    
+    # Get the associated bundle
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).first()
+    
+    # Get site info
+    site_name = "Unknown Site"
+    if case.site_id:
+        site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
+        if site:
+            site_name = getattr(site, 'site_name', None) or getattr(site, 'name', None) or "Unknown Site"
+    
+    # Get evidence for the case
+    evidence_list = []
+    if bundle:
+        evidence_list = db.query(Evidence).filter(Evidence.bundle_id == bundle.id).all()
+    
+    if not evidence_list:
+        case_evidence_records = db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).all()
+        evidence_ids = [ce.evidence_id for ce in case_evidence_records]
+        if evidence_ids:
+            evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
+    
+    # Run OCR extraction
+    ocr_timestamps = []
+    for evidence in evidence_list:
+        image_path = None
+        if evidence.image_path:
+            relative_path = evidence.image_path.lstrip("/")
+            image_path = os.path.join(os.getcwd(), relative_path)
+        
+        if image_path and os.path.exists(image_path):
+            ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
+            parsed_time = None
+            if ocr_result.get("timestamp"):
+                try:
+                    parsed_time = datetime.fromisoformat(ocr_result["timestamp"])
+                    evidence.timestamp = parsed_time
+                    evidence.ocr_confidence = ocr_result.get("confidence", 0)
+                    db.commit()
+                except (ValueError, TypeError):
+                    pass
+            
+            ocr_timestamps.append({
+                "evidenceId": evidence.id,
+                "timestamp": ocr_result.get("timestamp"),
+                "confidence": ocr_result.get("confidence", 0),
+                "source": "ocr",
+                "rawOcrText": ocr_result.get("raw_text"),
+                "location": ocr_result.get("location")
+            })
+    
+    # Generate evidence summary
+    evidence_summary = evidence_summary_service.generate_summary(
+        ocr_results=ocr_timestamps,
+        evidence_count=len(evidence_list),
+        case_created_at=case.created_at
+    )
+    
+    duration_minutes = evidence_summary.duration_minutes
+    first_time = evidence_summary.observe_from
+    last_time = evidence_summary.observe_to
+    
+    # Create evidence timeline
+    evidence_timeline = {
+        "durationMinutes": duration_minutes,
+        "evidenceSummary": evidence_summary.to_dict(),
+        "timeRange": {
+            "first": first_time.isoformat() if first_time else None,
+            "last": last_time.isoformat() if last_time else None,
+            "durationMinutes": duration_minutes,
+            "timestampQuality": evidence_summary.duration_confidence.value.lower(),
+            "validationIssue": "; ".join(evidence_summary.validation_warnings) if evidence_summary.validation_warnings else None,
+            "timeSource": evidence_summary.time_source.value
+        },
+        "timestamps": ocr_timestamps
+    }
+    
+    # Regulation evaluation with null safety
+    effective_duration = (duration_minutes - 10) if duration_minutes is not None else None
+    overstay_amount = (duration_minutes - 60) if duration_minutes is not None else None
+    is_breach = duration_minutes is not None and duration_minutes > 60
+    
+    regulation_evaluation = {
+        "durationMinutes": duration_minutes,
+        "maxStayAllowed": 60,
+        "siteName": site_name,
+        "rules": {"maxStayMinutes": 60, "gracePeriodMinutes": 10},
+        "evaluation": {
+            "complianceResult": "BREACH" if is_breach else ("COMPLIANT" if duration_minutes is not None else "UNKNOWN"),
+            "actualDurationMinutes": duration_minutes,
+            "allowedDurationMinutes": 60,
+            "effectiveDurationMinutes": effective_duration,
+            "breachExplanation": f"Vehicle exceeded maximum stay by {overstay_amount} minutes" if is_breach else "No breach",
+            "ruleSource": "site_configuration"
+        }
+    }
+    
+    # Generate decision based on evidence summary validation
+    if not evidence_summary.is_valid_for_pcn:
+        decision = {
+            "status": "REVIEW_REQUIRED",
+            "overallConfidence": 30,
+            "legalRisk": "high",
+            "recommendation": "Manual review required - evidence insufficient",
+            "reasoning": evidence_summary.pcn_block_reason or "Evidence validation failed",
+            "plainEnglishExplanation": evidence_summary.pcn_block_reason or "Unable to verify parking duration.",
+            "blockers": evidence_summary.validation_warnings
+        }
+    elif duration_minutes is None or duration_minutes <= 0:
+        decision = {
+            "status": "NO_PCN",
+            "overallConfidence": 70,
+            "legalRisk": "low",
+            "recommendation": "No PCN - No overstay detected",
+            "reasoning": "Duration could not be calculated.",
+            "plainEnglishExplanation": "Vehicle did not exceed parking time.",
+            "blockers": []
+        }
+    elif duration_minutes <= 60:
+        decision = {
+            "status": "NO_PCN",
+            "overallConfidence": 85,
+            "legalRisk": "low",
+            "recommendation": "No PCN - Within permitted stay",
+            "reasoning": f"Vehicle parked for {duration_minutes} minutes.",
+            "plainEnglishExplanation": f"Vehicle stayed {duration_minutes} minutes, within the 60 minute limit.",
+            "blockers": []
+        }
+    else:
+        overstay = duration_minutes - 60
+        confidence_map = {"HIGH": 90, "MEDIUM": 75, "LOW": 50}
+        conf = confidence_map.get(evidence_summary.duration_confidence.value, 60)
+        decision = {
+            "status": "PCN_ELIGIBLE",
+            "overallConfidence": conf,
+            "legalRisk": "low" if evidence_summary.duration_confidence.value == "HIGH" else "medium",
+            "recommendation": "Issue PCN - Overstay violation",
+            "reasoning": f"Vehicle parked {duration_minutes} minutes, exceeding limit by {overstay} minutes.",
+            "plainEnglishExplanation": f"Vehicle stayed {duration_minutes} minutes, {overstay} minutes over limit.",
+            "blockers": evidence_summary.validation_warnings or []
+        }
+    
+    # Update case and create/update pipeline results
+    case.status = "ANALYSED"
+    db.commit()
+    
+    pipeline_results = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+    if not pipeline_results:
+        pipeline_results = CasePipelineResults(
+            case_id=case.id,
+            pipeline_status="completed",
+            current_step="decision",
+            completed_steps=7,
+            total_steps=7,
+            evidence_timeline=evidence_timeline,
+            regulation_evaluation=regulation_evaluation,
+            signage_compliance={"overallCompliance": "COMPLIANT", "overallConfidence": 95},
+            bay_rule_evaluation={"bayType": case.bay_type or "general_parking", "decision": "PROCEED"},
+            decision=decision,
+            analysis_started_at=datetime.utcnow(),
+            analysis_completed_at=datetime.utcnow()
+        )
+        db.add(pipeline_results)
+    else:
+        pipeline_results.pipeline_status = "completed"
+        pipeline_results.evidence_timeline = evidence_timeline
+        pipeline_results.regulation_evaluation = regulation_evaluation
+        pipeline_results.decision = decision
+        pipeline_results.analysis_completed_at = datetime.utcnow()
+    db.commit()
+    
+    # Update/create CaseAnalysis
+    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    if not case_analysis:
+        case_analysis = CaseAnalysis(
+            case_id=case.id,
+            summary=decision["reasoning"],
+            recommendation="Issue PCN" if decision["status"] == "PCN_ELIGIBLE" else "No PCN Required",
+            confidence_score=decision["overallConfidence"] / 100.0,
+            violations=[],
+            risk_assessment=decision["legalRisk"],
+            generated_at=datetime.utcnow()
+        )
+        db.add(case_analysis)
+    else:
+        case_analysis.summary = decision["reasoning"]
+        case_analysis.recommendation = "Issue PCN" if decision["status"] == "PCN_ELIGIBLE" else "No PCN Required"
+        case_analysis.confidence_score = decision["overallConfidence"] / 100.0
+        case_analysis.risk_assessment = decision["legalRisk"]
+        case_analysis.generated_at = datetime.utcnow()
+    db.commit()
+    
+    return {"message": "Pipeline completed", "caseId": case.id, "status": "ANALYSED", "decision": decision}
+
 @router.post("/{id}/reanalyze-evidence")
 async def reanalyze_case_evidence(
     id: str,
