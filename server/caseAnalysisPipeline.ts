@@ -307,6 +307,7 @@ export interface PipelineContext {
   caseId: string;
   siteId: number;
   userId?: string;
+  selectedBayType?: string | null;  // Bay type selected by user at upload
   evidenceTimeline?: EvidenceTimelineResult;
   visionResults?: VisionResultsOutput;
   dvlaData?: DVLADataOutput;
@@ -1088,29 +1089,55 @@ async function stepBayRuleEvaluation(
   visionResults: VisionResultsOutput,
   dvlaData: DVLADataOutput | undefined
 ): Promise<BayRuleEvaluationOutput> {
-  // Try to find bay from camera -> bay mapping
+  // Bay type priority: 1. User-selected at upload, 2. Camera->Bay mapping, 3. Evidence->Bay, 4. Standard
   let bay: { id: number; name: string; type: string } | null = null;
+  let resolvedBayType: BayRuleEvaluationOutput["bayType"] = "standard";
   
-  // Check if any evidence has a camera with a bay mapping
-  for (const ev of evidenceItems) {
-    if (ev.cameraId) {
-      const bayFromCamera = await storage.getBayByCamera(ev.cameraId);
-      if (bayFromCamera) {
-        bay = { id: bayFromCamera.id, name: bayFromCamera.name, type: bayFromCamera.type };
-        break;
+  // Priority 1: Use bay type selected by user at evidence upload
+  if (ctx.selectedBayType) {
+    // Map the selected bay type to the internal bay type format
+    const bayTypeMapping: Record<string, BayRuleEvaluationOutput["bayType"]> = {
+      "general_parking": "standard",
+      "disabled_bay": "disabled",
+      "ev_bay": "ev",
+      "loading_bay": "loading",
+      "permit_holders": "permit",
+      "no_parking": "standard",
+      "drop_off_pickup": "loading",
+      "staff_parking": "permit",
+      "standard": "standard",
+      "disabled": "disabled",
+      "ev": "ev",
+      "loading": "loading",
+      "permit": "permit",
+      "parent_child": "parent_child",
+    };
+    resolvedBayType = bayTypeMapping[ctx.selectedBayType] || "standard";
+    console.log(`[Pipeline] Using user-selected bay type: ${ctx.selectedBayType} -> ${resolvedBayType}`);
+  } else {
+    // Priority 2/3: Check if any evidence has a camera with a bay mapping
+    for (const ev of evidenceItems) {
+      if (ev.cameraId) {
+        const bayFromCamera = await storage.getBayByCamera(ev.cameraId);
+        if (bayFromCamera) {
+          bay = { id: bayFromCamera.id, name: bayFromCamera.name, type: bayFromCamera.type };
+          break;
+        }
+      }
+      if (ev.bayId) {
+        const directBay = await storage.getBay(ev.bayId);
+        if (directBay) {
+          bay = { id: directBay.id, name: directBay.name, type: directBay.type };
+          break;
+        }
       }
     }
-    if (ev.bayId) {
-      const directBay = await storage.getBay(ev.bayId);
-      if (directBay) {
-        bay = { id: directBay.id, name: directBay.name, type: directBay.type };
-        break;
-      }
-    }
+    
+    // Priority 4: Default to standard if no bay found
+    resolvedBayType = (bay?.type?.toLowerCase() as BayRuleEvaluationOutput["bayType"]) || "standard";
   }
   
-  // Default to standard if no bay found
-  const bayType = (bay?.type?.toLowerCase() as BayRuleEvaluationOutput["bayType"]) || "standard";
+  const bayType = resolvedBayType;
   const bayId = bay?.id || null;
   const bayName = bay?.name || null;
   
@@ -1511,6 +1538,7 @@ export async function runCaseAnalysisPipeline(
     caseId,
     siteId: caseData.siteId,
     userId,
+    selectedBayType: caseData.bayType,  // Bay type selected at upload
   };
   
   try {

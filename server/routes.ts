@@ -27,7 +27,7 @@ import { runEnrichment } from "./contextEnrichment";
 import { getDriverProfileWithFreshCalculation, recomputeDriverProfiles } from "./driverProfiling";
 import { processPdf, parsePdfToSignageData } from "./pdfProcessor";
 import { analyzeImageWithVision, analyzeMultipleImages, mergeVisionResults } from "./visionAnalysis";
-import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema, insertEnforcementCaseSchema, insertCaseEvidenceSchema } from "@shared/schema";
+import { insertUserSchema, insertCameraSchema, insertBaySchema, insertSiteRuleSchema, insertSitePolicySchema, insertSiteNoteSchema, insertSiteSurroundingsSchema, insertSignageInspectionSchema, insertSignagePhotoSchema, insertEnforcementCaseSchema, insertCaseEvidenceSchema, BAY_TYPES, type BayType } from "@shared/schema";
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -545,6 +545,7 @@ export async function registerRoutes(
           caseReference: caseData.id,
           siteName: site?.siteName || "Unknown Site",
           siteId: caseData.siteId,
+          bayType: (caseData as any).bayType || null,
           uploadSource,
           evidenceCount: evidenceItems.length,
           status,
@@ -766,15 +767,30 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No files uploaded" });
       }
       
-      const { siteId, cameraId } = req.body;
+      const { siteId, cameraId, bayType } = req.body;
       const parsedSiteId = siteId && siteId !== "none" ? parseInt(siteId) : null;
       const parsedCameraId = cameraId && cameraId !== "none" ? parseInt(cameraId) : null;
       
-      // Create a new case for this bundle
+      // Validate bay type is provided and is a valid type
+      if (!bayType || bayType === "none") {
+        return res.status(400).json({ error: "Bay type is required. Please select the type of parking bay." });
+      }
+      
+      // Validate bay type against allowed values
+      if (!BAY_TYPES.includes(bayType as BayType)) {
+        return res.status(400).json({ 
+          error: `Invalid bay type. Must be one of: ${BAY_TYPES.join(", ")}` 
+        });
+      }
+      
+      const validatedBayType = bayType as BayType;
+      
+      // Create a new case for this bundle with bay type
       const newCase = await storage.createCase({
         siteId: parsedSiteId,
         createdBy: req.user!.id,
         status: "pending",
+        bayType: validatedBayType,
       });
       
       const evidenceIds: number[] = [];

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { CaseAnalysis, CaseVehicle, Evidence } from "@shared/schema";
+import type { CaseAnalysis, CaseVehicle, Evidence, BayType } from "@shared/schema";
 
 interface EvidenceAnalysisReportProps {
   bundleId: string;
@@ -29,9 +29,27 @@ interface EvidenceAnalysisReportProps {
   evidenceFiles: Evidence[];
   siteName: string;
   siteId: number | null;
+  bayType: BayType | null;
   vrm: string | null;
   timeWindow: { start: string; end: string } | null;
   onPcnIssued?: () => void;
+}
+
+// Helper to format bay type for display
+function formatBayTypeLabel(bayType: string | null | undefined): string {
+  if (!bayType) return "Unknown";
+  const labels: Record<string, string> = {
+    "general_parking": "General Parking",
+    "disabled_bay": "Disabled Bay",
+    "ev_bay": "Electric Vehicle Bay",
+    "loading_bay": "Loading Bay",
+    "permit_holders": "Permit Holders Only",
+    "no_parking": "No Parking / Restricted",
+    "drop_off_pickup": "Drop-off / Pick-up",
+    "staff_parking": "Staff Parking",
+    "standard": "Standard",
+  };
+  return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
 
 interface PipelineResults {
@@ -137,6 +155,7 @@ export function EvidenceAnalysisReport({
   evidenceFiles,
   siteName,
   siteId,
+  bayType,
   vrm,
   timeWindow,
   onPcnIssued,
@@ -418,8 +437,8 @@ export function EvidenceAnalysisReport({
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Bay Type</p>
-              <p className="font-medium capitalize" data-testid="text-bay-type">
-                {bayRule?.bayType?.replace("_", " ") || "Standard"}
+              <p className="font-medium" data-testid="text-bay-type">
+                {formatBayTypeLabel(bayType || bayRule?.bayType)}
               </p>
             </div>
             {vrm && (

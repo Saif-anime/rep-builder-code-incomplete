@@ -135,10 +135,24 @@ export type InsertEvidence = z.infer<typeof insertEvidenceSchema>;
 export type Evidence = typeof evidence.$inferSelect;
 
 // ==================== ENFORCEMENT CASES ====================
+// Bay types for enforcement - determines which rules apply to the case
+export const BAY_TYPES = [
+  "general_parking",
+  "disabled_bay",
+  "ev_bay", 
+  "loading_bay",
+  "permit_holders",
+  "no_parking",
+  "drop_off_pickup",
+  "staff_parking",
+] as const;
+export type BayType = typeof BAY_TYPES[number];
+
 export const enforcementCases = pgTable("enforcement_cases", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   siteId: integer("site_id").references(() => parkingSites.id),
   vrm: text("vrm"),
+  bayType: text("bay_type").$type<BayType>(), // Required bay type selection for enforcement
   status: text("status").notNull().default("NEW"), // NEW, ANALYSING, ANALYSED, REVIEW_REQUIRED, PCN_ELIGIBLE, PCN_ISSUED, FAILED
   evidenceCount: integer("evidence_count").notNull().default(0),
   createdBy: varchar("created_by").references(() => users.id),

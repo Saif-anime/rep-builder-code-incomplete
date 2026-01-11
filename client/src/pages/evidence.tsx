@@ -32,7 +32,8 @@ import {
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceAnalysisReport } from "@/components/evidence-analysis-report";
-import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle } from "@shared/schema";
+import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle, BayType } from "@shared/schema";
+import { BAY_TYPES } from "@shared/schema";
 
 type SourceFilter = "all" | "camera" | "manual";
 type StatusFilter = "all" | "pending" | "analysing" | "completed";
@@ -42,6 +43,7 @@ interface EvidenceBundle {
   caseReference: string;
   siteName: string;
   siteId: number | null;
+  bayType: BayType | null;
   uploadSource: "camera" | "manual";
   evidenceCount: number;
   status: "pending" | "analysing" | "completed";
@@ -64,6 +66,7 @@ export default function EvidencePage() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+  const [selectedBayType, setSelectedBayType] = useState<string>("");
   const [manualVrmLookup, setManualVrmLookup] = useState("");
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
@@ -100,6 +103,7 @@ export default function EvidencePage() {
       setUploadFiles([]);
       setSelectedSiteId("");
       setSelectedCameraId("");
+      setSelectedBayType("");
       queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
     },
     onError: (error: Error) => {
@@ -143,13 +147,34 @@ export default function EvidencePage() {
       toast({ title: "Please select files to upload", variant: "destructive" });
       return;
     }
+    
+    if (!selectedBayType || selectedBayType === "none") {
+      toast({ title: "Bay type is required", description: "Please select the type of parking bay", variant: "destructive" });
+      return;
+    }
 
     const formData = new FormData();
     uploadFiles.forEach((file) => formData.append("files", file));
     if (selectedSiteId && selectedSiteId !== "none") formData.append("siteId", selectedSiteId);
     if (selectedCameraId && selectedCameraId !== "none") formData.append("cameraId", selectedCameraId);
+    formData.append("bayType", selectedBayType);
 
     uploadMutation.mutate(formData);
+  };
+  
+  // Helper to format bay type for display
+  const formatBayType = (bayType: string): string => {
+    const labels: Record<string, string> = {
+      "general_parking": "General Parking",
+      "disabled_bay": "Disabled Bay",
+      "ev_bay": "Electric Vehicle Bay",
+      "loading_bay": "Loading Bay",
+      "permit_holders": "Permit Holders Only",
+      "no_parking": "No Parking / Restricted",
+      "drop_off_pickup": "Drop-off / Pick-up",
+      "staff_parking": "Staff Parking",
+    };
+    return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
   };
 
   const toggleBundle = (bundleId: string) => {
@@ -261,9 +286,29 @@ export default function EvidencePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="flex flex-col gap-2">
+                  <Label className="flex items-center gap-1">
+                    Bay Type <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={selectedBayType} onValueChange={setSelectedBayType}>
+                    <SelectTrigger data-testid="select-bay-type" className={!selectedBayType ? "border-destructive/50" : ""}>
+                      <SelectValue placeholder="Select bay type (required)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BAY_TYPES.map((bayType) => (
+                        <SelectItem key={bayType} value={bayType}>
+                          {formatBayType(bayType)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Analysis will be performed against rules specific to this bay type
+                  </p>
+                </div>
                 <Button 
                   onClick={handleUpload} 
-                  disabled={uploadMutation.isPending || uploadFiles.length === 0}
+                  disabled={uploadMutation.isPending || uploadFiles.length === 0 || !selectedBayType}
                   data-testid="button-submit-upload"
                 >
                   {uploadMutation.isPending ? (
@@ -657,6 +702,7 @@ export default function EvidencePage() {
                 evidenceFiles={selectedBundle.evidenceFiles}
                 siteName={selectedBundle.siteName}
                 siteId={selectedBundle.siteId}
+                bayType={selectedBundle.bayType}
                 vrm={selectedBundle.vrm}
                 timeWindow={selectedBundle.timeWindow}
                 onPcnIssued={() => {

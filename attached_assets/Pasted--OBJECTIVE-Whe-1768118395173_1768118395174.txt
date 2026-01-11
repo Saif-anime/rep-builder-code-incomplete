@@ -1,0 +1,149 @@
+========================================
+OBJECTIVE
+========================================
+
+When uploading evidence:
+✔ Add a mandatory "Bay Type" selection
+✔ Enforce rules based on the selected bay
+✔ Analyse evidence ONLY against bay-specific conditions
+✔ Generate final analysis & PCN decision accordingly
+
+========================================
+UPLOAD EVIDENCE UI CHANGES
+========================================
+
+In the Upload Evidence modal:
+
+Add a new required field:
+
+Bay Type (Required)
+- Dropdown populated from Parking Site configuration
+
+Example bay options:
+• General Parking
+• Disabled Bay
+• Electric Vehicle Bay
+• Loading Bay
+• Permit Holders Only
+• No Parking / Restricted
+• Drop-off / Pick-up
+• Staff Parking
+
+Bay selection must be:
+✔ Mandatory before "Create Bundle"
+✔ Saved with the Evidence Bundle
+✔ Immutable after bundle creation
+
+========================================
+DATA MODEL UPDATE
+========================================
+
+EvidenceBundle must store:
+
+{
+  site_id,
+  camera_id (optional),
+  bay_type,
+  evidence_files[],
+  created_at
+}
+
+========================================
+ANALYSIS LOGIC (CRITICAL)
+========================================
+
+Evidence analysis MUST follow this order:
+
+1️⃣ Identify Parking Site
+2️⃣ Identify Selected Bay Type
+3️⃣ Load Bay-Specific Rules
+   - From site regulations
+   - From site signage configuration
+
+4️⃣ Analyse Evidence ONLY against:
+   ✔ Selected bay rules
+   ❌ Ignore rules for other bay types
+
+========================================
+BAY-SPECIFIC RULE EXAMPLES
+========================================
+
+General Parking:
+- Max stay duration
+- Valid payment required
+
+Disabled Bay:
+- Blue badge required
+- Time exemptions if applicable
+
+EV Bay:
+- EV vehicle only
+- Active charging required
+
+Loading Bay:
+- Loading activity detected
+- Time-limited stay
+
+Permit Bay:
+- Valid permit required
+- Permit zone match
+
+No Parking:
+- Zero tolerance
+- Immediate non-compliance
+
+========================================
+ANALYSIS OUTPUT (PUBLIC)
+========================================
+
+Show ONLY PCN-relevant results in UI:
+
+{
+  decision: "ISSUE_PCN | DO_NOT_ISSUE | REVIEW_REQUIRED",
+  bay_type: "",
+  rule_applied: "",
+  compliance_status: "COMPLIANT | NON_COMPLIANT",
+  explanation: "Clear, bay-specific reason",
+  confidence: "HIGH | MEDIUM | LOW"
+}
+
+========================================
+FRONTEND DISPLAY RULES
+========================================
+
+In Evidence → View Details:
+
+✔ Show selected Bay Type prominently
+✔ Show rule applied related to bay
+✔ Show final PCN decision
+✔ Show short legal-safe explanation
+
+❌ Do NOT show:
+- Rules from other bays
+- AI model names
+- Technical detection data
+- Internal confidence scores
+
+========================================
+FAIL-SAFE CONDITIONS
+========================================
+
+If:
+- Bay type missing
+- Bay rules unavailable
+- Evidence insufficient for bay evaluation
+
+Then:
+Decision = REVIEW_REQUIRED
+Confidence = LOW
+Explanation must state missing bay data clearly.
+
+========================================
+ACCEPTANCE CRITERIA
+========================================
+
+✔ Bay selection enforced at upload
+✔ Analysis changes based on bay
+✔ PCN result differs correctly per bay
+✔ Clean UI, no confusion
+✔ Appeal-safe logic
