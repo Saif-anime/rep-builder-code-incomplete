@@ -32,6 +32,7 @@ import {
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceAnalysisReport } from "@/components/evidence-analysis-report";
+import { EvidenceViewer, EvidenceGallery } from "@/components/evidence-viewer";
 import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle, BayType } from "@shared/schema";
 import { BAY_TYPES } from "@shared/schema";
 
@@ -430,35 +431,10 @@ export default function EvidencePage() {
                           <FileImage className="h-4 w-4" />
                           Evidence Files ({bundle.evidenceFiles.length})
                         </h4>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {bundle.evidenceFiles.slice(0, 6).map((file) => (
-                            <div key={file.id} className="relative aspect-video rounded-md overflow-hidden bg-muted">
-                              {file.imagePath ? (
-                                <img 
-                                  src={file.imagePath} 
-                                  alt={`Evidence ${file.id}`}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : file.videoPath ? (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <FileVideo className="h-8 w-8 text-muted-foreground" />
-                                </div>
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <FileImage className="h-8 w-8 text-muted-foreground" />
-                                </div>
-                              )}
-                              <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">
-                                #{file.id}
-                              </Badge>
-                            </div>
-                          ))}
-                          {bundle.evidenceFiles.length > 6 && (
-                            <div className="aspect-video rounded-md bg-muted flex items-center justify-center">
-                              <span className="text-sm text-muted-foreground">+{bundle.evidenceFiles.length - 6} more</span>
-                            </div>
-                          )}
-                        </div>
+                        <EvidenceGallery 
+                          evidence={bundle.evidenceFiles} 
+                          maxVisible={6}
+                        />
                         
                         <div className="flex gap-2 mt-4">
                           <Button 
@@ -590,22 +566,11 @@ export default function EvidencePage() {
                 <ScrollArea className="h-[180px] sm:h-[200px]">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pr-4">
                     {selectedBundle.evidenceFiles.map((file) => (
-                      <div key={file.id} className="relative aspect-video rounded-md overflow-hidden bg-muted">
-                        {file.imagePath ? (
-                          <img 
-                            src={file.imagePath} 
-                            alt={`Evidence ${file.id}`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <FileVideo className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
-                          </div>
-                        )}
-                        <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">
-                          #{file.id}
-                        </Badge>
-                      </div>
+                      <EvidenceViewer
+                        key={file.id}
+                        evidence={file}
+                        allEvidence={selectedBundle.evidenceFiles}
+                      />
                     ))}
                   </div>
                 </ScrollArea>

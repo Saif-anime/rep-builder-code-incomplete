@@ -1,0 +1,90 @@
+========================================
+OBJECTIVE
+========================================
+
+Improve evidence usability so reviewers can:
+✔ Quickly preview evidence on hover
+✔ Open evidence in full view on click
+✔ Inspect images/videos clearly before analysis or PCN decision
+
+========================================
+HOVER BEHAVIOR (DESKTOP)
+========================================
+
+When user hovers over an evidence thumbnail:
+
+✔ Show enlarged preview (tooltip / popover)
+✔ Maintain original aspect ratio
+✔ Apply soft shadow + border
+✔ Do NOT block page scrolling
+
+Image preview:
+- Max width: 300px
+- Max height: 220px
+- High-resolution version if available
+
+Video preview:
+- Show first frame (poster)
+- Do NOT auto-play on hover
+
+========================================
+CLICK BEHAVIOR (DESKTOP & MOBILE)
+========================================
+
+When user clicks an evidence thumbnail:
+
+✔ Open full-screen modal viewer
+✔ Dark backdrop
+✔ Zoom & pan enabled for images
+✔ Play/pause controls for videos
+✔ Keyboard support:
+   - ESC → close
+   - ← → navigate between evidence
+
+========================================
+MOBILE BEHAVIOR
+========================================
+
+Hover is not supported on mobile:
+
+✔ Tap = open full-screen viewer
+✔ Swipe left/right to navigate evidence
+✔ Pinch-to-zoom images
+✔ Double-tap to reset zoom
+
+========================================
+ACCESSIBILITY
+========================================
+
+✔ Alt text from evidence metadata
+✔ Focus outline for keyboard users
+✔ ARIA role="dialog" for modal
+✔ ESC key always closes preview
+
+========================================
+PERFORMANCE REQUIREMENTS
+========================================
+
+✔ Lazy-load previews
+✔ Use thumbnail images by default
+✔ Load full-resolution image ONLY on click
+✔ Cache previews per session
+
+========================================
+UI CONSTRAINTS
+========================================
+
+✔ No changes to analysis logic
+✔ No backend impact
+✔ No evidence re-processing
+✔ UI-only enhancement
+
+========================================
+ACCEPTANCE CRITERIA
+========================================
+
+✔ Hover shows preview instantly
+✔ Click opens full evidence clearly
+✔ Works for JPG, PNG, MP4, AVI
+✔ Smooth UX without confusion
+✔ Fully responsive on all screens
