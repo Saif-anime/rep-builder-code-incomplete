@@ -195,7 +195,7 @@ async def upload_evidence_bundle(
     if site_id_int:
         site = db.query(ParkingSite).filter(ParkingSite.id == site_id_int).first()
         if site:
-            site_name = site.name
+            site_name = site.site_name
     
     case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
     case = EnforcementCase(
