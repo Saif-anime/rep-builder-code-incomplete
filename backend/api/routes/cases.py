@@ -456,6 +456,36 @@ async def run_case_pipeline(
         bundle.status = "analyzed"
         db.commit()
     
+    # Create or update CaseAnalysis record (used by bundles endpoint)
+    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    if not case_analysis:
+        case_analysis = CaseAnalysis(
+            case_id=case.id,
+            summary=decision["reasoning"],
+            recommendation="Issue PCN" if decision["status"] == "PCN_ELIGIBLE" else "No PCN Required",
+            confidence_score=decision["overallConfidence"] / 100.0,  # Convert to 0-1 scale
+            violations=[{
+                "type": "overstay",
+                "explanation": decision["plainEnglishExplanation"],
+                "severity": "high" if decision["status"] == "PCN_ELIGIBLE" else "low"
+            }] if decision["status"] == "PCN_ELIGIBLE" else [],
+            risk_assessment=decision["legalRisk"],
+            generated_at=datetime.utcnow()
+        )
+        db.add(case_analysis)
+    else:
+        case_analysis.summary = decision["reasoning"]
+        case_analysis.recommendation = "Issue PCN" if decision["status"] == "PCN_ELIGIBLE" else "No PCN Required"
+        case_analysis.confidence_score = decision["overallConfidence"] / 100.0
+        case_analysis.violations = [{
+            "type": "overstay",
+            "explanation": decision["plainEnglishExplanation"],
+            "severity": "high" if decision["status"] == "PCN_ELIGIBLE" else "low"
+        }] if decision["status"] == "PCN_ELIGIBLE" else []
+        case_analysis.risk_assessment = decision["legalRisk"]
+        case_analysis.generated_at = datetime.utcnow()
+    db.commit()
+    
     # Log the action
     audit_log = AuditLog(
         user_id=current_user.id,
