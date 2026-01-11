@@ -469,4 +469,209 @@ Return ONLY the JSON object, no other text."""
                 return f"{match.group(1)} {match.group(2)}"
         return vrm
 
+    async def analyze_loading_activity(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for loading bay activity detection using Vision GPT.
+        
+        Detects:
+        - Vehicle type (van, lorry, pickup, car)
+        - Human presence near vehicle
+        - Staff/driver activity
+        - Goods/items being handled
+        - Vehicle door states (rear, side, boot)
+        - Movement patterns
+        
+        Returns structured analysis for loading bay decision logic.
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for loading activity analysis")
+            return self._empty_loading_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_loading_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image for LOADING BAY activity detection.
+
+You are helping determine if a vehicle is legitimately loading/unloading under UK regulations.
+
+DETECT THE FOLLOWING:
+
+1. VEHICLE TYPE:
+- Is it a Van, Lorry/Truck, Pickup, or Passenger Car?
+- What is the make/model if visible?
+
+2. HUMAN PRESENCE:
+- Is there a person visible near the vehicle?
+- Are they a driver/staff member handling goods?
+- What are they doing (carrying items, moving between vehicle and building)?
+
+3. GOODS/ITEMS:
+- Are there visible boxes, crates, packages, or bulky items?
+- Are items being loaded INTO or OUT OF the vehicle?
+- Are there items on the ground near the vehicle?
+
+4. VEHICLE STATE:
+- Are the rear doors open?
+- Are the side doors open?
+- Is the boot/tailgate open?
+- Is a loading ramp deployed?
+
+5. MOVEMENT INDICATORS:
+- Does this appear to be mid-loading activity?
+- Is there evidence of vehicle-to-building movement?
+
+Return a JSON object with:
+{
+  "vehicleAnalysis": {
+    "vehicleType": "van" | "lorry" | "pickup" | "passenger_car" | "unknown",
+    "makeModel": "string or null",
+    "confidence": 0-100
+  },
+  "loadingActivity": {
+    "humanDetected": true/false,
+    "humanLocation": "near vehicle door" | "between vehicle and building" | "not visible" | etc,
+    "staffDetected": true/false,
+    "goodsDetected": true/false,
+    "goodsDescription": "boxes, packages, etc" or null,
+    "objectsCarried": true/false,
+    "doorsOpen": true/false,
+    "rearDoorsOpen": true/false,
+    "sideDoorsOpen": true/false,
+    "bootOpen": true/false,
+    "loadingRampDeployed": true/false,
+    "movementDetected": true/false,
+    "vehicleToBuildingMovement": true/false,
+    "activityDescription": "Brief description of what's happening"
+  },
+  "overallAssessment": {
+    "likelyLoading": true/false,
+    "confidence": 0-100,
+    "reasoning": "Brief explanation"
+  }
+}
+
+Return ONLY the JSON object, no other text."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 800
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for loading analysis: {response.status_code} - {response.text}")
+                    return self._empty_loading_analysis(evidence_id)
+                
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                result = self._parse_loading_analysis_response(content)
+                result["evidenceId"] = evidence_id
+                result["success"] = True
+                return result
+                
+        except Exception as e:
+            logger.error(f"Loading activity analysis failed: {e}")
+            return self._empty_loading_analysis(evidence_id)
+    
+    def _parse_loading_analysis_response(self, content: str) -> Dict[str, Any]:
+        """Parse loading activity analysis response from Vision GPT."""
+        import json
+        try:
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse loading analysis JSON, using defaults")
+            return {
+                "vehicleAnalysis": {
+                    "vehicleType": "unknown",
+                    "makeModel": None,
+                    "confidence": 0
+                },
+                "loadingActivity": {
+                    "humanDetected": False,
+                    "humanLocation": None,
+                    "staffDetected": False,
+                    "goodsDetected": False,
+                    "goodsDescription": None,
+                    "objectsCarried": False,
+                    "doorsOpen": False,
+                    "rearDoorsOpen": False,
+                    "sideDoorsOpen": False,
+                    "bootOpen": False,
+                    "loadingRampDeployed": False,
+                    "movementDetected": False,
+                    "vehicleToBuildingMovement": False,
+                    "activityDescription": "Analysis failed"
+                },
+                "overallAssessment": {
+                    "likelyLoading": False,
+                    "confidence": 0,
+                    "reasoning": "Could not parse AI response"
+                }
+            }
+    
+    def _empty_loading_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty loading analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "vehicleAnalysis": {
+                "vehicleType": "unknown",
+                "makeModel": None,
+                "confidence": 0
+            },
+            "loadingActivity": {
+                "humanDetected": False,
+                "humanLocation": None,
+                "staffDetected": False,
+                "goodsDetected": False,
+                "goodsDescription": None,
+                "objectsCarried": False,
+                "doorsOpen": False,
+                "rearDoorsOpen": False,
+                "sideDoorsOpen": False,
+                "bootOpen": False,
+                "loadingRampDeployed": False,
+                "movementDetected": False,
+                "vehicleToBuildingMovement": False,
+                "activityDescription": None
+            },
+            "overallAssessment": {
+                "likelyLoading": False,
+                "confidence": 0,
+                "reasoning": "No analysis available"
+            }
+        }
+
 ocr_service = OCRService()

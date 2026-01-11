@@ -528,8 +528,103 @@ async def run_case_pipeline(
         "explanation": "No special bay restrictions apply to this violation"
     }
     
-    # Generate final decision based on evidence summary validation
-    if not evidence_summary.is_valid_for_pcn:
+    # Loading bay analysis (if applicable)
+    loading_bay_result = None
+    # Normalize bay type check comprehensively to handle all variants
+    # Handles: "loading", "LOADING", "loading_bay", "Loading Bay", "loading-bay", etc.
+    normalized_bay = bay_type.lower().replace("_", "").replace("-", "").replace(" ", "") if bay_type else ""
+    is_loading_bay = normalized_bay in ("loading", "loadingbay")
+    if is_loading_bay:
+        logger.info("Loading bay detected - running loading activity analysis")
+        from backend.services.loading_bay_analysis_service import loading_bay_analysis_service
+        
+        # Run loading activity analysis on each image
+        loading_analysis_results = []
+        for evidence in evidence_list:
+            image_path = None
+            if evidence.image_path:
+                relative_path = evidence.image_path.lstrip("/")
+                image_path = os.path.join(os.getcwd(), relative_path)
+            
+            if image_path and os.path.exists(image_path):
+                loading_result = await ocr_service.analyze_loading_activity(image_path, evidence.id)
+                loading_result["timestamp"] = evidence.timestamp.isoformat() if evidence.timestamp else None
+                loading_analysis_results.append(loading_result)
+        
+        # Get DVLA vehicle data if available
+        dvla_vehicle_data = None
+        if bundle:
+            case_vehicle = db.query(CaseVehicle).filter(CaseVehicle.bundle_id == bundle.id).first()
+            if case_vehicle and case_vehicle.dvla_data:
+                dvla_vehicle_data = case_vehicle.dvla_data
+        
+        # Build evidence items for loading analysis
+        evidence_items = [{
+            "id": ev.id,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else None
+        } for ev in evidence_list]
+        
+        # Run loading bay analysis
+        loading_bay_result = await loading_bay_analysis_service.analyze_loading_bay(
+            evidence_items=evidence_items,
+            image_analysis_results=loading_analysis_results,
+            dvla_vehicle_data=dvla_vehicle_data,
+            observe_from=first_time,
+            observe_to=last_time,
+            duration_minutes=duration_minutes,
+            signage_time_limit=None
+        )
+        
+        logger.info(f"Loading bay analysis result: {loading_bay_result.to_dict()}")
+        
+        # Update bay rule evaluation with loading analysis
+        bay_rule_evaluation = {
+            "bayType": "LOADING",
+            "bayName": "Loading Bay",
+            "decision": loading_bay_result.decision.value,
+            "explanation": loading_bay_result.legal_justification,
+            "loadingAnalysis": loading_bay_result.to_dict()
+        }
+    
+    # Generate final decision based on evidence summary validation and loading bay analysis
+    # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
+    if loading_bay_result is not None:
+        # Loading bay decision takes precedence
+        if loading_bay_result.decision.value == "DO_NOT_ISSUE":
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": loading_bay_result.confidence_score,
+                "legalRisk": "low",
+                "recommendation": "No PCN - Active loading/unloading detected",
+                "reasoning": loading_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle was observed in the loading bay with evidence of active loading/unloading activity. Under UK regulations, this is legitimate use of a loading bay.",
+                "blockers": [],
+                "loadingAnalysis": loading_bay_result.to_dict()
+            }
+        elif loading_bay_result.decision.value == "MANUAL_REVIEW":
+            decision = {
+                "status": "REVIEW_REQUIRED",
+                "overallConfidence": loading_bay_result.confidence_score,
+                "legalRisk": "medium",
+                "recommendation": "Manual review required - Loading activity inconclusive",
+                "reasoning": loading_bay_result.legal_justification,
+                "plainEnglishExplanation": "The AI could not confidently determine if legitimate loading activity was taking place. A human operator should review the evidence.",
+                "blockers": ["Insufficient confidence for automated decision"],
+                "loadingAnalysis": loading_bay_result.to_dict()
+            }
+        else:
+            # ISSUE_PCN for loading bay
+            decision = {
+                "status": "PCN_ELIGIBLE",
+                "overallConfidence": loading_bay_result.confidence_score,
+                "legalRisk": "low" if loading_bay_result.confidence_score >= 70 else "medium",
+                "recommendation": "Issue PCN - No loading activity detected in loading bay",
+                "reasoning": loading_bay_result.legal_justification,
+                "plainEnglishExplanation": "The vehicle was parked in a loading bay without evidence of active loading or unloading activity.",
+                "blockers": [],
+                "loadingAnalysis": loading_bay_result.to_dict()
+            }
+    elif not evidence_summary.is_valid_for_pcn:
         # Evidence is insufficient for PCN - require review
         decision = {
             "status": "REVIEW_REQUIRED",

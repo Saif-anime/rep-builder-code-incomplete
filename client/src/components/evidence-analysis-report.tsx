@@ -17,6 +17,10 @@ import {
   Shield,
   HelpCircle,
   AlertCircle,
+  Truck,
+  Package,
+  User,
+  DoorOpen,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -131,6 +135,35 @@ interface PipelineResults {
     bayName?: string;
     decision?: string;
     explanation?: string;
+    loadingAnalysis?: {
+      bayType: string;
+      decision: "DO_NOT_ISSUE" | "ISSUE_PCN" | "MANUAL_REVIEW";
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      confidenceScore: number;
+      loadingAnalysis: {
+        vehicleType: string;
+        vehicleLikelyForLoading: boolean;
+        staffDetected: boolean;
+        goodsDetected: boolean;
+        doorsOpen: boolean;
+        humanNearVehicle: boolean;
+        objectsBeingCarried: boolean;
+        motionAcrossFrames: boolean;
+        continuousLoading: boolean;
+        durationMinutes: number | null;
+        signageTimeLimit: number | null;
+        timeReasonable: boolean;
+        activityFrameCount: number;
+      };
+      legalJustification: string;
+      manualReviewRequired: boolean;
+      activityFrames: Array<{
+        evidenceId: number;
+        timestamp: string | null;
+        activityType: string;
+        details: Record<string, boolean | string | null>;
+      }>;
+    };
   } | null;
   decision: {
     status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN" | "BLOCKED_BY_BAY_RULE";
@@ -589,6 +622,132 @@ export function EvidenceAnalysisReport({
           <p className="text-sm" data-testid="text-explanation">{getExplanation()}</p>
         </CardContent>
       </Card>
+
+      {bayRule?.loadingAnalysis && (
+        <Card data-testid="card-loading-analysis" className="border-blue-200 dark:border-blue-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Truck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              Loading Bay Analysis
+              {bayRule.loadingAnalysis.decision === "DO_NOT_ISSUE" ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Loading Detected
+                </Badge>
+              ) : bayRule.loadingAnalysis.decision === "MANUAL_REVIEW" ? (
+                <Badge variant="secondary" className="ml-auto">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Required
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  No Loading Detected
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Truck className={`h-4 w-4 ${bayRule.loadingAnalysis.loadingAnalysis.vehicleLikelyForLoading ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Vehicle Type:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.vehicleLikelyForLoading ? "default" : "outline"} className="text-xs">
+                  {bayRule.loadingAnalysis.loadingAnalysis.vehicleType.replace("_", " ")}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <User className={`h-4 w-4 ${bayRule.loadingAnalysis.loadingAnalysis.staffDetected ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Staff Present:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.staffDetected ? "default" : "outline"} className="text-xs">
+                  {bayRule.loadingAnalysis.loadingAnalysis.staffDetected ? "Yes" : "No"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Package className={`h-4 w-4 ${bayRule.loadingAnalysis.loadingAnalysis.goodsDetected ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Goods Visible:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.goodsDetected ? "default" : "outline"} className="text-xs">
+                  {bayRule.loadingAnalysis.loadingAnalysis.goodsDetected ? "Yes" : "No"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <DoorOpen className={`h-4 w-4 ${bayRule.loadingAnalysis.loadingAnalysis.doorsOpen ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Doors Open:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.doorsOpen ? "default" : "outline"} className="text-xs">
+                  {bayRule.loadingAnalysis.loadingAnalysis.doorsOpen ? "Yes" : "No"}
+                </Badge>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Continuous Loading:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.continuousLoading ? "default" : "outline"}>
+                  {bayRule.loadingAnalysis.loadingAnalysis.continuousLoading ? "Yes" : "No"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Time Reasonable:</span>
+                <Badge variant={bayRule.loadingAnalysis.loadingAnalysis.timeReasonable ? "default" : "destructive"}>
+                  {bayRule.loadingAnalysis.loadingAnalysis.timeReasonable ? "Yes" : "Exceeded"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Activity Frames:</span>
+                <span className="font-medium">{bayRule.loadingAnalysis.loadingAnalysis.activityFrameCount} of {evidenceSummary?.evidenceCount || 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={getConfidenceBadgeVariant(bayRule.loadingAnalysis.confidence)}>
+                  {bayRule.loadingAnalysis.confidenceScore}%
+                </Badge>
+              </div>
+            </div>
+            
+            {bayRule.loadingAnalysis.activityFrames.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm font-medium mb-2">Activity Timeline</p>
+                  <div className="space-y-1">
+                    {bayRule.loadingAnalysis.activityFrames.slice(0, 3).map((frame, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs p-2 bg-muted/50 rounded">
+                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-mono text-muted-foreground">
+                          {frame.timestamp ? formatTimeFromBackend(frame.timestamp) : "—"}
+                        </span>
+                        <span className="text-foreground">{frame.activityType}</span>
+                      </div>
+                    ))}
+                    {bayRule.loadingAnalysis.activityFrames.length > 3 && (
+                      <p className="text-xs text-muted-foreground pl-2">
+                        + {bayRule.loadingAnalysis.activityFrames.length - 3} more activity frames
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+            
+            <div className="p-3 bg-muted/30 rounded text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">Legal Justification</p>
+              <p>{bayRule.loadingAnalysis.legalJustification}</p>
+            </div>
+            
+            {bayRule.loadingAnalysis.manualReviewRequired && (
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Manual review required due to low AI confidence</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card data-testid="card-confidence">
         <CardHeader className="pb-2">

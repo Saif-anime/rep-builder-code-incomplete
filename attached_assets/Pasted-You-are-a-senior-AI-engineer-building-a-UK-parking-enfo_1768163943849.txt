@@ -1,0 +1,169 @@
+You are a senior AI engineer building a UK parking enforcement system.
+
+TASK
+Enhance the evidence analysis logic for LOADING BAYS so the AI can correctly
+determine whether a vehicle is legitimately loading/unloading under UK regulations.
+
+--------------------------------------------------
+LEGAL & DOMAIN CONTEXT (UK)
+--------------------------------------------------
+Follow UK Civil Parking Enforcement guidance:
+
+A vehicle MAY use a loading bay if:
+- The vehicle is a goods vehicle OR
+- A private vehicle is actively loading/unloading heavy or bulky items
+- Loading/unloading is CONTINUOUS (reasonable short pauses allowed)
+- No maximum stay is exceeded (if specified on signage)
+
+A PCN MUST NOT be issued if:
+- Active loading/unloading is visible
+- Staff/driver is present handling goods
+- Doors/boot are open during activity
+- Time on site is reasonable and justified
+
+--------------------------------------------------
+INPUT DATA AVAILABLE
+--------------------------------------------------
+1. Evidence images (sequence, timestamps)
+2. Bounding boxes (vehicle, people, objects)
+3. Vehicle type (from DVLA if available)
+4. Observe From / Observe To time window
+5. Parking bay type = "LOADING"
+
+--------------------------------------------------
+PHASE 1 — VEHICLE TYPE CLASSIFICATION
+--------------------------------------------------
+From images + DVLA:
+- Detect vehicle class:
+  - Van
+  - Lorry / Truck
+  - Pickup
+  - Passenger car
+
+Set:
+vehicleLikelyForLoading = true if van/lorry/pickup
+
+--------------------------------------------------
+PHASE 2 — LOADING ACTIVITY DETECTION (CRITICAL)
+--------------------------------------------------
+Analyse image sequence for:
+
+1. Human presence near vehicle
+2. Repeated movement between:
+   - Vehicle ↔ building
+3. Objects being carried:
+   - Boxes
+   - Crates
+   - Equipment
+4. Vehicle state:
+   - Rear doors open
+   - Side door open
+   - Boot open
+
+Set flags:
+- staffDetected
+- goodsDetected
+- doorsOpen
+- motionAcrossFrames
+
+--------------------------------------------------
+PHASE 3 — CONTINUITY CHECK
+--------------------------------------------------
+Using Observe From / Observe To:
+
+- Check time gap between frames
+- Ensure activity occurs in MULTIPLE images
+- Allow brief inactivity (< 3 minutes)
+
+Set:
+continuousLoading = true if:
+- ≥2 images show activity
+- No long idle gap
+- Staff or goods reappear in sequence
+
+--------------------------------------------------
+PHASE 4 — TIME REASONABLENESS (UK STANDARD)
+--------------------------------------------------
+Evaluate duration:
+
+IF signage time limit exists:
+- Compare total duration
+
+IF no signage:
+- Allow reasonable duration:
+  - Small goods: up to ~20 min
+  - Large goods: up to ~40 min
+
+Set:
+timeReasonable = true / false
+
+--------------------------------------------------
+PHASE 5 — FINAL DECISION LOGIC
+--------------------------------------------------
+IF (
+  vehicleLikelyForLoading OR goodsDetected
+) AND (
+  staffDetected OR doorsOpen
+) AND (
+  continuousLoading
+) AND (
+  timeReasonable
+):
+  decision = "DO NOT ISSUE"
+  confidence = HIGH
+  reason = "Active loading/unloading observed"
+
+ELSE:
+  decision = "ISSUE PCN"
+  confidence = MEDIUM
+  reason = "No active loading detected"
+
+--------------------------------------------------
+PHASE 6 — UI OUTPUT STRUCTURE
+--------------------------------------------------
+Return:
+
+{
+  bayType: "LOADING",
+  decision: "DO NOT ISSUE" | "ISSUE PCN",
+  confidence: "HIGH" | "MEDIUM",
+  loadingAnalysis: {
+    vehicleType,
+    staffDetected,
+    goodsDetected,
+    doorsOpen,
+    continuousLoading,
+    durationMinutes,
+    timeReasonable
+  },
+  legalJustification: string
+}
+
+--------------------------------------------------
+PHASE 7 — UI DISPLAY RULES
+--------------------------------------------------
+In Evidence UI:
+- Show "Loading Activity Detected" badge
+- Show timeline of activity frames
+- Show explanation text in plain English
+- Never show violation banner if decision = DO NOT ISSUE
+
+--------------------------------------------------
+PHASE 8 — FAIL-SAFE RULE
+--------------------------------------------------
+If AI confidence < 70%:
+- Mark case as "Manual Review Required"
+- Do NOT auto-issue PCN
+
+--------------------------------------------------
+EXPECTED RESULT
+--------------------------------------------------
+- No false PCNs for legitimate loading
+- UK compliant enforcement
+- Transparent reasoning for auditors
+- Works with your existing evidence pipeline
+
+After implementation:
+1. List new detection flags
+2. Show decision matrix
+3. Confirm UI logic update

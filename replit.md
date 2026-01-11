@@ -43,7 +43,15 @@ The system employs a full-stack architecture consisting of a React frontend, a P
 
 **Feature Specifications:**
 - **AI Analysis:** Utilizes OpenAI GPT-4.1 (via Replit AI) for violation detection, confidence scoring, and automated explanation generation. OpenAI GPT-4o is used for detailed Vision GPT image analysis (vehicle, bay, human, signage detection) with confidence notes.
-- **Supported Violations:** Disabled Bay, EV Bay, Parent & Child Bay, Overstay, No Permit (UK-specific).
+- **Supported Violations:** Disabled Bay, EV Bay, Parent & Child Bay, Overstay, No Permit, Loading Bay (UK-specific).
+- **Loading Bay Analysis:** UK-compliant loading/unloading detection with 8-phase analysis:
+  1. Vehicle Type Classification (van, lorry, pickup detection)
+  2. Loading Activity Detection (staff, goods, open doors)
+  3. Continuity Check (multi-frame activity verification)
+  4. Time Reasonableness (UK standards: 20min small goods, 40min large)
+  5. Final Decision Logic with confidence scoring
+  6. UI Output with activity timeline and badges
+  7. Phase 8 Fail-Safe (manual review for <70% confidence)
 
 ## External Dependencies
 - **AI Integration:** OpenAI (GPT-4.1 for violation analysis, GPT-4o for Vision GPT image analysis).
