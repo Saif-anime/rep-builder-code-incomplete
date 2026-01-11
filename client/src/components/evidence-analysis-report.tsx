@@ -57,8 +57,14 @@ interface PipelineResults {
   pipelineStatus: "pending" | "running" | "completed" | "failed";
   evidenceTimeline: {
     durationMinutes?: number;
-    timeRange?: { start: string; end: string };
-    timestamps?: Array<{ evidenceId: number; timestamp: string }>;
+    timeRange?: { 
+      first: string; 
+      last: string; 
+      durationMinutes?: number;
+      timestampQuality?: string;
+      validationIssue?: string | null;
+    };
+    timestamps?: Array<{ evidenceId: number; timestamp: string; source?: string; confidence?: number }>;
   } | null;
   regulationEvaluation: {
     durationMinutes?: number;
@@ -109,7 +115,10 @@ interface PipelineResults {
 function formatTime(isoString: string | undefined): string {
   if (!isoString) return "—";
   try {
-    return new Date(isoString).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const date = new Date(isoString);
+    const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return `${time} ${day}`;
   } catch {
     return "—";
   }
@@ -261,7 +270,7 @@ export function EvidenceAnalysisReport({
       return decision.blockers[0];
     }
     if (confidenceLevel === "HIGH") {
-      return "Clear entry/exit timestamps and active regulation.";
+      return "Clear observation timestamps and active regulation.";
     }
     if (confidenceLevel === "MEDIUM") {
       return "Some evidence gaps but sufficient for determination.";
@@ -269,11 +278,32 @@ export function EvidenceAnalysisReport({
     return "Incomplete evidence requires manual verification.";
   };
 
-  // Entry/exit times
-  const entryTime = timeWindow?.start || evidence?.timeRange?.start;
-  const exitTime = timeWindow?.end || evidence?.timeRange?.end;
+  // Observation times (from evidence timestamps)
+  // Backend returns first/last, frontend maps to observeFrom/observeTo
+  const observeFrom = timeWindow?.start || evidence?.timeRange?.first;
+  const observeTo = timeWindow?.end || evidence?.timeRange?.last;
   const durationMinutes = regulations?.evaluation?.actualDurationMinutes || 
-    regulations?.durationMinutes || evidence?.durationMinutes;
+    regulations?.durationMinutes || evidence?.timeRange?.durationMinutes || evidence?.durationMinutes;
+  
+  // Time source for transparency
+  const getTimeSource = (): { label: string; quality: string } => {
+    const timestamps = evidence?.timestamps || [];
+    if (timestamps.length === 0) return { label: "No Data", quality: "invalid" };
+    
+    const sources = timestamps.map((t: any) => t.source);
+    const hasExif = sources.includes("exif");
+    const hasCamera = sources.includes("camera_overlay");
+    const allUpload = sources.every((s: string) => s === "upload_time");
+    
+    if (hasExif) return { label: "Evidence Metadata (EXIF)", quality: "high" };
+    if (hasCamera) return { label: "Camera System", quality: "high" };
+    if (allUpload) return { label: "Manual Upload (Fallback)", quality: "low" };
+    return { label: "Mixed Sources", quality: "medium" };
+  };
+  
+  const timeSource = getTimeSource();
+  const timestampQuality = evidence?.timeRange?.timestampQuality;
+  const validationIssue = evidence?.timeRange?.validationIssue;
 
   // No analysis available state
   if (!analysis && !pipelineResults) {
@@ -415,18 +445,18 @@ export function EvidenceAnalysisReport({
             Evidence Summary
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-muted-foreground">Entry</p>
-              <p className="font-medium font-mono" data-testid="text-entry-time">
-                {entryTime ? formatTime(entryTime) : "—"}
+              <p className="text-sm text-muted-foreground">Observe From</p>
+              <p className="font-medium font-mono" data-testid="text-observe-from">
+                {observeFrom ? formatTime(observeFrom) : "—"}
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Exit</p>
-              <p className="font-medium font-mono" data-testid="text-exit-time">
-                {exitTime ? formatTime(exitTime) : "—"}
+              <p className="text-sm text-muted-foreground">Observe To</p>
+              <p className="font-medium font-mono" data-testid="text-observe-to">
+                {observeTo ? formatTime(observeTo) : "—"}
               </p>
             </div>
             <div>
@@ -445,6 +475,32 @@ export function EvidenceAnalysisReport({
               <div className="col-span-2">
                 <p className="text-sm text-muted-foreground">Vehicle</p>
                 <p className="font-medium font-mono" data-testid="text-vrm">{vrm}</p>
+              </div>
+            )}
+          </div>
+          
+          {/* Time Source Transparency */}
+          <div className="pt-2 border-t">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Time Source:</span>
+              <span className={`font-medium ${
+                timeSource.quality === "high" ? "text-green-600 dark:text-green-400" :
+                timeSource.quality === "medium" ? "text-amber-600 dark:text-amber-400" :
+                "text-red-600 dark:text-red-400"
+              }`}>
+                {timeSource.label}
+              </span>
+            </div>
+            {validationIssue && (
+              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                {validationIssue}
+              </div>
+            )}
+            {!validationIssue && timestampQuality && timestampQuality !== "high" && (
+              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                Insufficient timestamp data for duration accuracy
               </div>
             )}
           </div>

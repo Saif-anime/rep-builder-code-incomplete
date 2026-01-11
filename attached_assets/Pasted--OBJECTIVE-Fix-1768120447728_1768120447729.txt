@@ -1,0 +1,109 @@
+========================================
+OBJECTIVE
+========================================
+
+Fix incorrect Entry/Exit time calculation and duration logic.
+Ensure observation times are derived strictly from evidence timestamps.
+
+========================================
+UI TERMINOLOGY UPDATE
+========================================
+
+In the Analysis section:
+
+- Rename:
+  ❌ Entry        → ✅ Observe From
+  ❌ Exit         → ✅ Observe To
+
+These labels must reflect actual observation, not inferred entry/exit.
+
+========================================
+TIME EXTRACTION LOGIC (CRITICAL)
+========================================
+
+When analysing an evidence bundle:
+
+1️⃣ Collect timestamps from ALL evidence files in the bundle:
+   - Images (EXIF DateTimeOriginal if available)
+   - Videos (recorded_at / metadata timestamp)
+   - Fallback: system upload time ONLY if metadata missing
+
+2️⃣ Sort all valid timestamps chronologically.
+
+3️⃣ Assign:
+   - Observe From = earliest valid timestamp
+   - Observe To   = latest valid timestamp
+
+⚠️ Never assume same entry & exit time
+⚠️ Never infer duration without timestamps
+
+========================================
+DURATION CALCULATION
+========================================
+
+Duration = Observe To - Observe From
+
+Rules:
+✔ Display in hours & minutes
+✔ Always non-negative
+✔ Validate against site max stay rules
+✔ Recalculate duration every time evidence changes
+
+If timestamps are invalid or missing:
+- Show warning: "Insufficient timestamp data for duration accuracy"
+- Do NOT generate PCN automatically
+
+========================================
+ANALYSIS DEPENDENCY
+========================================
+
+All downstream analysis MUST use:
+✔ Observe From
+✔ Observe To
+✔ Calculated Duration
+
+This includes:
+- Maximum stay validation
+- Grace period checks
+- Enforcement hour checks
+- PCN eligibility decision
+
+========================================
+DATA SOURCE TRANSPARENCY
+========================================
+
+In Analysis UI, show:
+
+"Time Source: Evidence Metadata"
+or
+"Time Source: Camera System"
+or
+"Time Source: Manual Upload (Fallback)"
+
+========================================
+UI OUTPUT FORMAT
+========================================
+
+Evidence Summary should display:
+
+Observe From: HH:MM DD/MM/YYYY  
+Observe To:   HH:MM DD/MM/YYYY  
+Duration:     X hours Y minutes  
+
+========================================
+FAIL-SAFE RULES
+========================================
+
+❌ Never fabricate timestamps
+❌ Never reuse previous case times
+❌ Never default to 00:00–23:59
+
+========================================
+ACCEPTANCE CRITERIA
+========================================
+
+✔ Observation times match evidence metadata
+✔ Duration is mathematically correct
+✔ Analysis result changes correctly per case
+✔ PCN logic is time-accurate and defensible
+✔ UI terminology reflects real observation window

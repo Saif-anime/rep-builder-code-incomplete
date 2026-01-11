@@ -110,6 +110,17 @@ interface FlagWithSession extends SessionFlag {
   rules?: SiteRule;
 }
 
+// Helper to format duration as X hours Y minutes
+function formatDurationHoursMinutes(minutes: number | null): string {
+  if (minutes == null || isNaN(minutes)) return "N/A";
+  if (minutes === 0) return "0 minutes";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h} hour${h > 1 ? "s" : ""} ${m} minute${m > 1 ? "s" : ""}`;
+  if (h > 0) return `${h} hour${h > 1 ? "s" : ""}`;
+  return `${m} minute${m > 1 ? "s" : ""}`;
+}
+
 export default function FlaggedSessionsPage() {
   const { toast } = useToast();
   const [selectedSiteId, setSelectedSiteId] = useState<string>("all");
@@ -419,7 +430,7 @@ export default function FlaggedSessionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-32">VRM</TableHead>
-                    <TableHead>Entry / Exit</TableHead>
+                    <TableHead>Observe From / To</TableHead>
                     <TableHead className="text-center">Duration</TableHead>
                     <TableHead className="text-center">Max Stay</TableHead>
                     <TableHead>Flag Type</TableHead>
@@ -552,24 +563,24 @@ export default function FlaggedSessionsPage() {
                       <span className="text-sm font-mono font-bold">{selectedFlag.session?.vrm || "N/A"}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Entry</span>
+                      <span className="text-sm text-muted-foreground">Observe From</span>
                       <span className="text-sm font-mono">
                         {selectedFlag.session?.entryAt
-                          ? format(new Date(selectedFlag.session.entryAt), "dd/MM/yyyy HH:mm:ss")
+                          ? format(new Date(selectedFlag.session.entryAt), "HH:mm dd/MM/yyyy")
                           : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Exit</span>
+                      <span className="text-sm text-muted-foreground">Observe To</span>
                       <span className="text-sm font-mono">
                         {selectedFlag.session?.exitAt
-                          ? format(new Date(selectedFlag.session.exitAt), "dd/MM/yyyy HH:mm:ss")
+                          ? format(new Date(selectedFlag.session.exitAt), "HH:mm dd/MM/yyyy")
                           : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Duration</span>
-                      <span className="text-sm">{selectedFlag.session?.durationMinutes ? `${selectedFlag.session.durationMinutes} minutes` : "N/A"}</span>
+                      <span className="text-sm">{selectedFlag.session?.durationMinutes ? formatDurationHoursMinutes(selectedFlag.session.durationMinutes) : "N/A"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Max Stay</span>
