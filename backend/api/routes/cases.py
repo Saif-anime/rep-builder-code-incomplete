@@ -737,6 +737,62 @@ async def run_case_pipeline(
             "authorisedBayAnalysis": authorised_bay_result.to_dict()
         }
     
+    # EV Bay analysis (if applicable - electric vehicle charging bays)
+    ev_bay_result = None
+    is_ev_bay = normalized_bay in ("ev", "evbay", "electricvehicle", "evcharging", "charging", "electric")
+    if is_ev_bay:
+        logger.info("EV Bay detected - running EV/charging compliance analysis")
+        from backend.services.ev_bay_analysis_service import EVBayAnalysisService
+        ev_bay_service = EVBayAnalysisService()
+        
+        # Run EV bay analysis on each image
+        ev_analysis_results = []
+        for evidence in evidence_list:
+            image_path = None
+            if evidence.image_path:
+                relative_path = evidence.image_path.lstrip("/")
+                full_path = os.path.join(os.getcwd(), relative_path)
+                if os.path.exists(full_path):
+                    image_path = full_path
+            
+            if image_path:
+                ev_result = await ocr_service.analyze_ev_bay(image_path, evidence.id)
+                ev_analysis_results.append(ev_result)
+        
+        # Build evidence items for EV bay analysis
+        evidence_items = [{
+            "id": ev.id,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else None
+        } for ev in evidence_list]
+        
+        # Get vehicle details from case if available (DVLA data would provide fuel type)
+        vehicle_details = None
+        if hasattr(case, 'vehicle_data') and case.vehicle_data:
+            vehicle_details = case.vehicle_data
+        
+        # Run EV bay analysis
+        ev_bay_result = await ev_bay_service.analyze_ev_bay(
+            evidence_images=evidence_items,
+            image_analysis_results=ev_analysis_results,
+            vrm=vrm,
+            vehicle_details=vehicle_details,
+            site_id=case.site_id,
+            observe_from=first_time,
+            observe_to=last_time,
+            confirmed_bay_type=True
+        )
+        
+        logger.info(f"EV Bay analysis result: {ev_bay_result.to_dict()}")
+        
+        # Update bay rule evaluation with EV bay analysis
+        bay_rule_evaluation = {
+            "bayType": "EV",
+            "bayName": "Electric Vehicle Bay",
+            "decision": ev_bay_result.decision.value,
+            "explanation": ev_bay_result.legal_justification,
+            "evBayAnalysis": ev_bay_result.to_dict()
+        }
+    
     # Generate final decision based on evidence summary validation and loading bay analysis
     # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
     if loading_bay_result is not None:
@@ -882,6 +938,42 @@ async def run_case_pipeline(
                 "plainEnglishExplanation": f"The vehicle was parked in an Authorised/Permit Holder bay without valid authorisation. {authorised_bay_result.reason}.",
                 "blockers": [],
                 "authorisedBayAnalysis": authorised_bay_result.to_dict()
+            }
+    elif ev_bay_result is not None:
+        # EV Bay decision
+        if ev_bay_result.decision.value == "COMPLIANT":
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": ev_bay_result.confidence_score,
+                "legalRisk": "low",
+                "recommendation": "No PCN - EV vehicle compliant with bay rules",
+                "reasoning": ev_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle is an electric vehicle correctly using the EV bay. {ev_bay_result.reason}.",
+                "blockers": [],
+                "evBayAnalysis": ev_bay_result.to_dict()
+            }
+        elif ev_bay_result.decision.value == "REVIEW_REQUIRED":
+            decision = {
+                "status": "REVIEW_REQUIRED",
+                "overallConfidence": ev_bay_result.confidence_score,
+                "legalRisk": "medium",
+                "recommendation": "Manual review required - EV bay compliance inconclusive",
+                "reasoning": ev_bay_result.legal_justification,
+                "plainEnglishExplanation": "The AI could not confidently verify the vehicle's EV status or charging activity. A human operator should review the evidence.",
+                "blockers": ["Insufficient confidence for automated decision"],
+                "evBayAnalysis": ev_bay_result.to_dict()
+            }
+        else:
+            # NON_COMPLIANT for EV bay
+            decision = {
+                "status": "PCN_ELIGIBLE",
+                "overallConfidence": ev_bay_result.confidence_score,
+                "legalRisk": "low" if ev_bay_result.confidence_score >= 70 else "medium",
+                "recommendation": f"Issue PCN - {ev_bay_result.reason}",
+                "reasoning": ev_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle does not meet EV bay requirements. {ev_bay_result.reason}.",
+                "blockers": [],
+                "evBayAnalysis": ev_bay_result.to_dict()
             }
     elif not evidence_summary.is_valid_for_pcn:
         # Evidence is insufficient for PCN - require review
