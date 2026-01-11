@@ -165,5 +165,145 @@ Return ONLY the JSON object, no other text."""
             except ValueError:
                 continue
         return None
+    
+    async def extract_vrm_from_image(self, image_path: str) -> Dict[str, Any]:
+        """Extract vehicle registration mark (number plate) from image using Vision GPT."""
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for VRM extraction")
+            return {"success": False, "vrm": None, "confidence": 0, "error": "API key not configured"}
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return {"success": False, "vrm": None, "confidence": 0, "error": "Failed to read image"}
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image and extract the vehicle registration number (number plate/VRM).
+
+Look for:
+1. UK format number plates (e.g., AB12 CDE, AB12CDE)
+2. Number plates on vehicles visible in the image
+3. Text overlays showing VRM/registration information
+
+UK number plate formats:
+- Current format: AB12 ABC (2 letters, 2 numbers, 3 letters)
+- Prefix format: A123 ABC (letter, 1-3 numbers, 3 letters)
+- Suffix format: ABC 123A (3 letters, 1-3 numbers, letter)
+
+Return a JSON object with:
+{
+  "vrm": "THE NUMBER PLATE" (normalized format with space, e.g., "AB12 CDE"),
+  "raw_text": "exact text as seen in image",
+  "confidence": 0-100 score for how confident you are,
+  "location": "where in the image you found it (e.g., 'front of vehicle', 'rear plate')",
+  "plate_type": "current" | "prefix" | "suffix" | "other"
+}
+
+If you cannot find a number plate, return:
+{
+  "vrm": null,
+  "raw_text": null,
+  "confidence": 0,
+  "location": null,
+  "plate_type": null,
+  "error": "No number plate found in image"
+}
+
+Return ONLY the JSON object, no other text."""
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 300
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for VRM: {response.status_code} - {response.text}")
+                    return {"success": False, "vrm": None, "confidence": 0, "error": "API request failed"}
+                
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                result = self._parse_vrm_response(content)
+                result["success"] = result.get("vrm") is not None
+                return result
+                
+        except Exception as e:
+            logger.error(f"VRM extraction failed: {e}")
+            return {"success": False, "vrm": None, "confidence": 0, "error": str(e)}
+    
+    def _parse_vrm_response(self, content: str) -> Dict[str, Any]:
+        """Parse VRM extraction response from Vision GPT."""
+        import json
+        try:
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            result = json.loads(content.strip())
+            
+            # Normalize VRM if found
+            if result.get("vrm"):
+                result["vrm"] = self._normalize_vrm(result["vrm"])
+            
+            return result
+        except json.JSONDecodeError:
+            # Try to extract VRM using regex
+            vrm_match = re.search(r"([A-Z]{2}\d{2}\s?[A-Z]{3}|[A-Z]\d{1,3}\s?[A-Z]{3}|[A-Z]{3}\s?\d{1,3}[A-Z])", content.upper())
+            if vrm_match:
+                vrm = self._normalize_vrm(vrm_match.group(1))
+                return {
+                    "vrm": vrm,
+                    "raw_text": vrm_match.group(1),
+                    "confidence": 60,
+                    "location": "extracted from text",
+                    "plate_type": "current"
+                }
+            return {"vrm": None, "confidence": 0, "error": "Failed to parse response"}
+    
+    def _normalize_vrm(self, vrm: str) -> str:
+        """Normalize VRM to standard UK format with space."""
+        if not vrm:
+            return vrm
+        # Remove all spaces and convert to uppercase
+        vrm = vrm.replace(" ", "").upper()
+        # Current format: AB12 CDE (add space after 4 chars)
+        if len(vrm) == 7 and re.match(r"^[A-Z]{2}\d{2}[A-Z]{3}$", vrm):
+            return f"{vrm[:4]} {vrm[4:]}"
+        # Prefix format: A123 ABC
+        if re.match(r"^[A-Z]\d{1,3}[A-Z]{3}$", vrm):
+            match = re.match(r"^([A-Z]\d{1,3})([A-Z]{3})$", vrm)
+            if match:
+                return f"{match.group(1)} {match.group(2)}"
+        # Suffix format: ABC 123A
+        if re.match(r"^[A-Z]{3}\d{1,3}[A-Z]$", vrm):
+            match = re.match(r"^([A-Z]{3})(\d{1,3}[A-Z])$", vrm)
+            if match:
+                return f"{match.group(1)} {match.group(2)}"
+        return vrm
 
 ocr_service = OCRService()
