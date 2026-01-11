@@ -556,6 +556,53 @@ async function stepVisionAnalysis(
     for (const ev of imageEvidence) {
       if (!ev.imagePath) continue;
       
+      // CRITICAL: First check if evidence already has OCR data saved from previous analysis
+      // This avoids re-running vision analysis (which may fail due to Gemini quota)
+      const existingAiResult = ev.aiResult as any;
+      const existingVisionAnalysis = existingAiResult?.visionAnalysis;
+      
+      if (existingVisionAnalysis?.timestampOverlay) {
+        // Use existing OCR timestamp data from database
+        const parsedDate = parseTimestampOverlay(existingVisionAnalysis.timestampOverlay);
+        const ocrConf = existingVisionAnalysis.ocrTimestampConfidence ?? (parsedDate ? 90 : 50);
+        
+        timestampExtractions.push({
+          evidenceId: ev.id,
+          extractedTimestamp: existingVisionAnalysis.timestampOverlay,
+          parsedDate,
+          confidence: ocrConf,
+        });
+        console.log(`[Pipeline] Using saved OCR timestamp for evidence ${ev.id}: ${existingVisionAnalysis.timestampOverlay} -> ${parsedDate} (conf: ${ocrConf.toFixed(1)}%)`);
+        
+        // Also extract other vision data from saved aiResult
+        vehicleDetections.push({
+          evidenceId: ev.id,
+          detected: existingVisionAnalysis.vehicleDetected ?? false,
+          type: existingVisionAnalysis.vehicleType || "unknown",
+          confidence: existingVisionAnalysis.vehicleDetected ? 0.85 : 0.3,
+        });
+        
+        if (existingVisionAnalysis.numberPlateDetected) {
+          vrmDetections.push({
+            evidenceId: ev.id,
+            plate: normalizeRegistration(existingVisionAnalysis.numberPlateDetected),
+            confidence: 0.8,
+            method: "vision_gpt",
+          });
+        }
+        
+        if (existingVisionAnalysis.bayTypeVisible && existingVisionAnalysis.bayTypeVisible !== "unclear") {
+          bayUsageDetections.push({
+            evidenceId: ev.id,
+            bayType: existingVisionAnalysis.bayTypeVisible,
+            confidence: 0.75,
+          });
+        }
+        
+        continue; // Skip re-running vision analysis for this evidence
+      }
+      
+      // No existing OCR data - run fresh vision analysis
       const result = await analyzeImageWithVision({
         imagePath: ev.imagePath,
         caseId: ctx.caseId,
