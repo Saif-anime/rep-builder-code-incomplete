@@ -774,7 +774,7 @@ async def run_case_pipeline(
         ev_bay_result = await ev_bay_service.analyze_ev_bay(
             evidence_images=evidence_items,
             image_analysis_results=ev_analysis_results,
-            vrm=vrm,
+            vrm=detected_vrm,
             vehicle_details=vehicle_details,
             site_id=case.site_id,
             observe_from=first_time,
