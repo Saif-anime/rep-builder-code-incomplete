@@ -16,6 +16,7 @@ import {
   MapPin,
   Shield,
   HelpCircle,
+  AlertCircle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -35,7 +36,6 @@ interface EvidenceAnalysisReportProps {
   onPcnIssued?: () => void;
 }
 
-// Helper to format bay type for display
 function formatBayTypeLabel(bayType: string | null | undefined): string {
   if (!bayType) return "Unknown";
   const labels: Record<string, string> = {
@@ -52,14 +52,28 @@ function formatBayTypeLabel(bayType: string | null | undefined): string {
   return labels[bayType] || bayType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
 
+interface EvidenceSummary {
+  observeFrom: string | null;
+  observeTo: string | null;
+  durationMinutes: number | null;
+  durationConfidence: "HIGH" | "MEDIUM" | "LOW";
+  timeSource: "OCR" | "CAMERA_META" | "MANUAL" | "UNKNOWN";
+  evidenceCount: number;
+  timestampConsistency: "CONSISTENT" | "PARTIAL" | "CONFLICT";
+  validationWarnings: string[];
+  isValidForPcn: boolean;
+  pcnBlockReason: string | null;
+}
+
 interface PipelineResults {
   caseId: string;
   pipelineStatus: "pending" | "running" | "completed" | "failed";
   evidenceTimeline: {
     durationMinutes?: number;
+    evidenceSummary?: EvidenceSummary;
     timeRange?: { 
-      first: string; 
-      last: string; 
+      first: string | null; 
+      last: string | null; 
       durationMinutes?: number;
       timestampQuality?: string;
       validationIssue?: string | null;
@@ -68,9 +82,8 @@ interface PipelineResults {
     timestamps?: Array<{ 
       evidenceId: number; 
       timestamp: string; 
-      source?: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time"; 
+      source?: string; 
       confidence?: number;
-      rawOcrText?: string;
     }>;
   } | null;
   regulationEvaluation: {
@@ -118,11 +131,11 @@ interface PipelineResults {
   analysisCompletedAt: string | null;
 }
 
-// Helper function to format time from ISO string
-function formatTime(isoString: string | undefined): string {
+function formatTimeFromBackend(isoString: string | null | undefined): string {
   if (!isoString) return "—";
   try {
     const date = new Date(isoString);
+    if (isNaN(date.getTime())) return "—";
     const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
     return `${time} ${day}`;
@@ -131,10 +144,10 @@ function formatTime(isoString: string | undefined): string {
   }
 }
 
-// Helper function to format duration
-function formatDuration(minutes: number | undefined | null): string {
+function formatDurationFromBackend(minutes: number | null | undefined): string {
   if (minutes == null || isNaN(minutes)) return "—";
   if (minutes === 0) return "0 minutes";
+  if (minutes < 0) return "Invalid";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h > 0 && m > 0) return `${h} hour${h > 1 ? "s" : ""} ${m} minute${m > 1 ? "s" : ""}`;
@@ -142,7 +155,6 @@ function formatDuration(minutes: number | undefined | null): string {
   return `${m} minute${m > 1 ? "s" : ""}`;
 }
 
-// Map internal status to PCN-safe decision
 function mapDecision(status: string | undefined): "ISSUE_PCN" | "DO_NOT_ISSUE" | "REVIEW_REQUIRED" {
   switch (status) {
     case "PCN_ELIGIBLE":
@@ -155,12 +167,12 @@ function mapDecision(status: string | undefined): "ISSUE_PCN" | "DO_NOT_ISSUE" |
   }
 }
 
-// Map confidence to level
-function getConfidenceLevel(confidence: number | undefined): "HIGH" | "MEDIUM" | "LOW" {
-  if (confidence == null) return "LOW";
-  if (confidence >= 0.7) return "HIGH";
-  if (confidence >= 0.4) return "MEDIUM";
-  return "LOW";
+function getConfidenceBadgeVariant(confidence: "HIGH" | "MEDIUM" | "LOW"): "default" | "secondary" | "outline" {
+  switch (confidence) {
+    case "HIGH": return "default";
+    case "MEDIUM": return "secondary";
+    default: return "outline";
+  }
 }
 
 export function EvidenceAnalysisReport({
@@ -185,9 +197,7 @@ export function EvidenceAnalysisReport({
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
-      // Step 1: Run Vision/OCR reanalysis on all evidence items
       await apiRequest("POST", `/api/cases/${bundleId}/reanalyze-evidence`);
-      // Step 2: Run the case analysis pipeline with updated OCR timestamps
       return apiRequest("POST", `/api/cases/${bundleId}/pipeline/run`);
     },
     onSuccess: () => {
@@ -216,44 +226,37 @@ export function EvidenceAnalysisReport({
     },
   });
 
-  // Extract PCN-safe data from pipeline results
   const decision = pipelineResults?.decision;
   const regulations = pipelineResults?.regulationEvaluation;
   const signage = pipelineResults?.signageCompliance;
-  const evidence = pipelineResults?.evidenceTimeline;
+  const evidenceData = pipelineResults?.evidenceTimeline;
   const bayRule = pipelineResults?.bayRuleEvaluation;
+  
+  const evidenceSummary = evidenceData?.evidenceSummary;
 
   const pcnDecision = mapDecision(decision?.status);
-  const confidenceLevel = getConfidenceLevel(decision?.overallConfidence);
   
-  // Determine compliance status
   const isCompliant = decision?.status === "NO_PCN" || decision?.status === "BLOCKED_BY_BAY_RULE";
   const complianceStatus = isCompliant ? "COMPLIANT" : 
     decision?.status === "PCN_ELIGIBLE" ? "NON_COMPLIANT" : "UNKNOWN";
 
-  // Get rule source
-  const ruleSource = signage?.appliedSignageTitle ? "SITE_SIGNAGE" : 
-    regulations?.evaluation?.ruleSource === "site_policy" ? "SITE_REGULATION" : "SITE_REGULATION";
+  const ruleSource = signage?.appliedSignageTitle ? "SITE_SIGNAGE" : "SITE_REGULATION";
 
-  // Get applied rule name - fail-safe to generic when data is missing
   const getRuleName = (): string => {
-    // If no decision or regulations data, return neutral message
     if (!decision?.status || decision.status === "REVIEW_REQUIRED") {
       return "Pending review";
     }
-    if (regulations?.evaluation?.complianceResult === "OVERSTAY") {
+    if (regulations?.evaluation?.complianceResult === "OVERSTAY" || regulations?.evaluation?.complianceResult === "BREACH") {
       const maxStay = regulations?.rules?.maxStayMinutes || signage?.extractedRegulations?.maxStayMinutes;
-      return maxStay ? `Maximum stay exceeded (${formatDuration(maxStay)})` : "Maximum stay exceeded";
+      return maxStay ? `Maximum stay exceeded (${formatDurationFromBackend(maxStay)})` : "Maximum stay exceeded";
     }
-    if (bayRule?.bayType && bayRule.bayType !== "standard") {
+    if (bayRule?.bayType && bayRule.bayType !== "standard" && bayRule.bayType !== "general_parking") {
       return `${bayRule.bayType.replace("_", " ").toUpperCase()} bay restriction`;
     }
     return "Site parking regulations";
   };
 
-  // Build explanation - fail-safe to neutral language when data is missing
   const getExplanation = (): string => {
-    // If no decision data exists, default to neutral review message
     if (!decision?.status) {
       return "Manual review required due to incomplete evidence.";
     }
@@ -269,60 +272,22 @@ export function EvidenceAnalysisReport({
     if (decision.status === "PCN_ELIGIBLE" && regulations?.evaluation?.breachExplanation) {
       return regulations.evaluation.breachExplanation;
     }
-    if (decision.status === "PCN_ELIGIBLE") {
-      return "Vehicle remained on site beyond the permitted stay as defined by site regulations.";
-    }
     return "Manual review required due to incomplete evidence.";
   };
 
-  // Get confidence reason
   const getConfidenceReason = (): string => {
     if (decision?.blockers && decision.blockers.length > 0) {
       return decision.blockers[0];
     }
-    if (confidenceLevel === "HIGH") {
+    if (evidenceSummary?.durationConfidence === "HIGH") {
       return "Clear observation timestamps and active regulation.";
     }
-    if (confidenceLevel === "MEDIUM") {
+    if (evidenceSummary?.durationConfidence === "MEDIUM") {
       return "Some evidence gaps but sufficient for determination.";
     }
     return "Incomplete evidence requires manual verification.";
   };
 
-  // Observation times (from evidence timestamps)
-  // Backend returns first/last, frontend maps to observeFrom/observeTo
-  const observeFrom = timeWindow?.start || evidence?.timeRange?.first;
-  const observeTo = timeWindow?.end || evidence?.timeRange?.last;
-  const durationMinutes = regulations?.evaluation?.actualDurationMinutes || 
-    regulations?.durationMinutes || evidence?.timeRange?.durationMinutes || evidence?.durationMinutes;
-  
-  // Time source for transparency - now displays OCR source from backend
-  const getTimeSource = (): { label: string; quality: string } => {
-    // Use backend-provided timeSource if available
-    const backendTimeSource = evidence?.timeRange?.timeSource;
-    if (backendTimeSource) {
-      return { 
-        label: backendTimeSource, 
-        quality: evidence?.timeRange?.timestampQuality || "medium" 
-      };
-    }
-    
-    // Fallback: determine from timestamps
-    const timestamps = evidence?.timestamps || [];
-    if (timestamps.length === 0) return { label: "No Data", quality: "invalid" };
-    
-    const sources = timestamps.map((t: any) => t.source);
-    const hasOcr = sources.includes("ocr");
-    
-    if (hasOcr) return { label: "Evidence Image Timestamp (OCR)", quality: "high" };
-    return { label: "No OCR timestamps found", quality: "invalid" };
-  };
-  
-  const timeSource = getTimeSource();
-  const timestampQuality = evidence?.timeRange?.timestampQuality;
-  const validationIssue = evidence?.timeRange?.validationIssue;
-
-  // No analysis available state
   if (!analysis && !pipelineResults) {
     return (
       <Card data-testid="card-no-analysis">
@@ -356,7 +321,6 @@ export function EvidenceAnalysisReport({
 
   return (
     <div className="space-y-4" data-testid="analysis-report">
-      {/* Header with Re-analyse button */}
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-lg flex items-center gap-2">
           <Scale className="h-5 w-5" />
@@ -377,7 +341,6 @@ export function EvidenceAnalysisReport({
         </Button>
       </div>
 
-      {/* 1. Final PCN Decision - Most prominent */}
       <Card className={`border-2 ${
         pcnDecision === "ISSUE_PCN" ? "border-destructive bg-destructive/5" :
         pcnDecision === "DO_NOT_ISSUE" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
@@ -408,7 +371,7 @@ export function EvidenceAnalysisReport({
               </div>
             </div>
             
-            {pcnDecision === "ISSUE_PCN" && (
+            {pcnDecision === "ISSUE_PCN" && evidenceSummary?.isValidForPcn && (
               <Button 
                 variant="destructive"
                 onClick={() => issuePcnMutation.mutate()}
@@ -423,11 +386,17 @@ export function EvidenceAnalysisReport({
                 Issue PCN
               </Button>
             )}
+            
+            {pcnDecision === "ISSUE_PCN" && !evidenceSummary?.isValidForPcn && (
+              <Badge variant="outline" className="text-amber-600 border-amber-400">
+                <AlertCircle className="h-3 w-3 mr-1" />
+                PCN Blocked
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* 2. Key Rule Applied */}
       <Card data-testid="card-rule">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -454,12 +423,19 @@ export function EvidenceAnalysisReport({
         </CardContent>
       </Card>
 
-      {/* 3. Key Evidence Used */}
-      <Card data-testid="card-evidence">
+      <Card data-testid="card-evidence-summary">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Evidence Summary
+            {evidenceSummary && (
+              <Badge 
+                variant={getConfidenceBadgeVariant(evidenceSummary.durationConfidence)}
+                className="ml-2"
+              >
+                {evidenceSummary.durationConfidence} Confidence
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -467,19 +443,23 @@ export function EvidenceAnalysisReport({
             <div>
               <p className="text-sm text-muted-foreground">Observe From</p>
               <p className="font-medium font-mono" data-testid="text-observe-from">
-                {observeFrom ? formatTime(observeFrom) : "—"}
+                {evidenceSummary?.observeFrom 
+                  ? formatTimeFromBackend(evidenceSummary.observeFrom)
+                  : "—"}
               </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Observe To</p>
               <p className="font-medium font-mono" data-testid="text-observe-to">
-                {observeTo ? formatTime(observeTo) : "—"}
+                {evidenceSummary?.observeTo 
+                  ? formatTimeFromBackend(evidenceSummary.observeTo)
+                  : "—"}
               </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Duration</p>
               <p className="font-medium" data-testid="text-duration">
-                {formatDuration(durationMinutes)}
+                {formatDurationFromBackend(evidenceSummary?.durationMinutes)}
               </p>
             </div>
             <div>
@@ -496,35 +476,58 @@ export function EvidenceAnalysisReport({
             )}
           </div>
           
-          {/* Time Source Transparency */}
-          <div className="pt-2 border-t">
+          <div className="pt-2 border-t space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Time Source:</span>
               <span className={`font-medium ${
-                timeSource.quality === "high" ? "text-green-600 dark:text-green-400" :
-                timeSource.quality === "medium" ? "text-amber-600 dark:text-amber-400" :
-                "text-red-600 dark:text-red-400"
+                evidenceSummary?.timeSource === "OCR" ? "text-green-600 dark:text-green-400" :
+                evidenceSummary?.timeSource === "CAMERA_META" ? "text-blue-600 dark:text-blue-400" :
+                "text-amber-600 dark:text-amber-400"
               }`}>
-                {timeSource.label}
+                {evidenceSummary?.timeSource || "Unknown"}
               </span>
             </div>
-            {validationIssue && (
+            
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Timestamp Consistency:</span>
+              <Badge 
+                variant={evidenceSummary?.timestampConsistency === "CONSISTENT" ? "default" : 
+                        evidenceSummary?.timestampConsistency === "PARTIAL" ? "secondary" : "destructive"}
+                className="text-xs"
+              >
+                {evidenceSummary?.timestampConsistency || "Unknown"}
+              </Badge>
+            </div>
+            
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Evidence Count:</span>
+              <span className="font-medium">{evidenceSummary?.evidenceCount || 0} items</span>
+            </div>
+            
+            {!evidenceSummary?.isValidForPcn && evidenceSummary?.pcnBlockReason && (
               <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
                 <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                {validationIssue}
+                <span><strong>PCN Blocked:</strong> {evidenceSummary.pcnBlockReason}</span>
               </div>
             )}
-            {!validationIssue && timestampQuality && timestampQuality !== "high" && (
-              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
-                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                Insufficient timestamp data for duration accuracy
+            
+            {evidenceSummary?.validationWarnings && evidenceSummary.validationWarnings.length > 0 && (
+              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300">
+                <div className="flex items-center gap-1 mb-1 font-medium">
+                  <AlertTriangle className="h-3 w-3" />
+                  Validation Warnings
+                </div>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {evidenceSummary.validationWarnings.map((warning, idx) => (
+                    <li key={idx}>{warning}</li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* 4. Compliance Result */}
       <Card data-testid="card-compliance">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -555,7 +558,6 @@ export function EvidenceAnalysisReport({
         </CardContent>
       </Card>
 
-      {/* 5. Confidence Level */}
       <Card data-testid="card-confidence">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -565,14 +567,14 @@ export function EvidenceAnalysisReport({
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3 mb-2">
-            <Badge variant={
-              confidenceLevel === "HIGH" ? "default" :
-              confidenceLevel === "MEDIUM" ? "secondary" : "outline"
-            } data-testid="badge-confidence">
-              {confidenceLevel}
+            <Badge 
+              variant={getConfidenceBadgeVariant(evidenceSummary?.durationConfidence || "LOW")} 
+              data-testid="badge-confidence"
+            >
+              {evidenceSummary?.durationConfidence || "LOW"}
             </Badge>
             <span className="text-sm text-muted-foreground">
-              {decision?.overallConfidence != null ? `${Math.round(decision.overallConfidence * 100)}%` : "—"}
+              {decision?.overallConfidence != null ? `${Math.round(decision.overallConfidence)}%` : "—"}
             </span>
           </div>
           <p className="text-sm text-muted-foreground" data-testid="text-confidence-reason">
@@ -581,7 +583,6 @@ export function EvidenceAnalysisReport({
         </CardContent>
       </Card>
 
-      {/* Site Info - minimal footer */}
       <div className="text-xs text-muted-foreground flex items-center justify-between pt-2 border-t">
         <span data-testid="text-site-name">{siteName}</span>
         <span data-testid="text-case-ref">Case: {caseReference.substring(0, 8)}</span>
