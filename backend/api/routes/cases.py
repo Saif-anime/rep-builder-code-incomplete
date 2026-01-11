@@ -345,9 +345,10 @@ async def run_case_pipeline(
         if evidence_ids:
             evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
-    # Run OCR extraction on each evidence image to get real timestamps
+    # Run OCR extraction on each evidence image to get real timestamps and VRM
     logger.info(f"Running OCR extraction on {len(evidence_list)} evidence items")
     ocr_timestamps = []
+    extracted_vrms = []
     
     for evidence in evidence_list:
         image_path = None
@@ -360,6 +361,19 @@ async def run_case_pipeline(
             logger.info(f"Extracting timestamp from: {image_path}")
             ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
             logger.info(f"OCR result for evidence {evidence.id}: {ocr_result}")
+            
+            # Extract VRM from the image
+            vrm_result = await ocr_service.extract_vrm_from_image(image_path)
+            logger.info(f"VRM result for evidence {evidence.id}: {vrm_result}")
+            
+            if vrm_result.get("vrm"):
+                extracted_vrms.append({
+                    "vrm": vrm_result["vrm"],
+                    "confidence": vrm_result.get("confidence", 0),
+                    "evidenceId": evidence.id,
+                    "location": vrm_result.get("location"),
+                    "rawText": vrm_result.get("raw_text")
+                })
             
             parsed_time = None
             if ocr_result.get("timestamp"):
@@ -379,6 +393,21 @@ async def run_case_pipeline(
                 "rawOcrText": ocr_result.get("raw_text"),
                 "location": ocr_result.get("location")
             })
+    
+    # Determine best VRM from extractions (highest confidence)
+    detected_vrm = None
+    vrm_confidence = 0
+    if extracted_vrms:
+        best_vrm = max(extracted_vrms, key=lambda x: x.get("confidence", 0))
+        detected_vrm = best_vrm.get("vrm")
+        vrm_confidence = best_vrm.get("confidence", 0)
+        logger.info(f"Best detected VRM: {detected_vrm} with confidence {vrm_confidence}")
+        
+        # Update case with detected VRM if not already set or if higher confidence
+        if detected_vrm and (not case.vrm or vrm_confidence > 70):
+            case.vrm = detected_vrm
+            db.commit()
+            logger.info(f"Updated case VRM to: {detected_vrm}")
     
     # Generate authoritative evidence summary using the new service
     evidence_summary = evidence_summary_service.generate_summary(
@@ -406,7 +435,12 @@ async def run_case_pipeline(
             "validationIssue": "; ".join(evidence_summary.validation_warnings) if evidence_summary.validation_warnings else None,
             "timeSource": evidence_summary.time_source.value
         },
-        "timestamps": ocr_timestamps if ocr_timestamps else []
+        "timestamps": ocr_timestamps if ocr_timestamps else [],
+        "extractedVrm": {
+            "vrm": detected_vrm,
+            "confidence": vrm_confidence,
+            "allDetections": extracted_vrms
+        } if detected_vrm else None
     }
     
     # Generate regulation evaluation with null safety
@@ -616,8 +650,9 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
         if evidence_ids:
             evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
-    # Run OCR extraction
+    # Run OCR extraction with VRM detection
     ocr_timestamps = []
+    extracted_vrms = []
     for evidence in evidence_list:
         image_path = None
         if evidence.image_path:
@@ -626,6 +661,18 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
         
         if image_path and os.path.exists(image_path):
             ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
+            
+            # Extract VRM from the image
+            vrm_result = await ocr_service.extract_vrm_from_image(image_path)
+            if vrm_result.get("vrm"):
+                extracted_vrms.append({
+                    "vrm": vrm_result["vrm"],
+                    "confidence": vrm_result.get("confidence", 0),
+                    "evidenceId": evidence.id,
+                    "location": vrm_result.get("location"),
+                    "rawText": vrm_result.get("raw_text")
+                })
+            
             parsed_time = None
             if ocr_result.get("timestamp"):
                 try:
@@ -644,6 +691,19 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
                 "rawOcrText": ocr_result.get("raw_text"),
                 "location": ocr_result.get("location")
             })
+    
+    # Determine best VRM from extractions
+    detected_vrm = None
+    vrm_confidence = 0
+    if extracted_vrms:
+        best_vrm = max(extracted_vrms, key=lambda x: x.get("confidence", 0))
+        detected_vrm = best_vrm.get("vrm")
+        vrm_confidence = best_vrm.get("confidence", 0)
+        
+        # Update case with detected VRM
+        if detected_vrm and (not case.vrm or vrm_confidence > 70):
+            case.vrm = detected_vrm
+            db.commit()
     
     # Generate evidence summary
     evidence_summary = evidence_summary_service.generate_summary(
@@ -668,7 +728,12 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
             "validationIssue": "; ".join(evidence_summary.validation_warnings) if evidence_summary.validation_warnings else None,
             "timeSource": evidence_summary.time_source.value
         },
-        "timestamps": ocr_timestamps
+        "timestamps": ocr_timestamps,
+        "extractedVrm": {
+            "vrm": detected_vrm,
+            "confidence": vrm_confidence,
+            "allDetections": extracted_vrms
+        } if detected_vrm else None
     }
     
     # Regulation evaluation with null safety
