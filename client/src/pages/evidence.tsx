@@ -471,7 +471,7 @@ export default function EvidencePage() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (confirm("Are you sure you want to delete this case? This action cannot be undone.")) {
-                                deleteCaseMutation.mutate(bundle.id);
+                                deleteCaseMutation.mutate(bundle.caseReference);
                               }
                             }}
                             disabled={deleteCaseMutation.isPending}
