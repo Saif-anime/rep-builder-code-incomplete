@@ -194,7 +194,7 @@ async def delete_case(
         action="delete",
         entity_type="enforcement_case",
         entity_id=case_id,
-        details={"caseReference": case.case_reference, "vrm": case.vrm}
+        details={"caseId": case.id, "vrm": case.vrm}
     )
     db.add(audit_log)
     
