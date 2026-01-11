@@ -553,8 +553,8 @@ async def run_case_pipeline(
         
         # Get DVLA vehicle data if available
         dvla_vehicle_data = None
-        if case_id:
-            case_vehicle = db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).first()
+        if case:
+            case_vehicle = db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).first()
             if case_vehicle:
                 # Build DVLA data from case_vehicle fields
                 dvla_vehicle_data = {
