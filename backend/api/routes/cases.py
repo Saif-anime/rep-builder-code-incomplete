@@ -243,6 +243,36 @@ async def run_case_pipeline(
     
     return {"message": "Pipeline started", "caseId": case_id}
 
+@router.post("/{case_id}/reanalyze-evidence")
+async def reanalyze_case_evidence(
+    case_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+    
+    case.status = "ANALYSING"
+    db.commit()
+    
+    bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case_id).all()
+    for bundle in bundles:
+        bundle.status = "analyzing"
+    db.commit()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="reanalyze",
+        entity_type="enforcement_case",
+        entity_id=case_id,
+        details={"triggered_by": "manual"}
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {"message": "Analysis started", "caseId": case_id, "status": "ANALYSING"}
+
 @router.get("/{case_id}/pcn")
 async def get_case_pcn(
     case_id: str,
