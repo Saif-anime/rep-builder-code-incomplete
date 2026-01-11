@@ -176,11 +176,10 @@ export default function EvidencePage() {
     },
     onSuccess: (result: any) => {
       console.log("DVLA Lookup onSuccess - result:", result);
-      console.log("result.success:", result?.success, "result.vehicle:", result?.vehicle);
       
-      // Check for vehicle data in response
-      if (result && result.success === true && result.vehicle) {
-        console.log("SUCCESS PATH - updating vehicle data");
+      // Check if vehicle data exists in response (backend always returns vehicle on success)
+      if (result?.vehicle) {
+        console.log("SUCCESS: Vehicle found -", result.vehicle.make, result.vehicle.colour);
         
         setVehicleData({
           vrm: result.vehicle.vrm,
@@ -198,17 +197,26 @@ export default function EvidencePage() {
         
         toast({ title: "Vehicle verified", description: `${result.vehicle.make} - ${result.vehicle.colour}` });
         queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
-      } else {
-        console.log("FAILURE PATH - result.success:", result?.success, "error:", result?.error);
+      } else if (result?.error) {
+        // Explicit error from backend
+        console.log("FAILURE: Backend returned error -", result.error);
         
-        // Only show error if no existing vehicle data
         if (vehicleDataRef.current === null) {
           setLookupStatus("error");
-          setLookupError(result?.error || "Unable to verify vehicle");
-          toast({ title: "Lookup failed", description: result?.error || "Unable to verify vehicle", variant: "destructive" });
+          setLookupError(result.error);
+          toast({ title: "Lookup failed", description: result.error, variant: "destructive" });
         } else {
           setLookupStatus("success");
-          console.log("Keeping existing vehicle data");
+        }
+      } else {
+        // Unexpected response structure
+        console.log("UNEXPECTED: Response has no vehicle or error -", result);
+        if (vehicleDataRef.current === null) {
+          setLookupStatus("error");
+          setLookupError("Unexpected response from server");
+          toast({ title: "Lookup failed", description: "Unexpected response from server", variant: "destructive" });
+        } else {
+          setLookupStatus("success");
         }
       }
       setManualVrmLookup("");
