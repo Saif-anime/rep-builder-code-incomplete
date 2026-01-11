@@ -1286,6 +1286,33 @@ function stepDecisionEngine(
   behaviourProfiling: BehaviourProfilingOutput,
   bayRuleEvaluation: BayRuleEvaluationOutput
 ): DecisionOutput {
+  // CRITICAL: Check for valid OCR timestamps first - enforcement requires reliable time data
+  const timestampQuality = ctx.evidenceTimeline?.timeRange?.timestampQuality;
+  const validationIssue = ctx.evidenceTimeline?.timeRange?.validationIssue;
+  const hasOcrTimestamps = ctx.evidenceTimeline?.timestamps?.some(t => t.source === "ocr") ?? false;
+  const hasValidOcrTimestamps = timestampQuality === "high" && hasOcrTimestamps;
+  
+  // If no valid OCR timestamps or timestamp quality is not high, immediately return REVIEW_REQUIRED
+  if (!hasValidOcrTimestamps || timestampQuality !== "high") {
+    return {
+      status: "REVIEW_REQUIRED",
+      eligibilityGates: {
+        regulationBreach: false,
+        signageCompliant: signageCompliance.overallCompliance === "pass",
+        confidenceThresholdMet: false,
+        noHoldFlags: true,
+        riskAcceptable: true,
+        bayRuleAllowsPCN: false,
+      },
+      overallConfidence: 0.1,
+      legalRisk: "high",
+      recommendation: "Manual review required - unable to extract reliable timestamp from evidence images",
+      reasoning: validationIssue || "Unable to reliably extract timestamp from evidence images",
+      plainEnglishExplanation: `This case requires manual review because the system could not extract reliable timestamp information from the evidence images. All enforcement decisions must be based on timestamps visible in the evidence, not upload times or file metadata. ${validationIssue || ""}`,
+      blockers: [validationIssue || "Unable to reliably extract timestamp from evidence images"],
+    };
+  }
+  
   const regulationBreach = regulationEval.evaluation.breachDetected;
   const signageCompliant = signageCompliance.overallCompliance === "pass";
   const adjustedConfidence = visionConfidence + contextEnrichment.confidenceAdjustment;
