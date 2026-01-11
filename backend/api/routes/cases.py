@@ -11,6 +11,7 @@ from backend.db.models import (
     User, EnforcementCase, CaseEvidence, CaseAnalysis, CaseVehicle, Evidence,
     EvidenceBundle, CasePipelineResults, CaseAnalysisStep, Pcn, AuditLog, ParkingSite
 )
+from backend.services.ocr_service import ocr_service
 from backend.api.dependencies import get_current_user, require_role
 from backend.config import settings
 
@@ -333,36 +334,92 @@ async def run_case_pipeline(
     # Get evidence for the case (from linked bundles or case evidence)
     evidence_list = []
     if bundle:
-        # Get evidence linked to the bundle via case_evidence
-        case_evidence = db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).all()
-        evidence_ids = [ce.evidence_id for ce in case_evidence]
+        # Get evidence linked to the bundle
+        evidence_list = db.query(Evidence).filter(Evidence.bundle_id == bundle.id).all()
+    
+    if not evidence_list:
+        # Try case evidence table
+        case_evidence_records = db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).all()
+        evidence_ids = [ce.evidence_id for ce in case_evidence_records]
         if evidence_ids:
             evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
-    # Generate analysis timestamps from evidence
-    now = datetime.utcnow()
-    first_time = now.replace(hour=14, minute=23)
-    last_time = now.replace(hour=15, minute=47)
-    duration_minutes = 84  # Example overstay duration
+    # Run OCR extraction on each evidence image to get real timestamps
+    logger.info(f"Running OCR extraction on {len(evidence_list)} evidence items")
+    ocr_timestamps = []
     
-    # Create evidence timeline data
+    for evidence in evidence_list:
+        image_path = None
+        if evidence.image_path:
+            # Remove leading /uploads/ to get relative path
+            relative_path = evidence.image_path.lstrip("/")
+            image_path = os.path.join(os.getcwd(), relative_path)
+        
+        if image_path and os.path.exists(image_path):
+            logger.info(f"Extracting timestamp from: {image_path}")
+            ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
+            logger.info(f"OCR result for evidence {evidence.id}: {ocr_result}")
+            
+            parsed_time = None
+            if ocr_result.get("timestamp"):
+                parsed_time = ocr_service.parse_timestamp_string(ocr_result["timestamp"])
+            
+            if parsed_time:
+                # Update evidence record with extracted timestamp
+                evidence.timestamp = parsed_time
+                evidence.ocr_confidence = ocr_result.get("confidence", 0)
+                db.commit()
+            
+            ocr_timestamps.append({
+                "evidenceId": evidence.id,
+                "timestamp": parsed_time.isoformat() if parsed_time else None,
+                "source": ocr_result.get("source", "ocr"),
+                "confidence": ocr_result.get("confidence", 0),
+                "rawOcrText": ocr_result.get("raw_text"),
+                "location": ocr_result.get("location")
+            })
+    
+    # Calculate actual time range from OCR results
+    valid_timestamps = [t for t in ocr_timestamps if t.get("timestamp")]
+    now = datetime.utcnow()
+    
+    if valid_timestamps:
+        timestamp_values = [datetime.fromisoformat(t["timestamp"]) for t in valid_timestamps]
+        first_time = min(timestamp_values)
+        last_time = max(timestamp_values)
+        duration_minutes = int((last_time - first_time).total_seconds() / 60)
+        timestamp_quality = "high" if all(t.get("confidence", 0) >= 70 for t in valid_timestamps) else "medium"
+        time_source = "ocr"
+    else:
+        # Fallback to file timestamps or upload times
+        evidence_timestamps = [e.timestamp for e in evidence_list if e.timestamp]
+        if evidence_timestamps:
+            first_time = min(evidence_timestamps)
+            last_time = max(evidence_timestamps)
+            duration_minutes = int((last_time - first_time).total_seconds() / 60)
+        else:
+            first_time = now.replace(hour=14, minute=0)
+            last_time = now.replace(hour=15, minute=30)
+            duration_minutes = 90
+        timestamp_quality = "low"
+        time_source = "upload_time"
+        logger.warning("No OCR timestamps found, using fallback timestamps")
+    
+    # Create evidence timeline data with real OCR results
     evidence_timeline = {
         "durationMinutes": duration_minutes,
         "timeRange": {
             "first": first_time.isoformat(),
             "last": last_time.isoformat(),
             "durationMinutes": duration_minutes,
-            "timestampQuality": "high",
-            "validationIssue": None,
-            "timeSource": "ocr"
+            "timestampQuality": timestamp_quality,
+            "validationIssue": None if valid_timestamps else "OCR extraction failed - using fallback",
+            "timeSource": time_source
         },
-        "timestamps": [
-            {"evidenceId": e.id, "timestamp": first_time.isoformat(), "source": "ocr", "confidence": 92}
-            for e in evidence_list[:1]
-        ] + [
-            {"evidenceId": e.id, "timestamp": last_time.isoformat(), "source": "ocr", "confidence": 88}
-            for e in evidence_list[1:2]
-        ] if evidence_list else []
+        "timestamps": ocr_timestamps if ocr_timestamps else [
+            {"evidenceId": e.id, "timestamp": e.timestamp.isoformat() if e.timestamp else None, "source": "upload_time", "confidence": 20}
+            for e in evidence_list
+        ]
     }
     
     # Generate regulation evaluation
