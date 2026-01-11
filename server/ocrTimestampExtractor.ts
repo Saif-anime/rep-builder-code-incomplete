@@ -22,8 +22,9 @@ export interface TimestampExtractionResult {
 }
 
 const TIMESTAMP_PATTERNS = [
+  // OCR-tolerant patterns with optional day abbreviation (allows OCR errors like "Tw" for "Thu")
   {
-    regex: /(\d{2})-(\d{2})-(\d{4})\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
+    regex: /(\d{2})-(\d{2})-(\d{4})\s+[A-Za-z]{1,3}\s+(\d{2}):(\d{2}):(\d{2})/i,
     format: "DD-MM-YYYY Day HH:MM:SS",
     hasSeconds: true,
     parse: (m: RegExpMatchArray) => new Date(
@@ -32,7 +33,7 @@ const TIMESTAMP_PATTERNS = [
     ),
   },
   {
-    regex: /(\d{2})\/(\d{2})\/(\d{4})\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
+    regex: /(\d{2})\/(\d{2})\/(\d{4})\s+[A-Za-z]{1,3}\s+(\d{2}):(\d{2}):(\d{2})/i,
     format: "DD/MM/YYYY Day HH:MM:SS",
     hasSeconds: true,
     parse: (m: RegExpMatchArray) => new Date(
@@ -40,6 +41,32 @@ const TIMESTAMP_PATTERNS = [
       parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
     ),
   },
+  // 2-digit year patterns with optional day abbreviation (e.g., "01-01-26 Tw 14:41:16")
+  {
+    regex: /(\d{2})-(\d{2})-(\d{2})\s+[A-Za-z]{1,3}\s+(\d{2}):(\d{2}):(\d{2})/i,
+    format: "DD-MM-YY Day HH:MM:SS",
+    hasSeconds: true,
+    parse: (m: RegExpMatchArray) => {
+      const year = parseInt(m[3]);
+      const fullYear = year < 70 ? 2000 + year : 1900 + year;
+      return new Date(fullYear, parseInt(m[2]) - 1, parseInt(m[1]),
+        parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
+      );
+    },
+  },
+  {
+    regex: /(\d{2})\/(\d{2})\/(\d{2})\s+[A-Za-z]{1,3}\s+(\d{2}):(\d{2}):(\d{2})/i,
+    format: "DD/MM/YY Day HH:MM:SS",
+    hasSeconds: true,
+    parse: (m: RegExpMatchArray) => {
+      const year = parseInt(m[3]);
+      const fullYear = year < 70 ? 2000 + year : 1900 + year;
+      return new Date(fullYear, parseInt(m[2]) - 1, parseInt(m[1]),
+        parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
+      );
+    },
+  },
+  // Standard patterns without day abbreviation
   {
     regex: /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
     format: "DD-MM-YYYY HH:MM:SS",
@@ -76,6 +103,20 @@ const TIMESTAMP_PATTERNS = [
       parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
     ),
   },
+  // 2-digit year without day abbreviation
+  {
+    regex: /(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
+    format: "DD-MM-YY HH:MM:SS",
+    hasSeconds: true,
+    parse: (m: RegExpMatchArray) => {
+      const year = parseInt(m[3]);
+      const fullYear = year < 70 ? 2000 + year : 1900 + year;
+      return new Date(fullYear, parseInt(m[2]) - 1, parseInt(m[1]),
+        parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
+      );
+    },
+  },
+  // Patterns without seconds
   {
     regex: /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/,
     format: "DD-MM-YYYY HH:MM",
@@ -105,13 +146,18 @@ const TIMESTAMP_PATTERNS = [
   },
 ];
 
-const OCR_REJECTION_THRESHOLD = 80;
+// Lowered rejection threshold to 60% to be more accepting of difficult-to-read timestamps
+// Timestamps between 60-85% will be flagged for review
+// Timestamps >= 85% are auto-accepted
+const OCR_REJECTION_THRESHOLD = 60;
 const REVIEW_REQUIRED_THRESHOLD = 85;
 
 function isValidDate(date: Date): boolean {
   if (isNaN(date.getTime())) return false;
   const year = date.getFullYear();
-  return year >= 2020 && year <= 2030;
+  // Allow wide year range to handle camera misconfiguration (common issue)
+  // Also handle 2-digit years that may be parsed as 19xx or 20xx
+  return year >= 1970 && year <= 2100;
 }
 
 function normalizeToStandardFormat(date: Date): string {

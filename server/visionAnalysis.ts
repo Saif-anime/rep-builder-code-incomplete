@@ -10,7 +10,7 @@ if (!geminiApiKey) {
   console.warn("[Vision] GEMINI_API_KEY not found - image analysis will fail until key is provided");
 }
 const genAI = geminiApiKey ? new GoogleGenerativeAI(geminiApiKey) : null;
-const geminiModel = genAI?.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" }) || null;
+const geminiModel = genAI?.getGenerativeModel({ model: "gemini-2.0-flash" }) || null;
 
 let yoloStatus: "checking" | "available" | "unavailable" = "checking";
 
@@ -344,6 +344,31 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     return { success: true, result };
   } catch (error: any) {
     console.error("[Gemini Vision] API error:", error.message);
+    // CRITICAL: Return OCR-only result when Gemini fails (OCR is independent of Gemini)
+    if (ocrTimestamp || ocrConfidence > 0) {
+      console.log(`[Vision] Gemini failed but OCR extracted timestamp: ${ocrTimestamp || "partial"}`);
+      return { 
+        success: true, 
+        result: {
+          vehicleDetected: false,
+          vehicleType: "unknown",
+          bayTypeVisible: "unclear",
+          evIndicators: false,
+          disabledBadgeVisible: false,
+          humansDetected: { adult: false, child: false },
+          signageVisible: false,
+          visibilityQuality: "partial",
+          numberPlateDetected: undefined,
+          timestampOverlay: ocrTimestamp || undefined,
+          ocrTimestampConfidence: ocrConfidence,
+          ocrReviewRequired: ocrReviewRequired,
+          confidenceNotes: `Gemini API unavailable: ${error.message} - OCR timestamp extraction only`,
+          analysedAt: new Date().toISOString(),
+          modelVersion: "ocr-only-v1",
+          imageHash: imageHash || "unknown",
+        }
+      };
+    }
     return { success: false, error: error.message };
   }
 }
