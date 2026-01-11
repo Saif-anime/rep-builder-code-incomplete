@@ -522,6 +522,9 @@ export async function registerRoutes(
         const vehicles = await storage.getCaseVehiclesByCase(caseData.id);
         const site = caseData.siteId ? await storage.getParkingSite(caseData.siteId) : null;
         
+        // Get pipeline results for Vision GPT timestamps
+        const pipelineResults = await storage.getCasePipelineResults(caseData.id);
+        
         // Determine status based on analysis
         let status: "pending" | "analysing" | "completed" = "pending";
         if (caseData.status === "analysing") status = "analysing";
@@ -531,14 +534,27 @@ export async function registerRoutes(
         const hasCamera = evidenceItems.some((e: any) => e.evidence?.type === "camera" || e.evidence?.cameraId);
         const uploadSource = hasCamera ? "camera" : "manual";
         
-        // Get earliest and latest timestamps from evidence
-        const timestamps = evidenceItems
-          .filter((e: any) => e.evidence?.timestamp)
-          .map((e: any) => new Date(e.evidence.timestamp).getTime());
-        const timeWindow = timestamps.length > 0 ? {
-          start: new Date(Math.min(...timestamps)).toISOString(),
-          end: new Date(Math.max(...timestamps)).toISOString(),
-        } : null;
+        // CRITICAL: Prefer Vision GPT extracted timestamps from pipeline results
+        // These are extracted from camera overlay text, not upload time
+        let timeWindow: { start: string; end: string } | null = null;
+        
+        const pipelineTimeline = pipelineResults?.evidenceTimeline as any;
+        if (pipelineTimeline?.timeRange?.first && pipelineTimeline?.timeRange?.last) {
+          // Use Vision GPT timestamps from pipeline
+          timeWindow = {
+            start: pipelineTimeline.timeRange.first,
+            end: pipelineTimeline.timeRange.last,
+          };
+        } else {
+          // Fallback: Use evidence timestamps (may be upload time if Vision GPT hasn't run yet)
+          const timestamps = evidenceItems
+            .filter((e: any) => e.evidence?.timestamp)
+            .map((e: any) => new Date(e.evidence.timestamp).getTime());
+          timeWindow = timestamps.length > 0 ? {
+            start: new Date(Math.min(...timestamps)).toISOString(),
+            end: new Date(Math.max(...timestamps)).toISOString(),
+          } : null;
+        }
         
         bundles.push({
           id: caseData.id,
@@ -555,6 +571,7 @@ export async function registerRoutes(
           evidenceFiles: evidenceItems.map((e: any) => e.evidence).filter(Boolean),
           analysis: caseAnalysis,
           vehicles,
+          pipelineResults: pipelineResults || null,
         });
       }
       
