@@ -63,16 +63,16 @@ export default function RecommendationsPage() {
   const { data: reports = [], isLoading, refetch } = useQuery<AnalysisReport[]>({
     queryKey: ["/api/analysis-reports", selectedSiteId, actionFilter],
     queryFn: async () => {
-      if (!selectedSiteId) return [];
-      const params = new URLSearchParams({ siteId: selectedSiteId });
+      const params = new URLSearchParams();
+      if (selectedSiteId && selectedSiteId !== "all") params.append("siteId", selectedSiteId);
       if (actionFilter !== "all") params.append("action", actionFilter);
-      const res = await fetch(`/api/analysis-reports?${params}`, {
+      const url = params.toString() ? `/api/analysis-reports?${params}` : "/api/analysis-reports";
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
       });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!selectedSiteId,
   });
 
   const toggleSection = (section: string) => {
@@ -175,9 +175,15 @@ export default function RecommendationsPage() {
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
           <SelectTrigger className="w-full sm:w-[280px]" data-testid="select-site">
-            <SelectValue placeholder="Select a site" />
+            <SelectValue placeholder="All Sites" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="all">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-3 w-3" />
+                All Sites
+              </div>
+            </SelectItem>
             {sites.map((site) => (
               <SelectItem key={site.id} value={String(site.id)}>
                 <div className="flex items-center gap-2">
@@ -203,50 +209,40 @@ export default function RecommendationsPage() {
         </Select>
       </div>
 
-      {selectedSiteId && (
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4">
-          <Card>
-            <CardContent className="p-2 sm:p-4 text-center">
-              <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Total</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-2 sm:p-4 text-center">
-              <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.issue}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Issue</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-2 sm:p-4 text-center">
-              <p className="text-lg sm:text-2xl font-bold text-amber-600">{stats.hold}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Hold</p>
-            </CardContent>
-          </Card>
-          <Card className="hidden sm:block">
-            <CardContent className="p-2 sm:p-4 text-center">
-              <p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.review}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Review</p>
-            </CardContent>
-          </Card>
-          <Card className="hidden sm:block">
-            <CardContent className="p-2 sm:p-4 text-center">
-              <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.dismissed}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Dismissed</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {!selectedSiteId ? (
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4">
         <Card>
-          <CardContent className="p-12 text-center">
-            <MapPin className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-lg font-medium">Select a site to view reports</p>
-            <p className="text-sm text-muted-foreground">Choose a parking site from the dropdown above</p>
+          <CardContent className="p-2 sm:p-4 text-center">
+            <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Total</p>
           </CardContent>
         </Card>
-      ) : isLoading ? (
+        <Card>
+          <CardContent className="p-2 sm:p-4 text-center">
+            <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.issue}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Issue</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-2 sm:p-4 text-center">
+            <p className="text-lg sm:text-2xl font-bold text-amber-600">{stats.hold}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Hold</p>
+          </CardContent>
+        </Card>
+        <Card className="hidden sm:block">
+          <CardContent className="p-2 sm:p-4 text-center">
+            <p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.review}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Review</p>
+          </CardContent>
+        </Card>
+        <Card className="hidden sm:block">
+          <CardContent className="p-2 sm:p-4 text-center">
+            <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.dismissed}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Dismissed</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {isLoading ? (
         <Card>
           <CardContent className="p-12 text-center">
             <Loader2 className="h-12 w-12 mx-auto animate-spin text-muted-foreground/50 mb-4" />
