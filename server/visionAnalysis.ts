@@ -95,25 +95,28 @@ Identify ONLY what is clearly visible.
 Do NOT guess.
 If unsure, say 'uncertain'.
 
-CRITICAL: TIMESTAMP EXTRACTION (OCR)
-Look for visible date/time text in the image. This is typically:
-- Camera overlay text at top or bottom of image
-- Format examples: "30-12-2025 Tue 14:32:27", "10/01/2026 14:35:22", "2026-01-10 14:35"
-- White or colored text on the image itself
-Extract the EXACT text as shown - do not interpret or modify it.
+***** MOST IMPORTANT - TIMESTAMP EXTRACTION (OCR) *****
+LOOK CAREFULLY at the TOP-LEFT and TOP-RIGHT corners of the image for camera timestamp overlay text.
+This is CRITICAL for enforcement and MUST be extracted accurately.
+Common formats:
+- "01-01-2026 Thu 14:33:57" (DD-MM-YYYY Day HH:MM:SS)
+- "30-12-2025 Tue 14:32:27" 
+- "10/01/2026 14:35:22"
+- "2026-01-10 14:35"
+The timestamp is usually white or colored text burned into the image by the camera.
+Extract the EXACT text including date, day of week (if present), and time.
+DO NOT RETURN NULL if you can see any date/time text in the image corners.
+*****************************************************
 
-Detect and return:
-- Vehicle presence
-- Vehicle type (car, van, motorcycle)
+Also detect:
+- Vehicle presence and type (car, van, motorcycle)
 - EV indicators (charging port, badge, cable)
 - Bay markings (disabled, EV, parent-child, standard)
-- Ground text and symbols
 - Disabled badge visibility (blue badge on dashboard)
 - Humans (adult, child)
 - Signage visibility
 - Number plate if visible
-- Obstructions or unclear view
-- TIMESTAMP/DATE overlay text - EXTRACT EXACTLY AS VISIBLE IN IMAGE
+- Visibility quality
 
 Return ONLY valid JSON in this exact format:
 {
@@ -129,7 +132,7 @@ Return ONLY valid JSON in this exact format:
   "signageVisible": boolean,
   "visibilityQuality": "clear" | "partial" | "poor",
   "numberPlateDetected": "string or null",
-  "timestampOverlay": "string or null - CRITICAL: extract the exact date/time text visible in the image (camera overlay). Return null ONLY if no timestamp is visible.",
+  "timestampOverlay": "CRITICAL - The exact date/time text visible in the camera overlay (usually top-left corner). Examples: '01-01-2026 Thu 14:33:57', '30-12-2025 14:32:27'. Return null ONLY if absolutely no timestamp text is visible anywhere in the image.",
   "confidenceNotes": "string explaining any uncertainties"
 }`;
 
@@ -217,6 +220,13 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     }
     
     const parsed = JSON.parse(jsonMatch[0]);
+    
+    // Log the parsed response for debugging timestamp extraction
+    console.log("[Vision GPT] Parsed response:", JSON.stringify({
+      timestampOverlay: parsed.timestampOverlay,
+      numberPlateDetected: parsed.numberPlateDetected,
+      vehicleDetected: parsed.vehicleDetected,
+    }));
     
     // Merge YOLO detections with GPT-4o analysis for higher accuracy
     let vehicleDetected = Boolean(parsed.vehicleDetected);
