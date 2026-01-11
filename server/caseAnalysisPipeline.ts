@@ -386,8 +386,9 @@ async function stepEvidenceNormalisation(
     let durationValidationIssue: string | null = null;
     let timestampQuality: "high" | "medium" | "low" | "invalid" = "high";
     
-    // Check timestamp source quality
-    const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= 0.8);
+    // Check timestamp source quality - CRITICAL: 85% confidence threshold per enforcement spec
+    const OCR_CONFIDENCE_THRESHOLD = 0.85;
+    const highConfidenceTimestamps = timestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
     const lowConfidenceCount = timestamps.filter(t => t.source === "upload_time").length;
     
     if (timestamps.length === 0) {
@@ -1598,20 +1599,35 @@ export async function runCaseAnalysisPipeline(
     ctx.evidenceTimeline.timestamps = validOcrTimestamps;
     
     // Determine timestamp quality based on OCR results
+    // CRITICAL: 85% confidence threshold per enforcement specification
+    const OCR_CONFIDENCE_THRESHOLD = 0.85;
     let ocrTimestampQuality: "high" | "medium" | "low" | "invalid" = "invalid";
     let ocrValidationIssue: string | null = "Unable to reliably extract timestamp from evidence images";
     const ocrTimeSource = "Evidence Image Timestamp (OCR)";
     
-    if (validOcrTimestamps.length >= 2) {
+    // Count timestamps meeting the 85% confidence threshold
+    const highConfidenceOcrTimestamps = validOcrTimestamps.filter(t => t.confidence >= OCR_CONFIDENCE_THRESHOLD);
+    const lowConfidenceOcrTimestamps = validOcrTimestamps.filter(t => t.confidence < OCR_CONFIDENCE_THRESHOLD);
+    
+    if (highConfidenceOcrTimestamps.length >= 2) {
       ocrTimestampQuality = "high";
       ocrValidationIssue = null;
+    } else if (highConfidenceOcrTimestamps.length === 1 && lowConfidenceOcrTimestamps.length >= 1) {
+      ocrTimestampQuality = "medium";
+      ocrValidationIssue = "Some timestamps below 85% confidence threshold - manual review recommended";
+    } else if (validOcrTimestamps.length >= 2 && highConfidenceOcrTimestamps.length < 2) {
+      ocrTimestampQuality = "low";
+      ocrValidationIssue = "OCR timestamps below 85% confidence threshold - REVIEW_REQUIRED";
     } else if (validOcrTimestamps.length === 1) {
       ocrTimestampQuality = "low";
       ocrValidationIssue = "Only one OCR timestamp - cannot calculate duration accurately";
     } else {
       ocrTimestampQuality = "invalid";
-      ocrValidationIssue = "Unable to reliably extract timestamp from evidence images";
+      ocrValidationIssue = "NO_VALID_TIMESTAMP - Unable to reliably extract timestamp from evidence images";
     }
+    
+    // Log confidence details for audit trail
+    console.log(`[Pipeline] OCR confidence check: ${highConfidenceOcrTimestamps.length}/${validOcrTimestamps.length} timestamps >= 85% threshold`);
     
     // Sort OCR timestamps chronologically
     ctx.evidenceTimeline.timestamps.sort((a, b) => 
