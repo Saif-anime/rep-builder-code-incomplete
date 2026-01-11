@@ -92,6 +92,10 @@ app.include_router(dashboard_router)
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
+DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist", "public")
+if os.path.exists(DIST_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(DIST_DIR, "assets")), name="assets")
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "backend": "python", "version": "2.0.0"}
@@ -188,6 +192,21 @@ async def get_analysis_reports():
             "confidenceScore": a.confidence_score,
             "generatedAt": a.generated_at.isoformat() if a.generated_at else None
         } for a in analyses]
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve the SPA for all non-API routes"""
+    if full_path.startswith("api/") or full_path.startswith("uploads/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    index_path = os.path.join(DIST_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    
+    return JSONResponse(
+        status_code=503,
+        content={"message": "Frontend not built. Run 'npm run build' first."}
+    )
 
 if __name__ == "__main__":
     port = settings.PORT
