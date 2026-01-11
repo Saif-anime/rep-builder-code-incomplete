@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 import hashlib
 import uuid
+import httpx
 
 from backend.db import get_db
 from backend.db.models import (
@@ -417,7 +418,7 @@ async def lookup_vehicle_for_bundle(
         CaseVehicle.case_id == bundle.case_id
     ).first() if bundle.case_id else None
     
-    if existing_vehicle and existing_vehicle.make:
+    if existing_vehicle and existing_vehicle.make and existing_vehicle.dvla_verified:
         return {
             "success": True,
             "vehicle": {
@@ -434,38 +435,63 @@ async def lookup_vehicle_for_bundle(
             "cached": True
         }
     
-    mock_dvla_response = {
-        "make": "NISSAN",
-        "model": "QASHQAI",
-        "colour": "BLUE",
-        "yearOfManufacture": 2019,
-        "taxStatus": "Taxed",
-        "motStatus": "Valid",
-        "fuelType": "PETROL",
-        "co2Emissions": 139
-    }
+    dvla_api_key = os.environ.get("DVLA_API_KEY")
+    if not dvla_api_key:
+        logger.error("DVLA_API_KEY not configured")
+        return {"success": False, "error": "DVLA API key not configured"}
+    
+    dvla_url = "https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                dvla_url,
+                json={"registrationNumber": vrm},
+                headers={
+                    "x-api-key": dvla_api_key,
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                dvla_data = response.json()
+                logger.info(f"DVLA API success for {vrm}: {dvla_data}")
+            elif response.status_code == 404:
+                logger.warning(f"Vehicle not found in DVLA: {vrm}")
+                return {"success": False, "error": "Vehicle not found in DVLA database"}
+            else:
+                logger.error(f"DVLA API error {response.status_code}: {response.text}")
+                return {"success": False, "error": f"DVLA API error: {response.status_code}"}
+    except Exception as e:
+        logger.error(f"DVLA API request failed: {str(e)}")
+        return {"success": False, "error": f"DVLA API request failed: {str(e)}"}
     
     if existing_vehicle:
-        existing_vehicle.make = mock_dvla_response["make"]
-        existing_vehicle.model = mock_dvla_response["model"]
-        existing_vehicle.colour = mock_dvla_response["colour"]
-        existing_vehicle.year_of_manufacture = mock_dvla_response["yearOfManufacture"]
-        existing_vehicle.tax_status = mock_dvla_response["taxStatus"]
-        existing_vehicle.mot_status = mock_dvla_response["motStatus"]
-        existing_vehicle.fuel_type = mock_dvla_response["fuelType"]
-        existing_vehicle.co2_emissions = mock_dvla_response["co2Emissions"]
+        existing_vehicle.make = dvla_data.get("make")
+        existing_vehicle.model = dvla_data.get("model") 
+        existing_vehicle.colour = dvla_data.get("colour")
+        existing_vehicle.year_of_manufacture = dvla_data.get("yearOfManufacture")
+        existing_vehicle.tax_status = dvla_data.get("taxStatus")
+        existing_vehicle.mot_status = dvla_data.get("motStatus")
+        existing_vehicle.fuel_type = dvla_data.get("fuelType")
+        existing_vehicle.co2_emissions = dvla_data.get("co2Emissions")
+        existing_vehicle.engine_capacity = dvla_data.get("engineCapacity")
+        existing_vehicle.dvla_verified = True
+        existing_vehicle.confidence_score = 100
     elif bundle.case_id:
         new_vehicle = CaseVehicle(
             case_id=bundle.case_id,
             registration_number=vrm,
-            make=mock_dvla_response["make"],
-            model=mock_dvla_response["model"],
-            colour=mock_dvla_response["colour"],
-            year_of_manufacture=mock_dvla_response["yearOfManufacture"],
-            tax_status=mock_dvla_response["taxStatus"],
-            mot_status=mock_dvla_response["motStatus"],
-            fuel_type=mock_dvla_response["fuelType"],
-            co2_emissions=mock_dvla_response["co2Emissions"],
+            make=dvla_data.get("make"),
+            model=dvla_data.get("model"),
+            colour=dvla_data.get("colour"),
+            year_of_manufacture=dvla_data.get("yearOfManufacture"),
+            tax_status=dvla_data.get("taxStatus"),
+            mot_status=dvla_data.get("motStatus"),
+            fuel_type=dvla_data.get("fuelType"),
+            co2_emissions=dvla_data.get("co2Emissions"),
+            engine_capacity=dvla_data.get("engineCapacity"),
             confidence_score=100,
             detection_method="dvla_lookup",
             dvla_verified=True
@@ -479,7 +505,7 @@ async def lookup_vehicle_for_bundle(
         action="dvla_lookup",
         entity_type="vehicle",
         entity_id=vrm,
-        details={"bundle_id": bundle_id, "result": "success"}
+        details={"bundle_id": bundle_id, "result": "success", "dvla_response": dvla_data}
     )
     db.add(audit_log)
     db.commit()
@@ -488,14 +514,15 @@ async def lookup_vehicle_for_bundle(
         "success": True,
         "vehicle": {
             "vrm": vrm,
-            "make": mock_dvla_response.get("make"),
-            "model": mock_dvla_response.get("model"),
-            "colour": mock_dvla_response.get("colour"),
-            "yearOfManufacture": mock_dvla_response.get("yearOfManufacture"),
-            "taxStatus": mock_dvla_response.get("taxStatus"),
-            "motStatus": mock_dvla_response.get("motStatus"),
-            "fuelType": mock_dvla_response.get("fuelType"),
-            "co2Emissions": mock_dvla_response.get("co2Emissions")
+            "make": dvla_data.get("make"),
+            "model": dvla_data.get("model"),
+            "colour": dvla_data.get("colour"),
+            "yearOfManufacture": dvla_data.get("yearOfManufacture"),
+            "taxStatus": dvla_data.get("taxStatus"),
+            "motStatus": dvla_data.get("motStatus"),
+            "fuelType": dvla_data.get("fuelType"),
+            "co2Emissions": dvla_data.get("co2Emissions"),
+            "engineCapacity": dvla_data.get("engineCapacity")
         },
         "cached": False
     }
