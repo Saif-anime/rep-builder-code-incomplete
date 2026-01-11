@@ -411,7 +411,7 @@ async def lookup_vehicle_for_bundle(
         raise HTTPException(status_code=404, detail={"error": "Bundle not found"})
     
     vrm = request.registrationNumber.upper().replace(" ", "")
-    logger.info(f"DVLA lookup for VRM: {vrm} on bundle {bundle_id}")
+    logger.info(f"DVLA lookup for VRM: '{vrm}' on bundle {bundle_id}, case_id: {bundle.case_id}")
     
     existing_vehicle = db.query(CaseVehicle).filter(
         CaseVehicle.registration_number == vrm,
