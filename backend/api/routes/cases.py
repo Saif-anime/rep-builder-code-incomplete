@@ -186,7 +186,7 @@ async def delete_case(
     db.query(CaseEvidence).filter(CaseEvidence.case_id == case_id).delete()
     db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).delete()
     db.query(CaseVehicle).filter(CaseVehicle.case_id == case_id).delete()
-    db.query(PipelineResult).filter(PipelineResult.case_id == case_id).delete()
+    db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case_id).delete()
     
     # Log the deletion
     audit_log = AuditLog(
