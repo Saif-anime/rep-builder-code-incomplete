@@ -69,6 +69,11 @@ export default function EvidencePage() {
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const [selectedBayType, setSelectedBayType] = useState<string>("");
   const [manualVrmLookup, setManualVrmLookup] = useState("");
+  const [dvlaLookupResult, setDvlaLookupResult] = useState<{
+    make?: string;
+    colour?: string;
+    fuelType?: string;
+  } | null>(null);
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
     queryKey: ["/api/evidence/bundles"],
@@ -134,15 +139,30 @@ export default function EvidencePage() {
       return apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
     },
     onSuccess: (result: any) => {
-      if (result.success) {
-        toast({ title: "Vehicle verified", description: `${result.vehicle?.make} ${result.vehicle?.colour}` });
+      console.log("DVLA Lookup Response:", result);
+      if (result.success && result.vehicle) {
+        console.log("Vehicle Data:", {
+          make: result.vehicle.make,
+          colour: result.vehicle.colour,
+          fuelType: result.vehicle.fuelType
+        });
+        setDvlaLookupResult({
+          make: result.vehicle.make,
+          colour: result.vehicle.colour,
+          fuelType: result.vehicle.fuelType
+        });
+        toast({ title: "Vehicle verified", description: `${result.vehicle.make} - ${result.vehicle.colour}` });
         queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       } else {
-        toast({ title: "Lookup failed", description: result.error, variant: "destructive" });
+        console.error("DVLA Lookup Failed:", result.error);
+        setDvlaLookupResult(null);
+        toast({ title: "Lookup failed", description: result.error || "Unable to verify vehicle", variant: "destructive" });
       }
       setManualVrmLookup("");
     },
     onError: (error: Error) => {
+      console.error("DVLA Lookup Error:", error);
+      setDvlaLookupResult(null);
       toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
     },
   });
@@ -446,6 +466,7 @@ export default function EvidencePage() {
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedBundle(bundle);
+                              setDvlaLookupResult(null);
                             }}
                             data-testid={`button-view-${bundle.id}`}
                           >
@@ -595,6 +616,29 @@ export default function EvidencePage() {
                     )}
                   </Button>
                 </div>
+                
+                {dvlaLookupResult && (
+                  <div className="mt-3 p-3 bg-muted rounded-md" data-testid="dvla-lookup-result">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <span className="text-sm font-medium">Vehicle Details</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Make:</span>
+                        <p className="font-medium">{dvlaLookupResult.make || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Colour:</span>
+                        <p className="font-medium">{dvlaLookupResult.colour || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Fuel Type:</span>
+                        <p className="font-medium">{dvlaLookupResult.fuelType || "N/A"}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {selectedBundle.vehicles.length > 0 && (
                   <div className="mt-4 space-y-2">

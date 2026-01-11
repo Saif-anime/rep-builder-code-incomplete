@@ -419,6 +419,8 @@ async def lookup_vehicle_for_bundle(
     ).first() if bundle.case_id else None
     
     if existing_vehicle and existing_vehicle.make and existing_vehicle.dvla_verified:
+        print(f"[DVLA API] Returning cached data for {vrm}")
+        print(f"[DVLA API] Make: {existing_vehicle.make}, Colour: {existing_vehicle.colour}, Fuel: {existing_vehicle.fuel_type}")
         return {
             "success": True,
             "vehicle": {
@@ -456,6 +458,8 @@ async def lookup_vehicle_for_bundle(
             
             if response.status_code == 200:
                 dvla_data = response.json()
+                print(f"[DVLA API] Success for {vrm}")
+                print(f"[DVLA API] Make: {dvla_data.get('make')}, Colour: {dvla_data.get('colour')}, Fuel: {dvla_data.get('fuelType')}")
                 logger.info(f"DVLA API success for {vrm}: {dvla_data}")
             elif response.status_code == 404:
                 logger.warning(f"Vehicle not found in DVLA: {vrm}")

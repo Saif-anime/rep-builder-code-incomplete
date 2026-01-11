@@ -11,7 +11,7 @@ import uvicorn
 
 from backend.config import settings
 from backend.db import get_db_context
-from backend.services.auth_service import create_default_admin
+from backend. services.auth_service import create_default_admin
 
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.users import router as users_router
