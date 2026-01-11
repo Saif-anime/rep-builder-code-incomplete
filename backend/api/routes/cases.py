@@ -409,7 +409,11 @@ async def run_case_pipeline(
         "timestamps": ocr_timestamps if ocr_timestamps else []
     }
     
-    # Generate regulation evaluation
+    # Generate regulation evaluation with null safety
+    effective_duration = (duration_minutes - 10) if duration_minutes is not None else None
+    overstay_amount = (duration_minutes - 60) if duration_minutes is not None else None
+    is_breach = duration_minutes is not None and duration_minutes > 60
+    
     regulation_evaluation = {
         "durationMinutes": duration_minutes,
         "maxStayAllowed": 60,
@@ -419,11 +423,11 @@ async def run_case_pipeline(
             "gracePeriodMinutes": 10
         },
         "evaluation": {
-            "complianceResult": "BREACH",
+            "complianceResult": "BREACH" if is_breach else ("COMPLIANT" if duration_minutes is not None else "UNKNOWN"),
             "actualDurationMinutes": duration_minutes,
             "allowedDurationMinutes": 60,
-            "effectiveDurationMinutes": duration_minutes - 10,
-            "breachExplanation": f"Vehicle exceeded maximum stay of 60 minutes by {duration_minutes - 60} minutes",
+            "effectiveDurationMinutes": effective_duration,
+            "breachExplanation": f"Vehicle exceeded maximum stay of 60 minutes by {overstay_amount} minutes" if is_breach else "No breach detected or duration unavailable",
             "ruleSource": "site_configuration"
         }
     }
