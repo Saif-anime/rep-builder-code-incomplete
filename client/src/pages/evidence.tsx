@@ -152,19 +152,34 @@ export default function EvidencePage() {
     mutationFn: async ({ bundleId, registrationNumber }: { bundleId: string; registrationNumber: string }) => {
       setLookupStatus("loading");
       setLookupError(null);
-      const response = await apiRequest("POST", `/api/evidence/bundles/${bundleId}/vehicles/lookup`, { registrationNumber });
-      return response.json();
+      
+      // Use fetch directly to avoid any response consumption issues
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`/api/evidence/bundles/${bundleId}/vehicles/lookup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ registrationNumber })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("DVLA API Response parsed:", data);
+      return data;
     },
     onSuccess: (result: any) => {
-      console.log("DVLA Lookup Response:", result);
+      console.log("DVLA Lookup onSuccess - result:", result);
+      console.log("result.success:", result?.success, "result.vehicle:", result?.vehicle);
       
-      if (result.success && result.vehicle) {
-        // SUCCESS: Update vehicle data and status
-        console.log("Vehicle Data:", {
-          make: result.vehicle.make,
-          colour: result.vehicle.colour,
-          fuelType: result.vehicle.fuelType
-        });
+      // Check for vehicle data in response
+      if (result && result.success === true && result.vehicle) {
+        console.log("SUCCESS PATH - updating vehicle data");
         
         setVehicleData({
           vrm: result.vehicle.vrm,
@@ -183,34 +198,29 @@ export default function EvidencePage() {
         toast({ title: "Vehicle verified", description: `${result.vehicle.make} - ${result.vehicle.colour}` });
         queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       } else {
-        // FAILURE: Check ref for existing data (avoids stale closure)
-        console.error("DVLA Lookup Failed:", result.error);
+        console.log("FAILURE PATH - result.success:", result?.success, "error:", result?.error);
         
+        // Only show error if no existing vehicle data
         if (vehicleDataRef.current === null) {
-          // No previous data - show error
           setLookupStatus("error");
-          setLookupError(result.error || "Unable to verify vehicle");
-          toast({ title: "Lookup failed", description: result.error || "Unable to verify vehicle", variant: "destructive" });
+          setLookupError(result?.error || "Unable to verify vehicle");
+          toast({ title: "Lookup failed", description: result?.error || "Unable to verify vehicle", variant: "destructive" });
         } else {
-          // Previous data exists - keep it, don't show error
           setLookupStatus("success");
-          console.log("Keeping existing vehicle data despite lookup failure");
+          console.log("Keeping existing vehicle data");
         }
       }
       setManualVrmLookup("");
     },
     onError: (error: Error) => {
-      console.error("DVLA Lookup Error:", error);
+      console.error("DVLA Lookup onError:", error);
       
-      // Check ref for existing data (avoids stale closure)
       if (vehicleDataRef.current === null) {
         setLookupStatus("error");
         setLookupError(error.message);
         toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
       } else {
-        // Previous data exists - keep it
         setLookupStatus("success");
-        console.log("Keeping existing vehicle data despite network error");
       }
     },
   });
