@@ -16,6 +16,60 @@ from backend.config import settings
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
+import logging
+logger = logging.getLogger(__name__)
+
+def resolve_case_from_id(db: Session, id_param: str, user_id: int = None, auto_create: bool = False):
+    """
+    Resolve a case from either a case ID or bundle ID.
+    If auto_create is True and bundle exists without a case, create one.
+    Returns tuple of (case, bundle)
+    """
+    # Try direct case lookup first
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == id_param).first()
+    if case:
+        logger.info(f"Found case directly by ID: {id_param}")
+        return case, None
+    
+    # Try to find by bundle ID
+    bundle = None
+    try:
+        bundle_id = int(id_param)
+        bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+        logger.info(f"Looking up bundle ID {bundle_id}: {'found' if bundle else 'not found'}")
+    except (ValueError, TypeError):
+        logger.info(f"ID {id_param} is not a valid bundle ID (not an integer)")
+        pass
+    
+    if bundle:
+        # Bundle found - check if it has a linked case
+        if bundle.case_id:
+            case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+            if case:
+                logger.info(f"Found case {case.id} linked to bundle {bundle.id}")
+                return case, bundle
+        
+        # Bundle exists but no case - auto-create if requested
+        if auto_create and user_id:
+            case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
+            case = EnforcementCase(
+                id=case_id,
+                site_id=bundle.site_id,
+                vrm=bundle.vrm,
+                bay_type=bundle.bay_type,
+                status="NEW",
+                evidence_count=bundle.file_count or 0,
+                created_by=user_id
+            )
+            db.add(case)
+            bundle.case_id = case_id
+            db.commit()
+            db.refresh(case)
+            logger.info(f"Auto-created case {case_id} for bundle {bundle.id}")
+            return case, bundle
+    
+    return None, bundle
+
 def case_to_dict(c: EnforcementCase):
     return {
         "id": c.id,
@@ -192,16 +246,25 @@ async def get_case_vehicles(
         "createdAt": v.created_at.isoformat() if v.created_at else None
     } for v in vehicles]
 
-@router.get("/{case_id}/pipeline/results")
+@router.get("/{id}/pipeline/results")
 async def get_pipeline_results(
-    case_id: str,
+    id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    results = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case_id).first()
-    if not results:
+    logger.info(f"GET pipeline/results for ID: {id}")
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if case:
+        results = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+        if results:
+            return pipeline_to_dict(results)
+    
+    # If bundle exists but no results, return None (no analysis yet)
+    if bundle:
         return None
-    return pipeline_to_dict(results)
+    
+    return None
 
 @router.get("/{case_id}/pipeline/steps")
 async def get_pipeline_steps(
@@ -228,20 +291,57 @@ async def get_pipeline_steps(
         "modelVersion": s.model_version
     } for s in steps]
 
-@router.post("/{case_id}/pipeline/run")
+@router.post("/{id}/pipeline/run")
 async def run_case_pipeline(
-    case_id: str,
+    id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+    logger.info(f"POST pipeline/run for ID: {id}")
     
+    # Resolve case from ID (auto-create if bundle exists without case)
+    case, bundle = resolve_case_from_id(db, id, user_id=current_user.id, auto_create=True)
+    
+    if not case:
+        logger.error(f"Could not find or create case for ID: {id}")
+        raise HTTPException(status_code=404, detail={"error": "Case not found and could not be created"})
+    
+    logger.info(f"Running pipeline for case: {case.id}")
     case.status = "ANALYSING"
     db.commit()
     
-    return {"message": "Pipeline started", "caseId": case_id}
+    # Create or update pipeline results
+    pipeline_results = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+    if not pipeline_results:
+        pipeline_results = CasePipelineResults(
+            case_id=case.id,
+            pipeline_status="running",
+            current_step="vision_analysis",
+            completed_steps=0,
+            total_steps=7,
+            analysis_started_at=datetime.utcnow()
+        )
+        db.add(pipeline_results)
+    else:
+        pipeline_results.pipeline_status = "running"
+        pipeline_results.current_step = "vision_analysis"
+        pipeline_results.analysis_started_at = datetime.utcnow()
+        pipeline_results.analysis_completed_at = None
+        pipeline_results.analysis_error = None
+    db.commit()
+    
+    # Log the action
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="pipeline_run",
+        entity_type="enforcement_case",
+        entity_id=case.id,
+        details={"triggered_by": "manual", "bundle_id": bundle.id if bundle else None}
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {"message": "Pipeline started", "caseId": case.id, "status": "ANALYSING"}
 
 @router.post("/{id}/reanalyze-evidence")
 async def reanalyze_case_evidence(
@@ -249,38 +349,22 @@ async def reanalyze_case_evidence(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Try to find by case ID first
-    case = db.query(EnforcementCase).filter(EnforcementCase.id == id).first()
+    logger.info(f"POST reanalyze-evidence for ID: {id}")
     
-    # If not found, try to find by bundle ID and get its case
-    if not case:
-        try:
-            bundle_id = int(id)
-            bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
-            if bundle and bundle.case_id:
-                case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
-        except (ValueError, TypeError):
-            pass
+    # Resolve case from ID (auto-create if bundle exists without case)
+    case, bundle = resolve_case_from_id(db, id, user_id=current_user.id, auto_create=True)
     
     if not case:
-        # If still no case, create a mock analysis response for bundles without cases
-        try:
-            bundle_id = int(id)
-            bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
-            if bundle:
-                bundle.status = "analyzing"
-                db.commit()
-                return {"message": "Analysis started", "bundleId": id, "status": "ANALYSING"}
-        except (ValueError, TypeError):
-            pass
-        raise HTTPException(status_code=404, detail={"error": "Case not found"})
+        logger.error(f"Could not find or create case for ID: {id}")
+        raise HTTPException(status_code=404, detail={"error": "Case not found and could not be created"})
     
     case.status = "ANALYSING"
     db.commit()
     
+    # Update all bundles linked to this case
     bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).all()
-    for bundle in bundles:
-        bundle.status = "analyzing"
+    for b in bundles:
+        b.status = "analyzing"
     db.commit()
     
     audit_log = AuditLog(
@@ -288,7 +372,7 @@ async def reanalyze_case_evidence(
         action="reanalyze",
         entity_type="enforcement_case",
         entity_id=case.id,
-        details={"triggered_by": "manual"}
+        details={"triggered_by": "manual", "bundle_id": bundle.id if bundle else None}
     )
     db.add(audit_log)
     db.commit()

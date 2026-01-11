@@ -1,0 +1,66 @@
+PROBLEM
+While analysing evidence, the frontend calls:
+POST /api/cases/:caseId/pipeline/run
+
+The API returns:
+404 { "error": "Case not found" }
+
+Because of this, the Evidence Analysis fails and no report is shown.
+
+TASKS
+1. Trace the full request flow:
+   - Frontend analyse button
+   - API call (fetch/axios)
+   - Backend route definition
+   - Database lookup for caseId
+
+2. Identify why the backend cannot find the case:
+   - caseId missing or undefined
+   - caseId not saved when evidence is uploaded
+   - mismatch between caseId vs evidenceId
+   - incorrect route path or HTTP method
+   - database query using wrong column or table
+   - Prisma / ORM model mismatch
+   - Case deleted or never created
+
+3. Fix the backend logic so that:
+   - A case is ALWAYS created before analysis runs
+   - Evidence is correctly linked to the case
+   - The pipeline uses the correct ID source
+   - The API never runs analysis without a valid case
+
+4. Implement safeguards:
+   - Validate caseId before pipeline execution
+   - Return clear errors if missing
+   - Auto-create case if evidence exists but case does not
+
+5. Update the API route:
+   - Ensure POST /api/cases/:caseId/pipeline/run exists
+   - Ensure route matches frontend exactly
+   - Ensure it returns analysis data instead of 404
+
+6. Fix frontend handling:
+   - Confirm correct caseId is passed
+   - Prevent analyse button if caseId is undefined
+   - Display analysis report on success
+   - Show friendly error message on failure
+
+7. Add logging:
+   - Log incoming caseId
+   - Log DB lookup result
+   - Log pipeline execution steps
+
+EXPECTED RESULT
+- Clicking "Analyse Bundle" successfully runs analysis
+- No more 404 Case not found errors
+- Analysis report is returned and rendered in UI
+- Evidence Summary, Decision, and Result sections populate correctly
+
+Do NOT add temporary hacks.
+Do NOT suppress errors.
+Fix root cause only.
+
+After fixing:
+- Show the exact code changes
+- Show which file was broken and why
+- Confirm analysis works end-to-end
