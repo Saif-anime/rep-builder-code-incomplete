@@ -144,6 +144,10 @@ export default function EvidencePage() {
     },
   });
 
+  // Use ref to track vehicle data for stale closure access in mutation callbacks
+  const vehicleDataRef = useRef(vehicleData);
+  vehicleDataRef.current = vehicleData;
+  
   const dvlaLookupMutation = useMutation({
     mutationFn: async ({ bundleId, registrationNumber }: { bundleId: string; registrationNumber: string }) => {
       setLookupStatus("loading");
@@ -179,17 +183,17 @@ export default function EvidencePage() {
         toast({ title: "Vehicle verified", description: `${result.vehicle.make} - ${result.vehicle.colour}` });
         queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       } else {
-        // FAILURE: Only show error if NO existing vehicleData
+        // FAILURE: Check ref for existing data (avoids stale closure)
         console.error("DVLA Lookup Failed:", result.error);
         
-        if (vehicleData === null) {
+        if (vehicleDataRef.current === null) {
           // No previous data - show error
           setLookupStatus("error");
           setLookupError(result.error || "Unable to verify vehicle");
           toast({ title: "Lookup failed", description: result.error || "Unable to verify vehicle", variant: "destructive" });
         } else {
           // Previous data exists - keep it, don't show error
-          setLookupStatus("success"); // Keep showing success state with existing data
+          setLookupStatus("success");
           console.log("Keeping existing vehicle data despite lookup failure");
         }
       }
@@ -198,8 +202,8 @@ export default function EvidencePage() {
     onError: (error: Error) => {
       console.error("DVLA Lookup Error:", error);
       
-      // Only show error if NO existing vehicleData
-      if (vehicleData === null) {
+      // Check ref for existing data (avoids stale closure)
+      if (vehicleDataRef.current === null) {
         setLookupStatus("error");
         setLookupError(error.message);
         toast({ title: "DVLA lookup failed", description: error.message, variant: "destructive" });
