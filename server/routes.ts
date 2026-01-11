@@ -3404,13 +3404,16 @@ export async function registerRoutes(
   app.post("/api/cases/:id/reanalyze-evidence", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
       const caseId = req.params.id;
+      console.log(`[Reanalyze Case] Route hit for case: ${caseId}`);
       const caseData = await storage.getCaseById(caseId);
       
       if (!caseData) {
+        console.log(`[Reanalyze Case] Case not found: ${caseId}`);
         return res.status(404).json({ error: "Case not found" });
       }
       
       const caseEvidence = await storage.getCaseEvidence(caseId);
+      console.log(`[Reanalyze Case] Found ${caseEvidence.length} evidence items for case ${caseId}`);
       if (caseEvidence.length === 0) {
         return res.status(400).json({ error: "No evidence linked to this case" });
       }
@@ -3419,7 +3422,9 @@ export async function registerRoutes(
       
       let reanalyzed = 0;
       for (const ce of caseEvidence) {
+        console.log(`[Reanalyze Case] Processing evidence ID: ${ce.evidenceId}`);
         const success = await reanalyzeEvidenceWithVision(ce.evidenceId);
+        console.log(`[Reanalyze Case] Evidence ${ce.evidenceId} reanalyze result: ${success}`);
         if (success) reanalyzed++;
       }
       
