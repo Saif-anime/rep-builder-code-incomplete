@@ -185,12 +185,16 @@ export function EvidenceAnalysisReport({
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
+      // Step 1: Run Vision/OCR reanalysis on all evidence items
+      await apiRequest("POST", `/api/cases/${bundleId}/reanalyze-evidence`);
+      // Step 2: Run the case analysis pipeline with updated OCR timestamps
       return apiRequest("POST", `/api/cases/${bundleId}/pipeline/run`);
     },
     onSuccess: () => {
-      toast({ title: "Analysis started", description: "Processing evidence..." });
+      toast({ title: "Analysis complete", description: "Evidence reanalyzed with OCR and pipeline processed" });
       queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/pipeline/results`] });
       queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/evidence`] });
     },
     onError: (error: Error) => {
       toast({ title: "Analysis failed", description: error.message, variant: "destructive" });
