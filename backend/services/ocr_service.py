@@ -22,7 +22,170 @@ class OCRService:
             logger.error(f"Failed to encode image {image_path}: {e}")
             return None
     
+    async def extract_timestamp_and_vrm_from_image(self, image_path: str) -> Dict[str, Any]:
+        """Extract both timestamp and VRM in a single Vision GPT call for efficiency."""
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured, using fallback extraction")
+            fallback = self._fallback_extraction(image_path)
+            fallback["vrm"] = None
+            fallback["vrm_confidence"] = 0
+            return fallback
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return {"success": False, "error": "Failed to read image", "timestamp": None, "confidence": 0, "vrm": None, "vrm_confidence": 0}
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image and extract BOTH the timestamp AND vehicle number plate (VRM).
+
+TIMESTAMP - Look for:
+1. Camera overlay text showing date and time (usually in corners)
+2. Text like "11/01/2026 14:23:45" or similar date/time formats
+3. Any "Observe From" or "Observe To" text with timestamps
+
+VRM (NUMBER PLATE) - Look for:
+1. UK format number plates (e.g., AB12 CDE, AB12CDE)
+2. Number plates on vehicles visible in the image
+3. Text overlays showing VRM/registration information
+
+UK number plate formats:
+- Current format: AB12 ABC (2 letters, 2 numbers, 3 letters)
+- Prefix format: A123 ABC (letter, 1-3 numbers, 3 letters)
+- Suffix format: ABC 123A (3 letters, 1-3 numbers, letter)
+
+Return a JSON object with:
+{
+  "timestamp": "YYYY-MM-DD HH:MM:SS" format if found, or null if not found,
+  "timestamp_raw_text": "exact timestamp text as seen",
+  "timestamp_confidence": 0-100 score,
+  "timestamp_location": "where in the image (e.g., 'bottom-left corner')",
+  "vrm": "THE NUMBER PLATE" normalized with space (e.g., "AB12 CDE") or null,
+  "vrm_raw_text": "exact plate text as seen in image",
+  "vrm_confidence": 0-100 score,
+  "vrm_location": "where in the image (e.g., 'front of vehicle', 'rear plate')"
+}
+
+If items not found, set their values to null with 0 confidence.
+
+Return ONLY the JSON object, no other text."""
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 600
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+                    fallback = self._fallback_extraction(image_path)
+                    fallback["vrm"] = None
+                    fallback["vrm_confidence"] = 0
+                    return fallback
+                
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                result = self._parse_combined_response(content)
+                result["source"] = "ocr"
+                result["success"] = result.get("timestamp") is not None or result.get("vrm") is not None
+                return result
+                
+        except Exception as e:
+            logger.error(f"Combined extraction failed: {e}")
+            fallback = self._fallback_extraction(image_path)
+            fallback["vrm"] = None
+            fallback["vrm_confidence"] = 0
+            return fallback
+    
+    def _parse_combined_response(self, content: str) -> Dict[str, Any]:
+        """Parse combined timestamp + VRM response."""
+        import json
+        try:
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            result = json.loads(content.strip())
+            
+            # Normalize VRM if found
+            if result.get("vrm"):
+                result["vrm"] = self._normalize_vrm(result["vrm"])
+            
+            # Remap for backward compatibility
+            return {
+                "timestamp": result.get("timestamp"),
+                "raw_text": result.get("timestamp_raw_text"),
+                "confidence": result.get("timestamp_confidence", 0),
+                "location": result.get("timestamp_location"),
+                "vrm": result.get("vrm"),
+                "vrm_raw_text": result.get("vrm_raw_text"),
+                "vrm_confidence": result.get("vrm_confidence", 0),
+                "vrm_location": result.get("vrm_location")
+            }
+        except json.JSONDecodeError:
+            # Try regex fallback
+            timestamp_match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", content)
+            vrm_match = re.search(r"([A-Z]{2}\d{2}\s?[A-Z]{3}|[A-Z]\d{1,3}\s?[A-Z]{3}|[A-Z]{3}\s?\d{1,3}[A-Z])", content.upper())
+            return {
+                "timestamp": timestamp_match.group(1) if timestamp_match else None,
+                "raw_text": timestamp_match.group(1) if timestamp_match else None,
+                "confidence": 70 if timestamp_match else 0,
+                "location": "extracted from text",
+                "vrm": self._normalize_vrm(vrm_match.group(1)) if vrm_match else None,
+                "vrm_raw_text": vrm_match.group(1) if vrm_match else None,
+                "vrm_confidence": 60 if vrm_match else 0,
+                "vrm_location": "extracted from text" if vrm_match else None
+            }
+
     async def extract_timestamp_from_image(self, image_path: str) -> Dict[str, Any]:
+        """Legacy method - now calls combined extraction for efficiency."""
+        result = await self.extract_timestamp_and_vrm_from_image(image_path)
+        return {
+            "success": result.get("timestamp") is not None,
+            "timestamp": result.get("timestamp"),
+            "raw_text": result.get("raw_text"),
+            "confidence": result.get("confidence", 0),
+            "location": result.get("location"),
+            "source": result.get("source", "ocr")
+        }
+    
+    async def extract_vrm_from_image(self, image_path: str) -> Dict[str, Any]:
+        """Legacy method - now calls combined extraction for efficiency."""
+        result = await self.extract_timestamp_and_vrm_from_image(image_path)
+        return {
+            "success": result.get("vrm") is not None,
+            "vrm": result.get("vrm"),
+            "raw_text": result.get("vrm_raw_text"),
+            "confidence": result.get("vrm_confidence", 0),
+            "location": result.get("vrm_location")
+        }
+    
+    async def extract_timestamp_from_image_original(self, image_path: str) -> Dict[str, Any]:
         if not self.api_key:
             logger.warning("No OpenAI API key configured, using fallback timestamp extraction")
             return self._fallback_extraction(image_path)

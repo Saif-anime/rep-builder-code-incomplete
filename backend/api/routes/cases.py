@@ -345,8 +345,8 @@ async def run_case_pipeline(
         if evidence_ids:
             evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
-    # Run OCR extraction on each evidence image to get real timestamps and VRM
-    logger.info(f"Running OCR extraction on {len(evidence_list)} evidence items")
+    # Run combined OCR extraction on each evidence image (single API call per image for efficiency)
+    logger.info(f"Running combined OCR extraction on {len(evidence_list)} evidence items")
     ocr_timestamps = []
     extracted_vrms = []
     
@@ -358,40 +358,39 @@ async def run_case_pipeline(
             image_path = os.path.join(os.getcwd(), relative_path)
         
         if image_path and os.path.exists(image_path):
-            logger.info(f"Extracting timestamp from: {image_path}")
-            ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
-            logger.info(f"OCR result for evidence {evidence.id}: {ocr_result}")
+            logger.info(f"Extracting timestamp and VRM from: {image_path}")
+            # Single API call extracts both timestamp and VRM
+            combined_result = await ocr_service.extract_timestamp_and_vrm_from_image(image_path)
+            logger.info(f"Combined OCR result for evidence {evidence.id}: {combined_result}")
             
-            # Extract VRM from the image
-            vrm_result = await ocr_service.extract_vrm_from_image(image_path)
-            logger.info(f"VRM result for evidence {evidence.id}: {vrm_result}")
-            
-            if vrm_result.get("vrm"):
+            # Process VRM from combined result
+            if combined_result.get("vrm"):
                 extracted_vrms.append({
-                    "vrm": vrm_result["vrm"],
-                    "confidence": vrm_result.get("confidence", 0),
+                    "vrm": combined_result["vrm"],
+                    "confidence": combined_result.get("vrm_confidence", 0),
                     "evidenceId": evidence.id,
-                    "location": vrm_result.get("location"),
-                    "rawText": vrm_result.get("raw_text")
+                    "location": combined_result.get("vrm_location"),
+                    "rawText": combined_result.get("vrm_raw_text")
                 })
             
+            # Process timestamp from combined result
             parsed_time = None
-            if ocr_result.get("timestamp"):
-                parsed_time = ocr_service.parse_timestamp_string(ocr_result["timestamp"])
+            if combined_result.get("timestamp"):
+                parsed_time = ocr_service.parse_timestamp_string(combined_result["timestamp"])
             
             if parsed_time:
                 # Update evidence record with extracted timestamp
                 evidence.timestamp = parsed_time
-                evidence.ocr_confidence = ocr_result.get("confidence", 0)
+                evidence.ocr_confidence = combined_result.get("confidence", 0)
                 db.commit()
             
             ocr_timestamps.append({
                 "evidenceId": evidence.id,
                 "timestamp": parsed_time.isoformat() if parsed_time else None,
-                "source": ocr_result.get("source", "ocr"),
-                "confidence": ocr_result.get("confidence", 0),
-                "rawOcrText": ocr_result.get("raw_text"),
-                "location": ocr_result.get("location")
+                "source": combined_result.get("source", "ocr"),
+                "confidence": combined_result.get("confidence", 0),
+                "rawOcrText": combined_result.get("raw_text"),
+                "location": combined_result.get("location")
             })
     
     # Determine best VRM from extractions (highest confidence)
@@ -650,7 +649,7 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
         if evidence_ids:
             evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
-    # Run OCR extraction with VRM detection
+    # Run combined OCR extraction (single API call per image)
     ocr_timestamps = []
     extracted_vrms = []
     for evidence in evidence_list:
@@ -660,36 +659,36 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
             image_path = os.path.join(os.getcwd(), relative_path)
         
         if image_path and os.path.exists(image_path):
-            ocr_result = await ocr_service.extract_timestamp_from_image(image_path)
+            # Single API call extracts both timestamp and VRM
+            combined_result = await ocr_service.extract_timestamp_and_vrm_from_image(image_path)
             
-            # Extract VRM from the image
-            vrm_result = await ocr_service.extract_vrm_from_image(image_path)
-            if vrm_result.get("vrm"):
+            # Process VRM from combined result
+            if combined_result.get("vrm"):
                 extracted_vrms.append({
-                    "vrm": vrm_result["vrm"],
-                    "confidence": vrm_result.get("confidence", 0),
+                    "vrm": combined_result["vrm"],
+                    "confidence": combined_result.get("vrm_confidence", 0),
                     "evidenceId": evidence.id,
-                    "location": vrm_result.get("location"),
-                    "rawText": vrm_result.get("raw_text")
+                    "location": combined_result.get("vrm_location"),
+                    "rawText": combined_result.get("vrm_raw_text")
                 })
             
             parsed_time = None
-            if ocr_result.get("timestamp"):
+            if combined_result.get("timestamp"):
                 try:
-                    parsed_time = datetime.fromisoformat(ocr_result["timestamp"])
+                    parsed_time = datetime.fromisoformat(combined_result["timestamp"])
                     evidence.timestamp = parsed_time
-                    evidence.ocr_confidence = ocr_result.get("confidence", 0)
+                    evidence.ocr_confidence = combined_result.get("confidence", 0)
                     db.commit()
                 except (ValueError, TypeError):
                     pass
             
             ocr_timestamps.append({
                 "evidenceId": evidence.id,
-                "timestamp": ocr_result.get("timestamp"),
-                "confidence": ocr_result.get("confidence", 0),
+                "timestamp": combined_result.get("timestamp"),
+                "confidence": combined_result.get("confidence", 0),
                 "source": "ocr",
-                "rawOcrText": ocr_result.get("raw_text"),
-                "location": ocr_result.get("location")
+                "rawOcrText": combined_result.get("raw_text"),
+                "location": combined_result.get("location")
             })
     
     # Determine best VRM from extractions

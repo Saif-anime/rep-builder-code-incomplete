@@ -65,6 +65,18 @@ interface EvidenceSummary {
   pcnBlockReason: string | null;
 }
 
+interface ExtractedVrm {
+  vrm: string;
+  confidence: number;
+  allDetections?: Array<{
+    vrm: string;
+    confidence: number;
+    evidenceId: number;
+    location?: string;
+    rawText?: string;
+  }>;
+}
+
 interface PipelineResults {
   caseId: string;
   pipelineStatus: "pending" | "running" | "completed" | "failed";
@@ -85,6 +97,7 @@ interface PipelineResults {
       source?: string; 
       confidence?: number;
     }>;
+    extractedVrm?: ExtractedVrm | null;
   } | null;
   regulationEvaluation: {
     durationMinutes?: number;
@@ -233,6 +246,7 @@ export function EvidenceAnalysisReport({
   const bayRule = pipelineResults?.bayRuleEvaluation;
   
   const evidenceSummary = evidenceData?.evidenceSummary;
+  const extractedVrm = evidenceData?.extractedVrm;
 
   const pcnDecision = mapDecision(decision?.status);
   
@@ -468,10 +482,28 @@ export function EvidenceAnalysisReport({
                 {formatBayTypeLabel(bayType || bayRule?.bayType)}
               </p>
             </div>
-            {vrm && (
+            {(vrm || extractedVrm?.vrm) && (
               <div className="col-span-2">
-                <p className="text-sm text-muted-foreground">Vehicle</p>
-                <p className="font-medium font-mono" data-testid="text-vrm">{vrm}</p>
+                <p className="text-sm text-muted-foreground">Vehicle Registration</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium font-mono text-lg" data-testid="text-vrm">
+                    {extractedVrm?.vrm || vrm}
+                  </p>
+                  {extractedVrm && (
+                    <Badge 
+                      variant={extractedVrm.confidence >= 80 ? "default" : 
+                              extractedVrm.confidence >= 50 ? "secondary" : "outline"}
+                      className="text-xs"
+                    >
+                      {extractedVrm.confidence}% confidence
+                    </Badge>
+                  )}
+                </div>
+                {extractedVrm?.vrm && vrm && extractedVrm.vrm !== vrm && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    (Previously recorded: {vrm})
+                  </p>
+                )}
               </div>
             )}
           </div>
