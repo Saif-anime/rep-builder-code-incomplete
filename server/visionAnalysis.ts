@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { runYoloDetection, isYoloAvailable, mapYoloToVehicleType, hasPersonsDetected, type YoloResult } from "./yoloDetection";
+import { extractTimestampFromImage } from "./ocrTimestampExtractor";
 
 const openai = new OpenAI();
 
@@ -166,6 +167,21 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     }
   }
   
+  // Run dedicated OCR timestamp extraction (Tesseract-based - much more reliable than Vision GPT)
+  let ocrTimestamp: string | null = null;
+  try {
+    console.log("[Vision] Running OCR timestamp extraction...");
+    const ocrResult = await extractTimestampFromImage(input.imagePath);
+    if (ocrResult.success && ocrResult.timestamp) {
+      ocrTimestamp = ocrResult.timestamp;
+      console.log(`[Vision] OCR extracted timestamp: ${ocrTimestamp} (confidence: ${(ocrResult.confidence * 100).toFixed(1)}%)`);
+    } else {
+      console.log("[Vision] OCR did not find a valid timestamp, raw text:", ocrResult.rawOcrText.substring(0, 100));
+    }
+  } catch (e: any) {
+    console.log("[Vision] OCR extraction failed:", e.message);
+  }
+  
   // Build context with YOLO pre-detection hints
   const contextParts = [
     input.siteName ? `Site: ${input.siteName}` : null,
@@ -256,6 +272,9 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
     // Internal model tracking (not exposed to UI)
     const detectionMethod = yoloResult?.success ? "hybrid" : "vision";
     
+    // Use OCR timestamp (Tesseract) as primary source, fallback to Vision GPT if available
+    const finalTimestamp = ocrTimestamp || parsed.timestampOverlay || undefined;
+    
     const result: VisionAnalysisResult = {
       vehicleDetected,
       vehicleType,
@@ -267,14 +286,17 @@ export async function analyzeImageWithVision(input: VisionAnalysisInput): Promis
       visibilityQuality: parsed.visibilityQuality || "partial",
       confidenceNotes: parsed.confidenceNotes || "",
       numberPlateDetected: parsed.numberPlateDetected || undefined,
-      timestampOverlay: parsed.timestampOverlay || undefined,
+      timestampOverlay: finalTimestamp,
       analysedAt: new Date().toISOString(),
       modelVersion: detectionMethod,
       imageHash,
     };
     
     if (result.timestampOverlay) {
-      console.log("[Vision] Extracted timestamp from overlay:", result.timestampOverlay);
+      const source = ocrTimestamp ? "OCR (Tesseract)" : "Vision GPT";
+      console.log(`[Vision] Timestamp extracted via ${source}: ${result.timestampOverlay}`);
+    } else {
+      console.log("[Vision] No timestamp could be extracted from image overlay");
     }
     
     // Cache disabled - each case gets fresh analysis
