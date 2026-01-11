@@ -442,26 +442,6 @@ export default function EvidencePage() {
                         
                         <div className="flex gap-2 mt-4">
                           <Button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              analyzeMutation.mutate(bundle.id);
-                            }}
-                            disabled={analyzeMutation.isPending}
-                            data-testid={`button-analyze-${bundle.id}`}
-                          >
-                            {analyzeMutation.isPending ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Analysing...
-                              </>
-                            ) : (
-                              <>
-                                <Brain className="h-4 w-4 mr-2" />
-                                Analyse Bundle
-                              </>
-                            )}
-                          </Button>
-                          <Button 
                             variant="outline"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -525,7 +505,7 @@ export default function EvidencePage() {
                           <div className="p-4 rounded-md bg-muted/50 text-center">
                             <Brain className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
                             <p className="text-sm text-muted-foreground">No analysis yet</p>
-                            <p className="text-xs text-muted-foreground">Click "Analyse Bundle" to generate report</p>
+                            <p className="text-xs text-muted-foreground">Click "View Details" then "Analyse Evidence" to generate report</p>
                           </div>
                         )}
                       </div>
