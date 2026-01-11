@@ -586,6 +586,54 @@ async def run_case_pipeline(
             "loadingAnalysis": loading_bay_result.to_dict()
         }
     
+    # Disabled bay analysis (if applicable)
+    disabled_bay_result = None
+    is_disabled_bay = normalized_bay in ("disabled", "disabledbay")
+    if is_disabled_bay:
+        logger.info("Disabled bay detected - running Blue Badge compliance analysis")
+        from backend.services.disabled_bay_analysis_service import disabled_bay_analysis_service
+        
+        # Run disabled bay analysis on each image
+        disabled_analysis_results = []
+        for evidence in evidence_list:
+            image_path = None
+            if evidence.image_path:
+                relative_path = evidence.image_path.lstrip("/")
+                image_path = os.path.join(os.getcwd(), relative_path)
+            
+            if image_path and os.path.exists(image_path):
+                disabled_result = await ocr_service.analyze_disabled_bay(image_path, evidence.id)
+                disabled_result["timestamp"] = evidence.timestamp.isoformat() if evidence.timestamp else None
+                disabled_analysis_results.append(disabled_result)
+        
+        # Build evidence items for disabled bay analysis
+        evidence_items = [{
+            "id": ev.id,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else None
+        } for ev in evidence_list]
+        
+        # Get evidence timestamp for expiry check - do NOT fallback to datetime.now()
+        # for deterministic auditing; pass None to mark expiry as indeterminate
+        evidence_timestamp = first_time  # Can be None if no timestamps available
+        
+        # Run disabled bay analysis
+        disabled_bay_result = await disabled_bay_analysis_service.analyze_disabled_bay(
+            evidence_items=evidence_items,
+            image_analysis_results=disabled_analysis_results,
+            evidence_timestamp=evidence_timestamp
+        )
+        
+        logger.info(f"Disabled bay analysis result: {disabled_bay_result.to_dict()}")
+        
+        # Update bay rule evaluation with disabled bay analysis
+        bay_rule_evaluation = {
+            "bayType": "DISABLED",
+            "bayName": "Disabled Bay",
+            "decision": disabled_bay_result.decision.value,
+            "explanation": disabled_bay_result.legal_justification,
+            "disabledBayAnalysis": disabled_bay_result.to_dict()
+        }
+    
     # Generate final decision based on evidence summary validation and loading bay analysis
     # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
     if loading_bay_result is not None:
@@ -623,6 +671,42 @@ async def run_case_pipeline(
                 "plainEnglishExplanation": "The vehicle was parked in a loading bay without evidence of active loading or unloading activity.",
                 "blockers": [],
                 "loadingAnalysis": loading_bay_result.to_dict()
+            }
+    elif disabled_bay_result is not None:
+        # Disabled bay decision takes precedence
+        if disabled_bay_result.decision.value == "COMPLIANT":
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": disabled_bay_result.confidence_score,
+                "legalRisk": "low",
+                "recommendation": "No PCN - Valid Blue Badge displayed",
+                "reasoning": disabled_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle displayed a valid Blue Badge with the front visible showing required details. The vehicle was correctly positioned within the disabled bay.",
+                "blockers": [],
+                "disabledBayAnalysis": disabled_bay_result.to_dict()
+            }
+        elif disabled_bay_result.decision.value == "MANUAL_REVIEW":
+            decision = {
+                "status": "REVIEW_REQUIRED",
+                "overallConfidence": disabled_bay_result.confidence_score,
+                "legalRisk": "medium",
+                "recommendation": "Manual review required - Blue Badge verification inconclusive",
+                "reasoning": disabled_bay_result.legal_justification,
+                "plainEnglishExplanation": "The AI could not confidently verify the Blue Badge. A human operator should review the evidence to check badge visibility and validity.",
+                "blockers": ["Insufficient confidence for automated decision"],
+                "disabledBayAnalysis": disabled_bay_result.to_dict()
+            }
+        else:
+            # NON_COMPLIANT for disabled bay
+            decision = {
+                "status": "PCN_ELIGIBLE",
+                "overallConfidence": disabled_bay_result.confidence_score,
+                "legalRisk": "low" if disabled_bay_result.confidence_score >= 70 else "medium",
+                "recommendation": f"Issue PCN - {disabled_bay_result.reason}",
+                "reasoning": disabled_bay_result.legal_justification,
+                "plainEnglishExplanation": f"The vehicle was parked in a disabled bay without displaying a valid Blue Badge correctly. {disabled_bay_result.reason}.",
+                "blockers": [],
+                "disabledBayAnalysis": disabled_bay_result.to_dict()
             }
     elif not evidence_summary.is_valid_for_pcn:
         # Evidence is insufficient for PCN - require review

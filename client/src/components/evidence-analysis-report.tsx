@@ -21,6 +21,12 @@ import {
   Package,
   User,
   DoorOpen,
+  Accessibility,
+  Eye,
+  EyeOff,
+  Calendar,
+  Hash,
+  Sparkles,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -162,6 +168,52 @@ interface PipelineResults {
         timestamp: string | null;
         activityType: string;
         details: Record<string, boolean | string | null>;
+      }>;
+    };
+    disabledBayAnalysis?: {
+      bayType: string;
+      blueBadgeVisible: boolean;
+      badgeFrontVisible: boolean;
+      expiryDateDetected: string | null;
+      badgeExpired: boolean;
+      vehicleFullyInsideBay: boolean;
+      overlapDetected: boolean;
+      decision: "COMPLIANT" | "NON_COMPLIANT" | "MANUAL_REVIEW";
+      reason: string;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      confidenceScore: number;
+      bayConfirmation: {
+        isDisabledBay: boolean;
+        wheelchairSymbolVisible: boolean;
+        signageVisible: boolean;
+        roadMarkingsVisible: boolean;
+        confidence: number;
+      };
+      vehiclePosition: {
+        fullyInsideBay: boolean;
+        overlapDetected: boolean;
+        overlapType: string | null;
+        confidence: number;
+      };
+      blueBadge: {
+        visible: boolean;
+        frontVisible: boolean;
+        expiryDate: string | null;
+        badgeNumber: string | null;
+        hologramVisible: boolean;
+        partiallyObscured: boolean;
+        reflectionIssues: boolean;
+        confidence: number;
+      };
+      manualReviewRequired: boolean;
+      legalJustification: string;
+      evidenceSummary: Array<{
+        evidenceId: number;
+        timestamp: string | null;
+        badgeVisible: boolean;
+        badgeFrontVisible: boolean;
+        expiryDateFound: string | null;
+        notes: string;
       }>;
     };
   } | null;
@@ -743,6 +795,123 @@ export function EvidenceAnalysisReport({
               <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="h-3 w-3" />
                 <span>Manual review required due to low AI confidence</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {bayRule?.disabledBayAnalysis && (
+        <Card data-testid="card-disabled-bay-analysis" className="border-purple-200 dark:border-purple-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Accessibility className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+              Disabled Bay Analysis
+              {bayRule.disabledBayAnalysis.decision === "COMPLIANT" ? (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Compliant
+                </Badge>
+              ) : bayRule.disabledBayAnalysis.decision === "MANUAL_REVIEW" ? (
+                <Badge variant="secondary" className="ml-auto">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Required
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Non-Compliant
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                {bayRule.disabledBayAnalysis.blueBadgeVisible ? (
+                  <Eye className="h-4 w-4 text-green-600" />
+                ) : (
+                  <EyeOff className="h-4 w-4 text-destructive" />
+                )}
+                <span>Badge Visible:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.blueBadgeVisible ? "default" : "destructive"} className="text-xs">
+                  {bayRule.disabledBayAnalysis.blueBadgeVisible ? "Yes" : "No"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Eye className={`h-4 w-4 ${bayRule.disabledBayAnalysis.badgeFrontVisible ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Front Visible:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.badgeFrontVisible ? "default" : "outline"} className="text-xs">
+                  {bayRule.disabledBayAnalysis.badgeFrontVisible ? "Yes" : "No"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Calendar className={`h-4 w-4 ${bayRule.disabledBayAnalysis.expiryDateDetected && !bayRule.disabledBayAnalysis.badgeExpired ? 'text-green-600' : bayRule.disabledBayAnalysis.badgeExpired ? 'text-destructive' : 'text-muted-foreground'}`} />
+                <span>Expiry Date:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.badgeExpired ? "destructive" : bayRule.disabledBayAnalysis.expiryDateDetected ? "default" : "outline"} className="text-xs">
+                  {bayRule.disabledBayAnalysis.expiryDateDetected || "Not Found"}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Sparkles className={`h-4 w-4 ${bayRule.disabledBayAnalysis.blueBadge?.hologramVisible ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <span>Hologram:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.blueBadge?.hologramVisible ? "default" : "outline"} className="text-xs">
+                  {bayRule.disabledBayAnalysis.blueBadge?.hologramVisible ? "Visible" : "Not Visible"}
+                </Badge>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Badge Number:</span>
+                <span className="font-mono font-medium">
+                  {bayRule.disabledBayAnalysis.blueBadge?.badgeNumber || "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Badge Expired:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.badgeExpired ? "destructive" : "default"}>
+                  {bayRule.disabledBayAnalysis.badgeExpired ? "Yes - Expired" : "No - Valid"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Vehicle Position:</span>
+                <Badge variant={bayRule.disabledBayAnalysis.vehicleFullyInsideBay ? "default" : "destructive"}>
+                  {bayRule.disabledBayAnalysis.vehicleFullyInsideBay ? "Inside Bay" : "Overlap Detected"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={getConfidenceBadgeVariant(bayRule.disabledBayAnalysis.confidence)}>
+                  {bayRule.disabledBayAnalysis.confidenceScore}%
+                </Badge>
+              </div>
+            </div>
+            
+            {bayRule.disabledBayAnalysis?.reason && bayRule.disabledBayAnalysis.decision !== "COMPLIANT" && (
+              <>
+                <Separator />
+                <div className="p-2 bg-destructive/10 rounded text-sm flex items-start gap-2">
+                  <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                  <span className="text-destructive">{bayRule.disabledBayAnalysis.reason}</span>
+                </div>
+              </>
+            )}
+            
+            <div className="p-3 bg-muted/30 rounded text-sm">
+              <p className="font-medium text-xs text-muted-foreground mb-1">Legal Justification</p>
+              <p>{bayRule.disabledBayAnalysis.legalJustification}</p>
+            </div>
+            
+            {bayRule.disabledBayAnalysis.manualReviewRequired && (
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Manual review required - Blue Badge visibility uncertain</span>
               </div>
             )}
           </CardContent>

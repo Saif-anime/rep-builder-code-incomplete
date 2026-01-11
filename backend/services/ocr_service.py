@@ -674,4 +674,197 @@ Return ONLY the JSON object, no other text."""
             }
         }
 
+    async def analyze_disabled_bay(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for Disabled Bay compliance using Vision GPT.
+        
+        Detects:
+        - Bay confirmation (wheelchair symbol, signage, road markings)
+        - Vehicle position (fully inside bay, no overlap)
+        - Blue Badge visibility (front visible, not obscured)
+        - Badge details (expiry date, badge number, hologram)
+        
+        Returns structured analysis for disabled bay decision logic.
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for disabled bay analysis")
+            return self._empty_disabled_bay_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_disabled_bay_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """Analyze this parking enforcement evidence image for DISABLED BAY compliance under UK Blue Badge regulations.
+
+You are helping determine if a vehicle parked in a Disabled Bay is COMPLIANT or NON-COMPLIANT.
+
+ANALYZE THE FOLLOWING:
+
+1. DISABLED BAY CONFIRMATION:
+- Is there a wheelchair symbol visible on the ground?
+- Is there vertical signage indicating a disabled bay?
+- Are there road markings showing this is a disabled parking space?
+
+2. VEHICLE POSITION:
+- Is the vehicle FULLY inside the disabled bay boundaries?
+- Is the vehicle overlapping any adjacent parking bay?
+- Is the vehicle overlapping any hatched markings?
+- Is the vehicle blocking any disabled access zones?
+
+3. BLUE BADGE VISIBILITY:
+- Can you see the dashboard/fascia area through the windscreen?
+- Is there a Blue Badge visible on the dashboard?
+- Is the FRONT of the badge visible (or is the back showing)?
+- Is the badge obscured by reflections or other objects?
+
+4. BLUE BADGE DETAILS (if front is visible):
+- Can you read the expiry date? If yes, what is it?
+- Can you see the badge number?
+- Is the hologram visible?
+
+Return a JSON object with:
+{
+  "disabledBayAnalysis": {
+    "isDisabledBay": true/false,
+    "wheelchairSymbolVisible": true/false,
+    "signageVisible": true/false,
+    "roadMarkingsVisible": true/false,
+    "bayConfirmationConfidence": 0-100,
+    
+    "vehiclePosition": {
+      "fullyInsideBay": true/false,
+      "overlapDetected": true/false,
+      "overlapType": "adjacent_bay" | "hatched_area" | "access_zone" | null,
+      "positionConfidence": 0-100
+    },
+    
+    "blueBadge": {
+      "dashboardVisible": true/false,
+      "visible": true/false,
+      "frontVisible": true/false,
+      "backShowing": true/false,
+      "partiallyObscured": true/false,
+      "reflectionIssues": true/false,
+      "expiryDate": "YYYY-MM-DD" or null if not readable,
+      "badgeNumber": "string" or null if not readable,
+      "hologramVisible": true/false,
+      "confidence": 0-100,
+      "notes": "Any relevant observations about badge visibility"
+    },
+    
+    "overallAssessment": {
+      "likelyCompliant": true/false,
+      "confidence": 0-100,
+      "primaryIssue": "description of main issue if non-compliant, null if compliant"
+    }
+  }
+}
+
+IMPORTANT:
+- Never assume a Blue Badge is present if not clearly visible
+- If expiry date is unreadable, set to null (do not guess)
+- If badge back is showing instead of front, mark frontVisible=false, backShowing=true
+- Be strict about badge visibility requirements
+
+Return ONLY the JSON object, no other text."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 800
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for disabled bay analysis: {response.status_code} - {response.text}")
+                    return self._empty_disabled_bay_analysis(evidence_id)
+                
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                result = self._parse_disabled_bay_response(content)
+                result["evidenceId"] = evidence_id
+                result["success"] = True
+                return result
+                
+        except Exception as e:
+            logger.error(f"Disabled bay analysis failed: {e}")
+            return self._empty_disabled_bay_analysis(evidence_id)
+    
+    def _parse_disabled_bay_response(self, content: str) -> Dict[str, Any]:
+        """Parse disabled bay analysis response from Vision GPT."""
+        import json
+        try:
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse disabled bay analysis JSON, using defaults")
+            return self._empty_disabled_bay_analysis()
+    
+    def _empty_disabled_bay_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty disabled bay analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "disabledBayAnalysis": {
+                "isDisabledBay": False,
+                "wheelchairSymbolVisible": False,
+                "signageVisible": False,
+                "roadMarkingsVisible": False,
+                "bayConfirmationConfidence": 0,
+                "vehiclePosition": {
+                    "fullyInsideBay": True,
+                    "overlapDetected": False,
+                    "overlapType": None,
+                    "positionConfidence": 0
+                },
+                "blueBadge": {
+                    "dashboardVisible": False,
+                    "visible": False,
+                    "frontVisible": False,
+                    "backShowing": False,
+                    "partiallyObscured": False,
+                    "reflectionIssues": False,
+                    "expiryDate": None,
+                    "badgeNumber": None,
+                    "hologramVisible": False,
+                    "confidence": 0,
+                    "notes": "No analysis available"
+                },
+                "overallAssessment": {
+                    "likelyCompliant": False,
+                    "confidence": 0,
+                    "primaryIssue": "Analysis not performed"
+                }
+            }
+        }
+
 ocr_service = OCRService()
