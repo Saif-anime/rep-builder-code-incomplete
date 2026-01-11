@@ -1,0 +1,134 @@
+CURRENT PROBLEM:
+- The system is picking WRONG Observe From / Observe To time.
+- Time is sometimes taken from upload time, server time, or unreliable metadata.
+- Fresh evidence still produces incorrect timestamps.
+- This leads to incorrect enforcement decisions and PCN errors.
+
+OBJECTIVE:
+Redesign the COMPLETE evidence timestamp extraction and validation pipeline so the system always extracts the CORRECT time from inside the evidence itself.
+
+=============================
+CORE REQUIREMENTS
+=============================
+
+1. REMOVE unreliable time sources
+- Completely STOP using:
+  - Upload timestamp
+  - Server timestamp
+  - Browser timestamp
+- Use metadata ONLY as fallback, never primary
+
+2. PRIMARY TIME EXTRACTION (MANDATORY)
+Extract time directly from INSIDE evidence files using a multi-layer approach:
+
+A. IMAGE EVIDENCE
+- Use Vision GPT (OCR-capable) to extract:
+  - Timestamp overlays on images
+  - Camera-embedded date/time text
+- Detect formats like:
+  - DD/MM/YYYY HH:MM
+  - YYYY-MM-DD HH:MM:SS
+  - Any localized timestamp format
+- Use bounding-box confidence scoring
+- Reject low-confidence OCR results
+
+B. VIDEO EVIDENCE
+- Extract key frames every X seconds
+- Run OCR on:
+  - First frame
+  - Middle frame
+  - Last frame
+- Detect timestamp overlays inside video frames
+- Calculate Observe From and Observe To based on frame timestamps
+
+C. CCTV / ANPR CAMERA INPUT
+- Prefer camera-burned timestamps over EXIF
+- Validate sequence continuity (time must move forward logically)
+
+3. SECONDARY VALIDATION LAYER
+- Cross-check extracted timestamp with:
+  - EXIF metadata (only if OCR succeeded)
+  - Camera system logs (if available)
+- If mismatch > 2 minutes → flag as "Review Required"
+
+4. EVIDENCE BUNDLE LOGIC (CRITICAL)
+- When multiple files belong to SAME CASE:
+  - Analyse ALL evidence together
+  - Sort by extracted timestamp
+  - Determine:
+    - Observe From = earliest valid timestamp
+    - Observe To = latest valid timestamp
+  - Calculate total duration automatically
+
+5. CONFIDENCE SCORING
+For each timestamp:
+- OCR confidence
+- Consistency across files
+- Time sequence validity
+
+Only accept timestamps with confidence ≥ threshold.
+Otherwise:
+- Mark Time Source as "Manual Review Required"
+
+6. UI FIXES (IMPORTANT)
+- In Evidence → View Details:
+  - Show ONLY final validated times
+  - Hide raw OCR / metadata from UI
+- Display:
+  - Observe From
+  - Observe To
+  - Duration
+  - Time Source = "Camera Overlay (OCR Verified)"
+- Remove:
+  - "No Data" errors
+  - Random or repeated timestamps
+
+7. DECISION ENGINE UPDATE
+- Enforcement decision MUST depend on:
+  - Validated time range
+  - Bay type rules
+  - Parking duration
+- If time confidence < threshold:
+  - Force decision = REVIEW REQUIRED
+  - Disable PCN generation
+
+8. PCN GENERATION SAFETY
+- PCN can be generated ONLY if:
+  - Time confidence is HIGH
+  - Evidence duration is valid
+  - Rule breach is confirmed
+- PCN must include:
+  - Extracted timestamps
+  - Evidence source reference
+  - Confidence status
+
+=============================
+TECH STACK CHANGES
+=============================
+
+- Upgrade Vision GPT usage:
+  - OCR-first approach
+  - Multi-frame video OCR
+- Integrate YOLOv8 ONLY for:
+  - Vehicle detection
+  - Plate localization
+- OCR handles time, NOT YOLO
+
+=============================
+EXPECTED OUTPUT
+=============================
+
+- Accurate Observe From / Observe To
+- No identical timestamps unless evidence truly matches
+- No dependency on upload time
+- Clean UI with trustworthy time data
+- Correct enforcement decisions
+
+Implement this as a clean, modular pipeline:
+- evidenceTimeExtractor.ts
+- evidenceTimeValidator.ts
+- evidenceBundleAnalyzer.ts
+
+Ensure all existing wrong-time logic is removed.
+
+Proceed with implementation and refactor safely.
