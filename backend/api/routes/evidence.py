@@ -201,9 +201,8 @@ async def upload_evidence_bundle(
     case = EnforcementCase(
         id=case_id,
         site_id=site_id_int,
-        status="open",
-        priority="medium",
-        source="manual",
+        bay_type=bayType,
+        status="NEW",
         evidence_count=len(files),
         created_by=current_user.id
     )
