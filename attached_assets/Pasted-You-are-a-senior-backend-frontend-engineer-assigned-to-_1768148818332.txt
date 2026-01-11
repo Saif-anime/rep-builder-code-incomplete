@@ -1,0 +1,130 @@
+You are a senior backend + frontend engineer assigned to FIX and REBUILD
+the "Evidence Summary" section in a Parking Enforcement system.
+
+CURRENT PROBLEMS
+- Evidence Summary shows incorrect duration (e.g. 35210 hours)
+- Observe From and Observe To are often identical
+- OCR timestamps are inconsistently trusted
+- Summary logic is mixed with UI rendering
+- Incorrect data leads to wrong PCN decisions
+
+GOAL
+Completely REMOVE the existing Evidence Summary logic and rebuild it
+using a clean, deterministic, auditable pipeline that produces ACCURATE results.
+
+--------------------------------------------------
+PHASE 1 — REMOVE EXISTING IMPLEMENTATION
+--------------------------------------------------
+1. Remove Evidence Summary UI component completely.
+2. Remove all frontend logic that:
+   - Calculates duration
+   - Formats Observe From / Observe To
+   - Infers bay type or time source
+3. Remove backend helpers that:
+   - Guess duration
+   - Default timestamps silently
+   - Reuse stale analysis results
+
+NO legacy logic should remain.
+
+--------------------------------------------------
+PHASE 2 — NEW EVIDENCE SUMMARY DATA MODEL
+--------------------------------------------------
+Create a new backend-generated summary object ONLY:
+
+EvidenceSummary {
+  observe_from: ISO datetime | null
+  observe_to: ISO datetime | null
+  duration_minutes: number | null
+  duration_confidence: HIGH | MEDIUM | LOW
+  time_source: OCR | CAMERA_META | MANUAL | UNKNOWN
+  evidence_count: number
+  timestamp_consistency: CONSISTENT | PARTIAL | CONFLICT
+}
+
+Frontend MUST NOT calculate these values.
+
+--------------------------------------------------
+PHASE 3 — TIMESTAMP EXTRACTION LOGIC (AUTHORITATIVE)
+--------------------------------------------------
+For each evidence image:
+
+1. Attempt OCR timestamp extraction from image overlay
+2. Validate timestamp format and timezone
+3. Assign confidence score per image
+4. Reject timestamps outside reasonable bounds:
+   - Future times
+   - Dates older than case creation
+   - Invalid time jumps
+
+--------------------------------------------------
+PHASE 4 — OBSERVE FROM / TO CALCULATION
+--------------------------------------------------
+1. Sort all VALID timestamps chronologically
+2. Observe From = earliest VALID timestamp
+3. Observe To = latest VALID timestamp
+4. Duration:
+   - Calculate ONLY if Observe From < Observe To
+   - Use minutes (not hours)
+   - NEVER default to large values
+5. If timestamps invalid:
+   - Duration = null
+   - Flag timestamp_consistency accordingly
+
+--------------------------------------------------
+PHASE 5 — FAILURE-SAFE RULES
+--------------------------------------------------
+- If Observe From == Observe To → duration = 0
+- If duration > 24 hours → mark INVALID
+- If < 2 valid timestamps → duration LOW confidence
+- NEVER infer duration from single image
+
+--------------------------------------------------
+PHASE 6 — FRONTEND REBUILD
+--------------------------------------------------
+1. Recreate Evidence Summary UI using backend response only
+2. Show:
+   - Observe From / To (only if valid)
+   - Duration in minutes
+   - Time source + confidence
+3. If data is uncertain:
+   - Display warning badge
+   - Block PCN auto-issue
+4. Remove any hardcoded labels or fallback values
+
+--------------------------------------------------
+PHASE 7 — PCN DECISION GUARDRAILS
+--------------------------------------------------
+PCN can ONLY be issued if:
+- Duration is valid
+- Confidence ≥ MEDIUM
+- Timestamp consistency = CONSISTENT
+- Rule engine explicitly approves
+
+Otherwise → REVIEW REQUIRED
+
+--------------------------------------------------
+PHASE 8 — VALIDATION & TESTING
+--------------------------------------------------
+Add tests for:
+- Single image uploaded
+- Multiple images same time
+- Multiple images different times
+- OCR failure
+- Partial OCR success
+- Conflicting timestamps
+
+--------------------------------------------------
+EXPECTED RESULT
+--------------------------------------------------
+- Evidence Summary always accurate or explicitly uncertain
+- No impossible durations
+- No silent assumptions
+- PCN decisions are legally defensible
+- Summary logic is backend-owned and traceable
+
+After implementation:
+1. List removed files/functions
+2. List new files/functions
+3. Explain how accuracy is guaranteed
+4. Confirm Evidence Summary is rebuilt cleanly

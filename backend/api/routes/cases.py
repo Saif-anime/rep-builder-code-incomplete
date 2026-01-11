@@ -12,6 +12,7 @@ from backend.db.models import (
     EvidenceBundle, CasePipelineResults, CaseAnalysisStep, Pcn, AuditLog, ParkingSite
 )
 from backend.services.ocr_service import ocr_service
+from backend.services.evidence_summary_service import evidence_summary_service
 from backend.api.dependencies import get_current_user, require_role
 from backend.config import settings
 
@@ -379,47 +380,33 @@ async def run_case_pipeline(
                 "location": ocr_result.get("location")
             })
     
-    # Calculate actual time range from OCR results
-    valid_timestamps = [t for t in ocr_timestamps if t.get("timestamp")]
-    now = datetime.utcnow()
+    # Generate authoritative evidence summary using the new service
+    evidence_summary = evidence_summary_service.generate_summary(
+        ocr_results=ocr_timestamps,
+        evidence_count=len(evidence_list),
+        case_created_at=case.created_at
+    )
     
-    if valid_timestamps:
-        timestamp_values = [datetime.fromisoformat(t["timestamp"]) for t in valid_timestamps]
-        first_time = min(timestamp_values)
-        last_time = max(timestamp_values)
-        duration_minutes = int((last_time - first_time).total_seconds() / 60)
-        timestamp_quality = "high" if all(t.get("confidence", 0) >= 70 for t in valid_timestamps) else "medium"
-        time_source = "ocr"
-    else:
-        # Fallback to file timestamps or upload times
-        evidence_timestamps = [e.timestamp for e in evidence_list if e.timestamp]
-        if evidence_timestamps:
-            first_time = min(evidence_timestamps)
-            last_time = max(evidence_timestamps)
-            duration_minutes = int((last_time - first_time).total_seconds() / 60)
-        else:
-            first_time = now.replace(hour=14, minute=0)
-            last_time = now.replace(hour=15, minute=30)
-            duration_minutes = 90
-        timestamp_quality = "low"
-        time_source = "upload_time"
-        logger.warning("No OCR timestamps found, using fallback timestamps")
+    logger.info(f"Evidence summary generated: {evidence_summary.to_dict()}")
     
-    # Create evidence timeline data with real OCR results
+    # Extract values from summary for backward compatibility
+    duration_minutes = evidence_summary.duration_minutes
+    first_time = evidence_summary.observe_from
+    last_time = evidence_summary.observe_to
+    
+    # Create evidence timeline data with authoritative summary
     evidence_timeline = {
         "durationMinutes": duration_minutes,
+        "evidenceSummary": evidence_summary.to_dict(),
         "timeRange": {
-            "first": first_time.isoformat(),
-            "last": last_time.isoformat(),
+            "first": first_time.isoformat() if first_time else None,
+            "last": last_time.isoformat() if last_time else None,
             "durationMinutes": duration_minutes,
-            "timestampQuality": timestamp_quality,
-            "validationIssue": None if valid_timestamps else "OCR extraction failed - using fallback",
-            "timeSource": time_source
+            "timestampQuality": evidence_summary.duration_confidence.value.lower(),
+            "validationIssue": "; ".join(evidence_summary.validation_warnings) if evidence_summary.validation_warnings else None,
+            "timeSource": evidence_summary.time_source.value
         },
-        "timestamps": ocr_timestamps if ocr_timestamps else [
-            {"evidenceId": e.id, "timestamp": e.timestamp.isoformat() if e.timestamp else None, "source": "upload_time", "confidence": 20}
-            for e in evidence_list
-        ]
+        "timestamps": ocr_timestamps if ocr_timestamps else []
     }
     
     # Generate regulation evaluation
@@ -462,16 +449,55 @@ async def run_case_pipeline(
         "explanation": "No special bay restrictions apply to this violation"
     }
     
-    # Generate final decision
-    decision = {
-        "status": "PCN_ELIGIBLE",
-        "overallConfidence": 87,
-        "legalRisk": "low",
-        "recommendation": "Issue PCN - Clear overstay violation detected",
-        "reasoning": f"Vehicle was parked for {duration_minutes} minutes, exceeding the maximum stay of 60 minutes by {duration_minutes - 60} minutes. Evidence quality is high with clear timestamp verification.",
-        "plainEnglishExplanation": f"The vehicle stayed for {duration_minutes} minutes when only 60 minutes is allowed. This is a clear overstay violation.",
-        "blockers": []
-    }
+    # Generate final decision based on evidence summary validation
+    if not evidence_summary.is_valid_for_pcn:
+        # Evidence is insufficient for PCN - require review
+        decision = {
+            "status": "REVIEW_REQUIRED",
+            "overallConfidence": 30,
+            "legalRisk": "high",
+            "recommendation": "Manual review required - evidence insufficient",
+            "reasoning": evidence_summary.pcn_block_reason or "Evidence validation failed",
+            "plainEnglishExplanation": evidence_summary.pcn_block_reason or "Unable to verify parking duration with sufficient confidence.",
+            "blockers": evidence_summary.validation_warnings
+        }
+    elif duration_minutes is None or duration_minutes <= 0:
+        # No overstay detected
+        decision = {
+            "status": "NO_PCN",
+            "overallConfidence": 70,
+            "legalRisk": "low",
+            "recommendation": "No PCN - No overstay detected",
+            "reasoning": "Duration could not be calculated or vehicle did not exceed maximum stay.",
+            "plainEnglishExplanation": "Vehicle did not exceed the permitted parking time.",
+            "blockers": []
+        }
+    elif duration_minutes <= 60:
+        # Within allowed time
+        decision = {
+            "status": "NO_PCN",
+            "overallConfidence": 85,
+            "legalRisk": "low",
+            "recommendation": "No PCN - Within permitted stay",
+            "reasoning": f"Vehicle was parked for {duration_minutes} minutes, within the maximum stay of 60 minutes.",
+            "plainEnglishExplanation": f"The vehicle stayed for {duration_minutes} minutes, which is within the 60 minute limit.",
+            "blockers": []
+        }
+    else:
+        # Clear overstay - eligible for PCN
+        overstay_minutes = duration_minutes - 60
+        confidence_map = {"HIGH": 90, "MEDIUM": 75, "LOW": 50}
+        confidence_score = confidence_map.get(evidence_summary.duration_confidence.value, 60)
+        
+        decision = {
+            "status": "PCN_ELIGIBLE",
+            "overallConfidence": confidence_score,
+            "legalRisk": "low" if evidence_summary.duration_confidence.value == "HIGH" else "medium",
+            "recommendation": "Issue PCN - Overstay violation detected",
+            "reasoning": f"Vehicle was parked for {duration_minutes} minutes, exceeding the maximum stay of 60 minutes by {overstay_minutes} minutes. Evidence confidence: {evidence_summary.duration_confidence.value}.",
+            "plainEnglishExplanation": f"The vehicle stayed for {duration_minutes} minutes when only 60 minutes is allowed. This is an overstay of {overstay_minutes} minutes.",
+            "blockers": evidence_summary.validation_warnings if evidence_summary.validation_warnings else []
+        }
     
     # Update case status
     case.status = "ANALYSED"
