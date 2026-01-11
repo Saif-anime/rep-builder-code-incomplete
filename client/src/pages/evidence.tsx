@@ -1,3 +1,4 @@
+// v2.1 - DVLA lookup fix with direct fetch
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
