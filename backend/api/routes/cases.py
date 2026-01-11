@@ -52,11 +52,25 @@ def resolve_case_from_id(db: Session, id_param: str, user_id: int = None, auto_c
         # Bundle exists but no case - auto-create if requested
         if auto_create and user_id:
             case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
+            # Get site info from evidence if available
+            site_id = None
+            vrm = None
+            bay_type = None
+            
+            # Try to get info from case evidence or evidence table
+            case_evidence = db.query(CaseEvidence).filter(CaseEvidence.case_id == bundle.case_id).first() if bundle.case_id else None
+            if case_evidence:
+                evidence = db.query(Evidence).filter(Evidence.id == case_evidence.evidence_id).first()
+                if evidence:
+                    site_id = evidence.site_id
+                    vrm = evidence.vrm
+                    bay_type = evidence.bay_type
+            
             case = EnforcementCase(
                 id=case_id,
-                site_id=bundle.site_id,
-                vrm=bundle.vrm,
-                bay_type=bundle.bay_type,
+                site_id=site_id,
+                vrm=vrm,
+                bay_type=bay_type,
                 status="NEW",
                 evidence_count=bundle.file_count or 0,
                 created_by=user_id
@@ -308,18 +322,22 @@ async def run_case_pipeline(
     
     logger.info(f"Running pipeline for case: {case.id}")
     
-    # Get site info for the analysis
+    # Get site info from the case
     site = None
     site_name = "Unknown Site"
-    if bundle and bundle.site_id:
-        site = db.query(ParkingSite).filter(ParkingSite.id == bundle.site_id).first()
+    if case.site_id:
+        site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
         if site:
-            site_name = site.site_name or site.name if hasattr(site, 'name') else "Unknown Site"
+            site_name = getattr(site, 'site_name', None) or getattr(site, 'name', None) or "Unknown Site"
     
-    # Get evidence for the bundle
+    # Get evidence for the case (from linked bundles or case evidence)
     evidence_list = []
     if bundle:
-        evidence_list = db.query(Evidence).filter(Evidence.bundle_id == bundle.id).all()
+        # Get evidence linked to the bundle via case_evidence
+        case_evidence = db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).all()
+        evidence_ids = [ce.evidence_id for ce in case_evidence]
+        if evidence_ids:
+            evidence_list = db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
     
     # Generate analysis timestamps from evidence
     now = datetime.utcnow()
@@ -379,7 +397,7 @@ async def run_case_pipeline(
     }
     
     # Generate bay rule evaluation
-    bay_type = bundle.bay_type if bundle else case.bay_type
+    bay_type = case.bay_type
     bay_rule_evaluation = {
         "bayType": bay_type or "general_parking",
         "bayName": "Standard Parking Bay",

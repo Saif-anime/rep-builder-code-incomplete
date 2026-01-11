@@ -1,0 +1,130 @@
+GOAL
+Ensure the "Analyse Bundle / Re-analyse" functionality works reliably end-to-end
+and always returns a valid analysis report when evidence exists.
+
+SYSTEM CONTEXT
+- Frontend: React + TypeScript
+- Backend: Node.js (Express / API routes)
+- AI: Gemini (reasoning), OCR (PaddleOCR / Tesseract)
+- DB: SQL / Prisma (cases, evidence, analysis tables)
+- Evidence: Images containing embedded timestamps
+- Current failure: Analysis returns errors or incomplete reports
+
+--------------------------------------------------
+PHASE 1 — FRONTEND VALIDATION
+--------------------------------------------------
+1. Locate Analyse button logic.
+2. Verify the following before API call:
+   - caseId exists and is not undefined
+   - evidence array length > 0
+   - evidence IDs belong to the same case
+3. Confirm API endpoint path matches backend exactly.
+4. Log outgoing payload and caseId.
+5. Prevent analyse call if any required value is missing.
+
+--------------------------------------------------
+PHASE 2 — API ROUTE VERIFICATION
+--------------------------------------------------
+1. Confirm route exists:
+   POST /api/cases/:caseId/pipeline/run
+2. Validate HTTP method and URL match frontend call.
+3. Validate caseId from params.
+4. Return 400 if caseId missing.
+5. Return 404 only if case truly does not exist.
+
+--------------------------------------------------
+PHASE 3 — DATABASE CONSISTENCY CHECK
+--------------------------------------------------
+1. Verify case creation flow:
+   - Case is created BEFORE evidence upload
+   - Evidence rows reference caseId
+2. Validate DB queries:
+   - Correct table
+   - Correct primary key
+   - No mismatched UUID vs string ID
+3. Auto-create case if evidence exists without a case.
+
+--------------------------------------------------
+PHASE 4 — ANALYSIS PIPELINE LOGIC
+--------------------------------------------------
+Ensure pipeline executes in this order (NO early exits):
+
+1. OCR TIMESTAMP EXTRACTION (MANDATORY)
+   - Crop known timestamp overlay region
+   - Preprocess image (grayscale, threshold)
+   - Extract Observe From / Observe To
+   - Assign confidence score
+
+2. OCR FAILURE HANDLING
+   - Retry with different OCR engine
+   - Attempt regex-based timestamp recovery
+   - Flag confidence < threshold but continue pipeline
+
+3. GEMINI ANALYSIS (SECONDARY)
+   - Run AFTER OCR
+   - Must NOT block OCR execution
+   - Use OCR timestamps as input context
+
+4. RULE ENGINE
+   - Apply parking rules using extracted timestamps
+   - Determine eligibility / review required
+
+--------------------------------------------------
+PHASE 5 — ERROR HANDLING & LOGGING
+--------------------------------------------------
+1. Add structured logs for:
+   - caseId received
+   - evidence count
+   - OCR results
+   - Gemini result
+   - Final decision
+2. Replace generic errors with explicit reasons:
+   - CASE_NOT_FOUND
+   - NO_EVIDENCE
+   - OCR_FAILED
+   - PIPELINE_INTERRUPTED
+3. NEVER fail silently.
+
+--------------------------------------------------
+PHASE 6 — RESPONSE & UI RENDERING
+--------------------------------------------------
+1. API must always return:
+   - analysis status
+   - timestamps (even if low confidence)
+   - decision + reason
+2. Frontend must:
+   - Render partial results if OCR fails
+   - Show warnings instead of blank report
+   - Never show empty analysis screen
+
+--------------------------------------------------
+PHASE 7 — AUTOMATED SELF-TESTS
+--------------------------------------------------
+Create test cases for:
+- Valid case + valid evidence
+- Case exists but no evidence
+- Evidence exists but no case
+- OCR success
+- OCR partial failure
+- Gemini unavailable
+- Re-analyse scenario
+
+--------------------------------------------------
+EXPECTED FINAL RESULT
+--------------------------------------------------
+- Analyse button always works
+- No 404 or undefined errors
+- OCR always runs first
+- Gemini never blocks analysis
+- Evidence Summary always populated
+- System is resilient and debuggable
+
+DO NOT:
+- Remove error handling
+- Hardcode values
+- Skip validation
+
+After completion:
+1. Show all modified files
+2. Explain root causes found
+3. Confirm analyse flow works end-to-end
