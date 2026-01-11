@@ -1,0 +1,98 @@
+You are a senior backend AI engineer fixing a critical execution-order bug.
+
+PROBLEM:
+OCR timestamp extraction currently runs AFTER the Gemini analysis.
+If Gemini fails, OCR never runs, causing:
+- IMAGE OCR FAILED
+- NO_VALID_TIMESTAMP
+- Wrong Observe From / Observe To times
+
+GOAL:
+OCR must ALWAYS run FIRST and independently.
+Gemini must NEVER block timestamp extraction.
+
+-------------------------------------------------
+REQUIRED FIX (MANDATORY)
+-------------------------------------------------
+
+1. REORDER THE PIPELINE (CRITICAL)
+
+Change the analysis flow to this exact order:
+
+STEP 1: OCR TIMESTAMP EXTRACTION (ALWAYS RUN)
+- Run OCR immediately after evidence upload
+- Do NOT depend on Gemini availability
+- Store OCR result in:
+  evidence.extractedTimestamp
+  evidence.timestampConfidence
+  evidence.timestampSource = "IMAGE_OCR"
+
+STEP 2: TIMESTAMP VALIDATION
+- If OCR timestamp exists and confidence ≥ 80:
+    → Lock Observe From / Observe To using OCR timestamps
+- Else:
+    → Mark timestamp_status = "FAILED_OCR"
+    → Allow UI to show "Review Required"
+
+STEP 3: GEMINI / VISION ANALYSIS (OPTIONAL)
+- Gemini must:
+    - Read timestamps ONLY from OCR output
+    - NEVER attempt to guess or infer time
+- If Gemini fails, OCR data MUST remain intact
+
+-------------------------------------------------
+CODE-LEVEL ENFORCEMENT
+-------------------------------------------------
+
+Apply ALL of the following rules:
+
+- OCR runs even if:
+  - Gemini API key is missing
+  - Gemini request errors
+  - Gemini times out
+
+- Remove any conditional logic like:
+  ❌ if (geminiEnabled) runOCR()
+  ❌ if (geminiResult) extractTimestamp()
+
+- Replace with:
+  ✅ runOCR() ALWAYS
+  ✅ geminiAnalysis() AFTER OCR
+
+-------------------------------------------------
+FAILURE HANDLING (IMPORTANT)
+-------------------------------------------------
+
+If OCR fails:
+- Do NOT overwrite timestamps with system time
+- Do NOT fallback to upload time
+- Do NOT guess entry/exit time
+
+Instead:
+- Set:
+  timeSource = "IMAGE_OCR_FAILED"
+  decision = "REVIEW REQUIRED"
+  reason = "Timestamp visible but OCR confidence insufficient"
+
+-------------------------------------------------
+UI REQUIREMENTS
+-------------------------------------------------
+
+In Evidence Summary:
+- Show:
+  Observe From / Observe To → ONLY OCR-derived values
+- If OCR fails:
+  Show exact message:
+  "No valid timestamp detected in image overlay"
+
+-------------------------------------------------
+FINAL VALIDATION
+-------------------------------------------------
+
+Confirm success only if:
+- OCR runs when Gemini is disabled
+- Re-analyse works without Gemini
+- Timestamp matches visible overlay text inside images
+- Duration is calculated ONLY from OCR timestamps
+
+DO NOT close this task until all conditions are met.

@@ -123,11 +123,12 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
 
     if (evidenceItem.imagePath) {
       try {
-        const imagePath = path.join(process.cwd(), evidenceItem.imagePath.replace(/^\//, ''));
+        const fullImagePath = path.join(process.cwd(), evidenceItem.imagePath.replace(/^\//, ''));
         
-        if (fs.existsSync(imagePath)) {
+        if (fs.existsSync(fullImagePath)) {
           console.log(`[Evidence Worker] Running Vision GPT analysis for evidence ID: ${evidenceId}`);
-          const visionResponse = await analyzeImageWithVision({ imagePath });
+          // Pass the RELATIVE path (as stored in DB) - visionAnalysis.ts will add cwd
+          const visionResponse = await analyzeImageWithVision({ imagePath: evidenceItem.imagePath });
           
           if (visionResponse.success && visionResponse.result) {
             visionResult = visionResponse.result;
@@ -175,7 +176,7 @@ async function processEvidenceItem(evidenceItem: typeof evidence.$inferSelect): 
             }
           }
         } else {
-          console.warn(`[Evidence Worker] Image file not found: ${imagePath}`);
+          console.warn(`[Evidence Worker] Image file not found: ${fullImagePath}`);
         }
       } catch (visionError: any) {
         console.error(`[Evidence Worker] Vision GPT analysis failed for evidence ID ${evidenceId}:`, visionError.message);
