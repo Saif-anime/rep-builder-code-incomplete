@@ -465,7 +465,10 @@ async def lookup_vehicle_for_bundle(
             tax_status=mock_dvla_response["taxStatus"],
             mot_status=mock_dvla_response["motStatus"],
             fuel_type=mock_dvla_response["fuelType"],
-            co2_emissions=mock_dvla_response["co2Emissions"]
+            co2_emissions=mock_dvla_response["co2Emissions"],
+            confidence_score=100,
+            detection_method="dvla_lookup",
+            dvla_verified=True
         )
         db.add(new_vehicle)
     
