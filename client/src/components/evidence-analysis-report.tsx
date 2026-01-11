@@ -63,8 +63,15 @@ interface PipelineResults {
       durationMinutes?: number;
       timestampQuality?: string;
       validationIssue?: string | null;
+      timeSource?: string;
     };
-    timestamps?: Array<{ evidenceId: number; timestamp: string; source?: string; confidence?: number }>;
+    timestamps?: Array<{ 
+      evidenceId: number; 
+      timestamp: string; 
+      source?: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time"; 
+      confidence?: number;
+      rawOcrText?: string;
+    }>;
   } | null;
   regulationEvaluation: {
     durationMinutes?: number;
@@ -285,20 +292,26 @@ export function EvidenceAnalysisReport({
   const durationMinutes = regulations?.evaluation?.actualDurationMinutes || 
     regulations?.durationMinutes || evidence?.timeRange?.durationMinutes || evidence?.durationMinutes;
   
-  // Time source for transparency
+  // Time source for transparency - now displays OCR source from backend
   const getTimeSource = (): { label: string; quality: string } => {
+    // Use backend-provided timeSource if available
+    const backendTimeSource = evidence?.timeRange?.timeSource;
+    if (backendTimeSource) {
+      return { 
+        label: backendTimeSource, 
+        quality: evidence?.timeRange?.timestampQuality || "medium" 
+      };
+    }
+    
+    // Fallback: determine from timestamps
     const timestamps = evidence?.timestamps || [];
     if (timestamps.length === 0) return { label: "No Data", quality: "invalid" };
     
     const sources = timestamps.map((t: any) => t.source);
-    const hasExif = sources.includes("exif");
-    const hasCamera = sources.includes("camera_overlay");
-    const allUpload = sources.every((s: string) => s === "upload_time");
+    const hasOcr = sources.includes("ocr");
     
-    if (hasExif) return { label: "Evidence Metadata (EXIF)", quality: "high" };
-    if (hasCamera) return { label: "Camera System", quality: "high" };
-    if (allUpload) return { label: "Manual Upload (Fallback)", quality: "low" };
-    return { label: "Mixed Sources", quality: "medium" };
+    if (hasOcr) return { label: "Evidence Image Timestamp (OCR)", quality: "high" };
+    return { label: "No OCR timestamps found", quality: "invalid" };
   };
   
   const timeSource = getTimeSource();

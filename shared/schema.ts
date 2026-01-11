@@ -420,6 +420,8 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
   totalSteps: integer("total_steps").notNull().default(9),
   
   // Step 1: Evidence Normalisation
+  // CRITICAL: Timestamps MUST be extracted from visible image text (OCR) only
+  // Do NOT use upload time, file metadata, EXIF data, or backend timestamps
   evidenceTimeline: jsonb("evidence_timeline").$type<{
     evidenceCount: number;
     imageCount: number;
@@ -427,12 +429,20 @@ export const casePipelineResults = pgTable("case_pipeline_results", {
     timestamps: Array<{
       evidenceId: number;
       timestamp: string;
-      source: "exif" | "camera_overlay" | "filename" | "upload_time";
+      source: "ocr" | "exif" | "camera_overlay" | "filename" | "upload_time";
       confidence: number;
+      rawOcrText?: string;
     }>;
     entryWindow: { start: string; end: string; confidence: number } | null;
     exitWindow: { start: string; end: string; confidence: number } | null;
-    timeRange: { first: string; last: string; durationMinutes: number };
+    timeRange: { 
+      first: string; 
+      last: string; 
+      durationMinutes: number;
+      timestampQuality?: "high" | "medium" | "low" | "invalid";
+      validationIssue?: string | null;
+      timeSource?: string;
+    };
   }>(),
   
   // Step 2: Vision Analysis (YOLOv8 + Vision GPT)
