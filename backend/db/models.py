@@ -636,3 +636,62 @@ class SignageUsageAudit(Base):
     confidence_at_usage = Column(Float)
     explanation_generated = Column(Text)
     used_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class SiteIntelligenceBay(Base):
+    """Detailed bay information for site intelligence."""
+    __tablename__ = "site_intelligence_bays"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("parking_sites.id"), nullable=False)
+    bay_identifier = Column(Text, nullable=False)
+    bay_type = Column(Text, nullable=False)
+    zone = Column(Text)
+    signage_clarity_score = Column(Integer, default=3)
+    marking_condition_score = Column(Integer, default=3)
+    common_misuse_patterns = Column(JSONB)
+    notes = Column(Text)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_by = Column(String, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class SiteBehaviorPattern(Base):
+    """Motorist behavior patterns observed at a site."""
+    __tablename__ = "site_behavior_patterns"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("parking_sites.id"), nullable=False)
+    pattern_type = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    peak_times = Column(JSONB)
+    affected_bays = Column(JSONB)
+    frequency = Column(Text)
+    severity = Column(Text, default="MEDIUM")
+    notes = Column(Text)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_by = Column(String, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class SiteIntelligenceAttachment(Base):
+    """Attachments for site intelligence (photos, maps, videos)."""
+    __tablename__ = "site_intelligence_attachments"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("parking_sites.id"), nullable=False)
+    bay_id = Column(Integer, ForeignKey("site_intelligence_bays.id"))
+    attachment_type = Column(Text, nullable=False)
+    category = Column(Text, nullable=False)
+    title = Column(Text, nullable=False)
+    description = Column(Text)
+    file_path = Column(Text, nullable=False)
+    file_type = Column(Text)
+    mime_type = Column(Text)
+    file_size = Column(Integer)
+    sha256_hash = Column(Text)
+    ai_analysis = Column(JSONB)
+    uploaded_by = Column(String, ForeignKey("users.id"))
+    uploaded_at = Column(DateTime, server_default=func.now(), nullable=False)

@@ -23,6 +23,7 @@ from backend.api.routes.cases import router as cases_router
 from backend.api.routes.parking import router as parking_router
 from backend.api.routes.signage import router as signage_router
 from backend.api.routes.dashboard import router as dashboard_router
+from backend.api.routes.site_intelligence import router as site_intelligence_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -88,6 +89,7 @@ app.include_router(cases_router)
 app.include_router(parking_router)
 app.include_router(signage_router)
 app.include_router(dashboard_router)
+app.include_router(site_intelligence_router)
 
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")

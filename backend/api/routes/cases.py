@@ -1024,6 +1024,48 @@ async def run_case_pipeline(
             "blockers": evidence_summary.validation_warnings if evidence_summary.validation_warnings else []
         }
     
+    # Integrate Site Intelligence for enforcement confidence adjustment
+    site_intelligence_guidance = None
+    if case.site_id:
+        try:
+            from backend.services.site_intelligence_service import SiteIntelligenceService
+            site_intel_service = SiteIntelligenceService(db)
+            
+            # Get enforcement guidance based on site intelligence
+            base_confidence = decision.get("overallConfidence", 70) / 100.0
+            guidance = site_intel_service.calculate_enforcement_confidence(
+                site_id=case.site_id,
+                bay_type=bay_type or "Standard",
+                base_confidence=base_confidence,
+                observation_time=first_time
+            )
+            
+            site_intelligence_guidance = {
+                "confidenceLevel": guidance.confidence_level,
+                "confidenceAdjustment": guidance.confidence_adjustment,
+                "reasoning": guidance.reasoning,
+                "additionalEvidenceNeeded": guidance.additional_evidence_needed,
+                "knownIssues": guidance.known_issues,
+                "officerGuidance": guidance.officer_guidance
+            }
+            
+            # Apply confidence adjustment to decision
+            adjusted_confidence = int((base_confidence + guidance.confidence_adjustment) * 100)
+            adjusted_confidence = max(0, min(100, adjusted_confidence))
+            decision["overallConfidence"] = adjusted_confidence
+            decision["siteIntelligenceApplied"] = True
+            decision["siteIntelligenceGuidance"] = site_intelligence_guidance
+            
+            # Downgrade legal risk if signage/marking issues
+            if guidance.confidence_adjustment < -0.1:
+                if decision.get("legalRisk") == "low":
+                    decision["legalRisk"] = "medium"
+                decision["reasoning"] += f" Site intelligence: {guidance.reasoning}"
+            
+            logger.info(f"Site intelligence applied: adjustment={guidance.confidence_adjustment}, level={guidance.confidence_level}")
+        except Exception as e:
+            logger.warning(f"Could not apply site intelligence: {e}")
+    
     # Update case status
     case.status = "ANALYSED"
     db.commit()
@@ -1287,6 +1329,48 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
             "plainEnglishExplanation": f"Vehicle stayed {duration_minutes} minutes, {overstay} minutes over limit.",
             "blockers": evidence_summary.validation_warnings or []
         }
+    
+    # Integrate Site Intelligence for enforcement confidence adjustment
+    site_intelligence_guidance = None
+    if case.site_id:
+        try:
+            from backend.services.site_intelligence_service import SiteIntelligenceService
+            site_intel_service = SiteIntelligenceService(db)
+            
+            # Get enforcement guidance based on site intelligence
+            base_confidence = decision.get("overallConfidence", 70) / 100.0
+            guidance = site_intel_service.calculate_enforcement_confidence(
+                site_id=case.site_id,
+                bay_type=case.bay_type or "Standard",
+                base_confidence=base_confidence,
+                observation_time=first_time
+            )
+            
+            site_intelligence_guidance = {
+                "confidenceLevel": guidance.confidence_level,
+                "confidenceAdjustment": guidance.confidence_adjustment,
+                "reasoning": guidance.reasoning,
+                "additionalEvidenceNeeded": guidance.additional_evidence_needed,
+                "knownIssues": guidance.known_issues,
+                "officerGuidance": guidance.officer_guidance
+            }
+            
+            # Apply confidence adjustment to decision
+            adjusted_confidence = int((base_confidence + guidance.confidence_adjustment) * 100)
+            adjusted_confidence = max(0, min(100, adjusted_confidence))
+            decision["overallConfidence"] = adjusted_confidence
+            decision["siteIntelligenceApplied"] = True
+            decision["siteIntelligenceGuidance"] = site_intelligence_guidance
+            
+            # Downgrade legal risk if signage/marking issues
+            if guidance.confidence_adjustment < -0.1:
+                if decision.get("legalRisk") == "low":
+                    decision["legalRisk"] = "medium"
+                decision["reasoning"] += f" Site intelligence: {guidance.reasoning}"
+            
+            logger.info(f"Site intelligence applied (internal): adjustment={guidance.confidence_adjustment}")
+        except Exception as e:
+            logger.warning(f"Could not apply site intelligence (internal): {e}")
     
     # Update case and create/update pipeline results
     case.status = "ANALYSED"
