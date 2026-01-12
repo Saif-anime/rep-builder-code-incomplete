@@ -402,6 +402,7 @@ export function EvidenceAnalysisReport({
       queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/pipeline/results`] });
       queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/evidence`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/evidence/bundles/${bundleId}/weather`] });
     },
     onError: (error: Error) => {
       toast({ title: "Analysis failed", description: error.message, variant: "destructive" });
