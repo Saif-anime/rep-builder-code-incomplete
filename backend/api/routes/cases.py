@@ -977,9 +977,107 @@ async def run_case_pipeline(
             "evBayAnalysis": ev_bay_result.to_dict()
         }
     
+    # Bay Position Analysis - Run for ALL cases to detect improper parking
+    bay_position_results = []
+    bay_position_violation = None
+    logger.info("Running bay position analysis to detect improper parking")
+    
+    for evidence in evidence_list:
+        image_path = None
+        if evidence.image_path:
+            relative_path = evidence.image_path.lstrip("/")
+            image_path = os.path.join(os.getcwd(), relative_path)
+        
+        if image_path and os.path.exists(image_path):
+            pos_result = await ocr_service.analyze_bay_position(image_path, evidence.id)
+            pos_result["timestamp"] = evidence.timestamp.isoformat() if evidence.timestamp else None
+            bay_position_results.append(pos_result)
+    
+    # Aggregate bay position results - if ANY frame shows IMPROPERLY_PARKED, flag violation
+    improper_count = 0
+    proper_count = 0
+    cannot_determine_count = 0
+    aggregated_confidence = 0
+    position_issues_detected = []
+    
+    for pos in bay_position_results:
+        status = pos.get("complianceStatus", "CANNOT_DETERMINE")
+        if status == "IMPROPERLY_PARKED":
+            improper_count += 1
+            aggregated_confidence += pos.get("confidence", 0)
+            # Collect all issue types from the result
+            if pos.get("wheelsOnOrOverLines"):
+                position_issues_detected.append("Vehicle wheels on or over bay line markings")
+            if pos.get("straddlingMultipleBays"):
+                position_issues_detected.append("Vehicle straddling multiple parking bays")
+            if not pos.get("vehicleFullyInsideBay"):
+                position_issues_detected.append("Vehicle not fully inside bay markings")
+            # Check specific position issues
+            pos_issues = pos.get("positionIssues", {})
+            if pos_issues.get("leftSideOverLine"):
+                position_issues_detected.append("Left side of vehicle over bay line")
+            if pos_issues.get("rightSideOverLine"):
+                position_issues_detected.append("Right side of vehicle over bay line")
+            if pos_issues.get("frontOverLine"):
+                position_issues_detected.append("Front of vehicle over bay line")
+            if pos_issues.get("rearOverLine"):
+                position_issues_detected.append("Rear of vehicle over bay line")
+            if pos_issues.get("overlapDescription"):
+                position_issues_detected.append(pos_issues.get("overlapDescription"))
+        elif status == "PROPERLY_PARKED":
+            proper_count += 1
+        else:
+            cannot_determine_count += 1
+    
+    # Determine if bay position violation occurred (majority or any confident detection)
+    if improper_count > 0 and (improper_count >= proper_count or aggregated_confidence / improper_count >= 70):
+        avg_confidence = int(aggregated_confidence / improper_count) if improper_count > 0 else 0
+        bay_position_violation = {
+            "detected": True,
+            "improperFrames": improper_count,
+            "properFrames": proper_count,
+            "cannotDetermineFrames": cannot_determine_count,
+            "confidence": avg_confidence,
+            "issuesDetected": list(set(position_issues_detected)),
+            "summary": f"Vehicle not properly parked within bay markings. Detected in {improper_count} out of {len(bay_position_results)} frames.",
+            "allResults": bay_position_results
+        }
+        logger.info(f"Bay position VIOLATION detected: {improper_count} improper frames, avg confidence {avg_confidence}")
+    else:
+        bay_position_violation = {
+            "detected": False,
+            "improperFrames": improper_count,
+            "properFrames": proper_count,
+            "cannotDetermineFrames": cannot_determine_count,
+            "confidence": 0,
+            "issuesDetected": [],
+            "summary": "Vehicle appears properly parked within bay markings" if proper_count > 0 else "Could not assess bay position",
+            "allResults": bay_position_results
+        }
+        logger.info(f"Bay position OK: {proper_count} proper frames, {cannot_determine_count} undetermined")
+    
+    # Always add bay position analysis to bay rule evaluation (whether violation detected or not)
+    bay_rule_evaluation["bayPositionViolation"] = bay_position_violation
+    if bay_position_violation.get("detected"):
+        bay_rule_evaluation["decision"] = "ISSUE_PCN"
+        bay_rule_evaluation["explanation"] = f"Vehicle not properly parked within bay markings. {bay_position_violation['summary']}"
+    
     # Generate final decision based on evidence summary validation and loading bay analysis
+    # Bay Position Violation takes precedence if detected
+    if bay_position_violation.get("detected") and bay_position_violation.get("confidence", 0) >= 60:
+        # Bay position violation detected - eligible for PCN
+        decision = {
+            "status": "PCN_ELIGIBLE",
+            "overallConfidence": bay_position_violation.get("confidence", 70),
+            "legalRisk": "low" if bay_position_violation.get("confidence", 0) >= 75 else "medium",
+            "recommendation": "Issue PCN - Vehicle not properly parked within bay",
+            "reasoning": f"Vehicle was observed not properly parked within the bay markings. {bay_position_violation['summary']}",
+            "plainEnglishExplanation": f"The vehicle was not properly parked within the bay lines. It appears to be crossing the bay markings or straddling multiple parking spaces. This is a parking violation.",
+            "blockers": [],
+            "bayPositionViolation": bay_position_violation
+        }
     # Loading bay special handling: if loading detected, DO NOT ISSUE PCN
-    if loading_bay_result is not None:
+    elif loading_bay_result is not None:
         # Loading bay decision takes precedence
         if loading_bay_result.decision.value == "DO_NOT_ISSUE":
             decision = {

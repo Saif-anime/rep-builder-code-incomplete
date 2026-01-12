@@ -1545,4 +1545,169 @@ Return ONLY the JSON object, no other text."""
         }
 
 
+    async def analyze_bay_position(self, image_path: str, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze image for vehicle bay position compliance using Vision GPT.
+        
+        Detects:
+        - Bay markings visibility (white lines on ground)
+        - Vehicle position relative to bay lines
+        - Whether vehicle wheels are crossing bay lines
+        - Whether vehicle is straddling multiple bays
+        - Overall parking quality assessment
+        
+        Returns structured analysis for bay position violation detection.
+        """
+        if not self.api_key:
+            logger.warning("No OpenAI API key configured for bay position analysis")
+            return self._empty_bay_position_analysis(evidence_id)
+        
+        base64_image = self._encode_image(image_path)
+        if not base64_image:
+            return self._empty_bay_position_analysis(evidence_id)
+        
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
+        
+        prompt = """PARKING ENFORCEMENT - BAY POSITION COMPLIANCE ANALYSIS
+
+You are analyzing parking enforcement evidence to determine if a vehicle is PROPERLY PARKED within its designated parking bay.
+
+CRITICAL: This is for UK parking enforcement. Improper parking (vehicle outside bay markings, straddling lines, or crossing into adjacent bays) is a violation.
+
+ANALYZE THE IMAGE FOR:
+
+1. BAY MARKING VISIBILITY
+   - Are parking bay lines/markings visible on the ground?
+   - What colour are they (white, yellow, blue)?
+   - Are they clear and well-maintained or faded?
+
+2. VEHICLE POSITION ASSESSMENT
+   - Is the vehicle FULLY INSIDE the parking bay?
+   - Are ANY wheels crossing/touching the bay boundary lines?
+   - Is the vehicle straddling multiple bays (taking up more than one space)?
+   - Is the vehicle positioned at an angle (not parallel to bay lines)?
+   - Is ANY part of the vehicle extending outside the bay markings?
+
+3. SPECIFIC POSITION ISSUES
+   - Left side: Is left edge of vehicle over the left bay line?
+   - Right side: Is right edge of vehicle over the right bay line?
+   - Front: Is front of vehicle over the front bay line (if applicable)?
+   - Rear: Is rear of vehicle over the rear bay line?
+
+4. OVERALL COMPLIANCE DECISION
+   - PROPERLY_PARKED: Vehicle is fully within bay, no line crossings
+   - IMPROPERLY_PARKED: Vehicle crosses bay lines or straddles bays
+   - CANNOT_DETERMINE: Bay markings not visible or unclear
+
+Return ONLY this JSON:
+{
+  "bayMarkingsVisible": true/false,
+  "bayMarkingColour": "white/yellow/blue/none visible",
+  "bayMarkingCondition": "clear/faded/partially visible/not visible",
+  "vehicleFullyInsideBay": true/false,
+  "wheelsOnOrOverLines": true/false,
+  "straddlingMultipleBays": true/false,
+  "vehicleAngled": true/false,
+  "positionIssues": {
+    "leftSideOverLine": true/false,
+    "rightSideOverLine": true/false,
+    "frontOverLine": true/false,
+    "rearOverLine": true/false,
+    "overlapDescription": "description of how vehicle overlaps bay lines, or null"
+  },
+  "complianceStatus": "PROPERLY_PARKED" or "IMPROPERLY_PARKED" or "CANNOT_DETERMINE",
+  "confidence": 0-100,
+  "reasoning": "Brief explanation of the parking position assessment",
+  "enforcementNotes": "Notes relevant to enforcement officers about this parking situation"
+}
+
+Be STRICT: If ANY part of the vehicle appears to cross bay lines, mark as IMPROPERLY_PARKED.
+If markings are not visible, mark as CANNOT_DETERMINE with lower confidence."""
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{media_type};base64,{base64_image}",
+                                            "detail": "high"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 800
+                    }
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenAI API error for bay position: {response.status_code} - {response.text}")
+                    return self._empty_bay_position_analysis(evidence_id)
+                
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                result = self._parse_bay_position_response(content)
+                result["evidenceId"] = evidence_id
+                result["success"] = True
+                logger.info(f"Bay position analysis for evidence {evidence_id}: {result.get('complianceStatus')} (confidence: {result.get('confidence')})")
+                return result
+                
+        except Exception as e:
+            logger.error(f"Bay position analysis failed: {e}")
+            return self._empty_bay_position_analysis(evidence_id)
+    
+    def _parse_bay_position_response(self, content: str) -> Dict[str, Any]:
+        """Parse bay position analysis response from Vision GPT."""
+        import json
+        try:
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = content.replace("```", "")
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse bay position analysis JSON, using defaults")
+            return self._empty_bay_position_analysis()
+    
+    def _empty_bay_position_analysis(self, evidence_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return empty bay position analysis result."""
+        return {
+            "evidenceId": evidence_id,
+            "success": False,
+            "bayMarkingsVisible": False,
+            "bayMarkingColour": "none visible",
+            "bayMarkingCondition": "not visible",
+            "vehicleFullyInsideBay": True,
+            "wheelsOnOrOverLines": False,
+            "straddlingMultipleBays": False,
+            "vehicleAngled": False,
+            "positionIssues": {
+                "leftSideOverLine": False,
+                "rightSideOverLine": False,
+                "frontOverLine": False,
+                "rearOverLine": False,
+                "overlapDescription": None
+            },
+            "complianceStatus": "CANNOT_DETERMINE",
+            "confidence": 0,
+            "reasoning": "Analysis not performed",
+            "enforcementNotes": None
+        }
+
+
 ocr_service = OCRService()

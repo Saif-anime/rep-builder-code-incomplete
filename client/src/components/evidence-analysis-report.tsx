@@ -48,6 +48,7 @@ import {
   Thermometer,
   Wind,
   Droplets,
+  ParkingSquare,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -277,6 +278,31 @@ interface PipelineResults {
         badgeFrontVisible: boolean;
         expiryDateFound: string | null;
         notes: string;
+      }>;
+    };
+    bayPositionViolation?: {
+      detected: boolean;
+      improperFrames: number;
+      properFrames: number;
+      cannotDetermineFrames: number;
+      confidence: number;
+      issuesDetected: string[];
+      summary: string;
+      allResults?: Array<{
+        evidenceId: number | null;
+        complianceStatus: "PROPERLY_PARKED" | "IMPROPERLY_PARKED" | "CANNOT_DETERMINE";
+        confidence: number;
+        reasoning: string;
+        vehicleFullyInsideBay: boolean;
+        wheelsOnOrOverLines: boolean;
+        straddlingMultipleBays: boolean;
+        positionIssues?: {
+          leftSideOverLine: boolean;
+          rightSideOverLine: boolean;
+          frontOverLine: boolean;
+          rearOverLine: boolean;
+          overlapDescription: string | null;
+        };
       }>;
     };
   } | null;
@@ -1083,6 +1109,76 @@ export function EvidenceAnalysisReport({
               <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="h-3 w-3" />
                 <span>Manual review required due to low AI confidence</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bay Position Violation Analysis */}
+      {bayRule?.bayPositionViolation && (
+        <Card data-testid="card-bay-position-analysis" className={bayRule.bayPositionViolation.detected ? "border-red-300 dark:border-red-800" : "border-green-200 dark:border-green-800"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ParkingSquare className="h-4 w-4" />
+              Bay Position Analysis
+              {bayRule.bayPositionViolation.detected ? (
+                <Badge variant="destructive" className="ml-auto">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Improper Parking
+                </Badge>
+              ) : (
+                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 ml-auto">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Properly Parked
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{bayRule.bayPositionViolation.summary}</p>
+            
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="flex flex-col items-center p-2 bg-muted/30 rounded">
+                <span className="text-xs text-muted-foreground">Improper</span>
+                <span className={`font-bold text-lg ${bayRule.bayPositionViolation.improperFrames > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                  {bayRule.bayPositionViolation.improperFrames}
+                </span>
+              </div>
+              <div className="flex flex-col items-center p-2 bg-muted/30 rounded">
+                <span className="text-xs text-muted-foreground">Proper</span>
+                <span className={`font-bold text-lg ${bayRule.bayPositionViolation.properFrames > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                  {bayRule.bayPositionViolation.properFrames}
+                </span>
+              </div>
+              <div className="flex flex-col items-center p-2 bg-muted/30 rounded">
+                <span className="text-xs text-muted-foreground">Unclear</span>
+                <span className="font-bold text-lg text-muted-foreground">
+                  {bayRule.bayPositionViolation.cannotDetermineFrames}
+                </span>
+              </div>
+            </div>
+            
+            {bayRule.bayPositionViolation.detected && bayRule.bayPositionViolation.confidence > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">AI Confidence:</span>
+                <Badge variant={bayRule.bayPositionViolation.confidence >= 75 ? "default" : bayRule.bayPositionViolation.confidence >= 50 ? "secondary" : "outline"}>
+                  {bayRule.bayPositionViolation.confidence}%
+                </Badge>
+              </div>
+            )}
+            
+            {bayRule.bayPositionViolation.issuesDetected && bayRule.bayPositionViolation.issuesDetected.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Issues Detected:</p>
+                <ul className="text-sm space-y-1">
+                  {bayRule.bayPositionViolation.issuesDetected.map((issue, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-red-600 dark:text-red-400">
+                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>{issue}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </CardContent>
