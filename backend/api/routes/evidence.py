@@ -10,8 +10,10 @@ import httpx
 from backend.db import get_db
 from backend.db.models import (
     User, Evidence, EvidenceBundle, CaseEvidence, EnforcementCase,
-    CasePipelineResults, AuditLog, ParkingSite, CaseAnalysis, CaseVehicle
+    CasePipelineResults, AuditLog, ParkingSite, CaseAnalysis, CaseVehicle,
+    WeatherObservation
 )
+from backend.services.weather_service import get_weather_for_evidence
 import logging
 
 logger = logging.getLogger(__name__)
@@ -529,4 +531,90 @@ async def lookup_vehicle_for_bundle(
             "engineCapacity": dvla_data.get("engineCapacity")
         },
         "cached": False
+    }
+
+
+@router.get("/bundles/{bundle_id}/weather")
+async def get_bundle_weather(
+    bundle_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get weather data for an evidence bundle based on evidence timestamps.
+    Uses the site's postcode to geocode location, then fetches historical weather.
+    """
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+    if not case or not case.site_id:
+        return {"weather": None, "message": "No site associated with case"}
+    
+    evidence_list = db.query(Evidence).filter(
+        Evidence.bundle_id == bundle_id
+    ).order_by(Evidence.timestamp.asc()).all()
+    
+    if not evidence_list:
+        return {"weather": None, "message": "No evidence in bundle"}
+    
+    timestamps = [e.timestamp for e in evidence_list if e.timestamp]
+    if not timestamps:
+        return {"weather": None, "message": "No timestamps on evidence"}
+    
+    earliest_ts = min(timestamps)
+    latest_ts = max(timestamps)
+    
+    earliest_weather = await get_weather_for_evidence(db, case.site_id, earliest_ts)
+    
+    latest_weather = None
+    if latest_ts != earliest_ts:
+        latest_weather = await get_weather_for_evidence(db, case.site_id, latest_ts)
+    
+    return {
+        "weather": {
+            "earliest": earliest_weather,
+            "latest": latest_weather,
+            "observation_period": {
+                "start": earliest_ts.isoformat(),
+                "end": latest_ts.isoformat()
+            }
+        },
+        "site_id": case.site_id
+    }
+
+
+@router.get("/weather/{site_id}")
+async def get_site_weather_at_time(
+    site_id: int,
+    timestamp: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get weather data for a specific site and timestamp.
+    Timestamp should be in ISO format (e.g., 2024-01-15T14:30:00).
+    """
+    try:
+        ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid timestamp format. Use ISO format.")
+    
+    site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    weather = await get_weather_for_evidence(db, site_id, ts)
+    
+    if not weather:
+        return {
+            "weather": None,
+            "message": "Could not retrieve weather data. Site may not have a valid UK postcode."
+        }
+    
+    return {
+        "weather": weather,
+        "site_id": site_id,
+        "site_name": site.site_name
     }

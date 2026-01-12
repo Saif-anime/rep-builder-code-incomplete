@@ -724,3 +724,54 @@ class SiteIntelligenceAttachment(Base):
     ai_analysis = Column(JSONB)
     uploaded_by = Column(String, ForeignKey("users.id"))
     uploaded_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class WeatherObservation(Base):
+    """Cached weather observations for evidence timestamp enrichment."""
+    __tablename__ = "weather_observations"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("parking_sites.id"), nullable=False)
+    observation_time = Column(DateTime, nullable=False)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    source = Column(Text, nullable=False, default="open_meteo")
+    
+    # Weather data
+    temperature_c = Column(Float)
+    feels_like_c = Column(Float)
+    humidity_percent = Column(Integer)
+    precipitation_mm = Column(Float)
+    rain_mm = Column(Float)
+    cloud_cover_percent = Column(Integer)
+    visibility_m = Column(Integer)
+    wind_speed_kmh = Column(Float)
+    wind_direction_deg = Column(Integer)
+    weather_code = Column(Integer)
+    weather_description = Column(Text)
+    is_day = Column(Boolean)
+    
+    # Raw API response for audit
+    raw_data = Column(JSONB)
+    
+    # Metadata
+    retrieved_at = Column(DateTime, server_default=func.now(), nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint('site_id', 'observation_time', 'source', name='uq_weather_site_time_source'),
+        Index('ix_weather_site_time', 'site_id', 'observation_time'),
+    )
+
+
+class SiteGeolocation(Base):
+    """Cached geocoding results for parking sites (postcode to lat/long)."""
+    __tablename__ = "site_geolocations"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("parking_sites.id"), nullable=False, unique=True)
+    postcode = Column(Text)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    source = Column(Text, nullable=False, default="postcodes_io")
+    raw_data = Column(JSONB)
+    retrieved_at = Column(DateTime, server_default=func.now(), nullable=False)

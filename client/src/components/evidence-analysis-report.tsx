@@ -39,6 +39,15 @@ import {
   PlugZap,
   Cable,
   Lightbulb,
+  Cloud,
+  CloudRain,
+  CloudSnow,
+  CloudFog,
+  Sun,
+  Moon,
+  Thermometer,
+  Wind,
+  Droplets,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -108,6 +117,37 @@ interface ExtractedVrm {
     location?: string;
     rawText?: string;
   }>;
+}
+
+interface WeatherData {
+  observation_time: string | null;
+  temperature_c: number | null;
+  feels_like_c: number | null;
+  humidity_percent: number | null;
+  precipitation_mm: number | null;
+  rain_mm: number | null;
+  cloud_cover_percent: number | null;
+  visibility_m: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_deg: number | null;
+  weather_code: number | null;
+  weather_description: string | null;
+  is_day: boolean | null;
+  conditions_summary: string | null;
+  enforcement_notes: string | null;
+}
+
+interface WeatherResponse {
+  weather: {
+    earliest: WeatherData | null;
+    latest: WeatherData | null;
+    observation_period: {
+      start: string;
+      end: string;
+    };
+  } | null;
+  site_id: number | null;
+  message?: string;
 }
 
 interface PipelineResults {
@@ -300,6 +340,33 @@ function getConfidenceBadgeVariant(confidence: "HIGH" | "MEDIUM" | "LOW"): "defa
   }
 }
 
+function getWeatherIcon(weatherCode: number | null, isDay: boolean | null) {
+  if (weatherCode === null) return <Cloud className="h-5 w-5" />;
+  
+  if (weatherCode === 0) {
+    return isDay ? <Sun className="h-5 w-5 text-yellow-500" /> : <Moon className="h-5 w-5 text-blue-400" />;
+  }
+  if ([1, 2].includes(weatherCode)) {
+    return isDay ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-blue-300" />;
+  }
+  if (weatherCode === 3) {
+    return <Cloud className="h-5 w-5 text-gray-400" />;
+  }
+  if ([45, 48].includes(weatherCode)) {
+    return <CloudFog className="h-5 w-5 text-gray-500" />;
+  }
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
+    return <CloudRain className="h-5 w-5 text-blue-500" />;
+  }
+  if ([71, 73, 75, 77, 85, 86].includes(weatherCode)) {
+    return <CloudSnow className="h-5 w-5 text-blue-200" />;
+  }
+  if ([95, 96, 99].includes(weatherCode)) {
+    return <CloudRain className="h-5 w-5 text-purple-500" />;
+  }
+  return <Cloud className="h-5 w-5" />;
+}
+
 export function EvidenceAnalysisReport({
   bundleId,
   caseReference,
@@ -317,6 +384,11 @@ export function EvidenceAnalysisReport({
 
   const { data: pipelineResults, isLoading: loadingPipeline } = useQuery<PipelineResults>({
     queryKey: [`/api/cases/${bundleId}/pipeline/results`],
+    enabled: !!bundleId,
+  });
+
+  const { data: weatherData, isLoading: loadingWeather } = useQuery<WeatherResponse>({
+    queryKey: ['/api/evidence/bundles', bundleId, 'weather'],
     enabled: !!bundleId,
   });
 
@@ -701,6 +773,164 @@ export function EvidenceAnalysisReport({
           </div>
         </CardContent>
       </Card>
+
+      {/* Weather Conditions Card */}
+      {(weatherData?.weather || loadingWeather) && (
+        <Card data-testid="card-weather">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Cloud className="h-4 w-4" />
+              Weather Conditions
+              {weatherData?.weather?.earliest?.weather_description && (
+                <Badge variant="outline" className="ml-auto gap-1">
+                  {getWeatherIcon(weatherData.weather.earliest.weather_code, weatherData.weather.earliest.is_day)}
+                  {weatherData.weather.earliest.weather_description}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingWeather ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading weather data...
+              </div>
+            ) : weatherData?.weather?.earliest ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {weatherData.weather.earliest.temperature_c !== null && (
+                    <div className="flex items-center gap-2">
+                      <Thermometer className="h-4 w-4 text-orange-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Temperature</p>
+                        <p className="font-medium">{weatherData.weather.earliest.temperature_c.toFixed(1)}°C</p>
+                      </div>
+                    </div>
+                  )}
+                  {weatherData.weather.earliest.humidity_percent !== null && (
+                    <div className="flex items-center gap-2">
+                      <Droplets className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Humidity</p>
+                        <p className="font-medium">{weatherData.weather.earliest.humidity_percent}%</p>
+                      </div>
+                    </div>
+                  )}
+                  {weatherData.weather.earliest.wind_speed_kmh !== null && (
+                    <div className="flex items-center gap-2">
+                      <Wind className="h-4 w-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Wind</p>
+                        <p className="font-medium">{weatherData.weather.earliest.wind_speed_kmh.toFixed(0)} km/h</p>
+                      </div>
+                    </div>
+                  )}
+                  {weatherData.weather.earliest.visibility_m !== null && (
+                    <div className="flex items-center gap-2">
+                      <Eye className="h-4 w-4 text-purple-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Visibility</p>
+                        <p className="font-medium">
+                          {weatherData.weather.earliest.visibility_m >= 1000 
+                            ? `${(weatherData.weather.earliest.visibility_m / 1000).toFixed(1)} km`
+                            : `${weatherData.weather.earliest.visibility_m} m`}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {weatherData.weather.earliest.rain_mm !== null && weatherData.weather.earliest.rain_mm > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                    <CloudRain className="h-4 w-4" />
+                    <span>Rainfall: {weatherData.weather.earliest.rain_mm.toFixed(1)} mm</span>
+                  </div>
+                )}
+
+                {/* Show latest weather if different from earliest */}
+                {weatherData.weather.latest && 
+                  weatherData.weather.latest.observation_time !== weatherData.weather.earliest.observation_time && (
+                  <div className="pt-3 mt-3 border-t border-dashed">
+                    <p className="text-xs text-muted-foreground mb-2 font-medium">
+                      Conditions at End of Observation
+                    </p>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <div className="flex items-center gap-1.5">
+                        {getWeatherIcon(weatherData.weather.latest.weather_code, weatherData.weather.latest.is_day)}
+                        <span>{weatherData.weather.latest.weather_description}</span>
+                      </div>
+                      {weatherData.weather.latest.temperature_c !== null && (
+                        <div className="flex items-center gap-1">
+                          <Thermometer className="h-3.5 w-3.5 text-orange-500" />
+                          <span>{weatherData.weather.latest.temperature_c.toFixed(1)}°C</span>
+                        </div>
+                      )}
+                      {weatherData.weather.latest.rain_mm !== null && weatherData.weather.latest.rain_mm > 0 && (
+                        <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                          <CloudRain className="h-3.5 w-3.5" />
+                          <span>{weatherData.weather.latest.rain_mm.toFixed(1)} mm</span>
+                        </div>
+                      )}
+                    </div>
+                    {weatherData.weather.latest.enforcement_notes && 
+                      weatherData.weather.latest.enforcement_notes !== weatherData.weather.earliest.enforcement_notes && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                        {weatherData.weather.latest.enforcement_notes}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {weatherData.weather.earliest.enforcement_notes && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Enforcement Considerations</p>
+                        <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                          {weatherData.weather.earliest.enforcement_notes}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-xs text-muted-foreground pt-2 border-t">
+                  {weatherData.weather.latest && 
+                    weatherData.weather.latest.observation_time !== weatherData.weather.earliest.observation_time ? (
+                    <span>
+                      Weather from {weatherData.weather.earliest.observation_time 
+                        ? new Date(weatherData.weather.earliest.observation_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+                        : "start"
+                      } to {weatherData.weather.latest.observation_time 
+                        ? new Date(weatherData.weather.latest.observation_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+                        : "end"
+                      }
+                    </span>
+                  ) : (
+                    <span>
+                      Weather at {weatherData.weather.earliest.observation_time 
+                        ? new Date(weatherData.weather.earliest.observation_time).toLocaleString("en-GB", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric"
+                          })
+                        : "observation time"
+                      }
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {weatherData?.message || "Weather data not available for this location/time"}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card data-testid="card-compliance">
         <CardHeader className="pb-2">
