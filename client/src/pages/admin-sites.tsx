@@ -455,8 +455,8 @@ export default function AdminSitesPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Link href={`/sites/${site.id}/intelligence`}>
-                            <Button size="icon" variant="ghost" title="Site Intelligence" data-testid={`button-intelligence-site-${site.id}`}>
-                              <Brain className="h-4 w-4" />
+                            <Button size="icon" variant="ghost" title="Site Intelligence - Bay Learning" data-testid={`button-intelligence-site-${site.id}`}>
+                              <Brain className="h-4 w-4 text-primary" />
                             </Button>
                           </Link>
                           <Link href={`/sites/${site.id}/signage`}>
