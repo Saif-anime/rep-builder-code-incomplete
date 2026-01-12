@@ -38,37 +38,42 @@ class OCRService:
         ext = os.path.splitext(image_path)[1].lower()
         media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
         
-        prompt = """Analyze this parking enforcement evidence image and extract BOTH the timestamp AND vehicle number plate (VRM).
+        prompt = """CRITICAL: Carefully read this parking enforcement evidence image and extract the EXACT timestamp AND vehicle number plate (VRM).
 
-TIMESTAMP - Look for:
-1. Camera overlay text showing date and time (usually in corners)
-2. Text like "11/01/2026 14:23:45" or similar date/time formats
-3. Any "Observe From" or "Observe To" text with timestamps
+TIMESTAMP EXTRACTION - VERY IMPORTANT:
+1. Look at ALL corners and edges for camera overlay text showing date/time
+2. READ EACH DIGIT AND CHARACTER CAREFULLY - accuracy is critical for legal enforcement
+3. Common UK camera overlay formats:
+   - DD/MM/YYYY HH:MM:SS (e.g., "22/11/2025 17:05:23")
+   - YYYY-MM-DD HH:MM:SS (e.g., "2025-11-22 17:05:23")
+   - DD-MM-YYYY HH:MM:SS (e.g., "22-11-2025 17:05:23")
+4. The timestamp is usually in a corner (often bottom-left or top-right) with a distinct font
+5. Double-check: If digits look similar (1/7, 6/8, 0/O), examine the pixel pattern carefully
+6. NEVER guess digits - if unclear, report lower confidence
 
 VRM (NUMBER PLATE) - Look for:
-1. UK format number plates (e.g., AB12 CDE, AB12CDE)
-2. Number plates on vehicles visible in the image
-3. Text overlays showing VRM/registration information
+1. UK format plates on vehicles (front or rear)
+2. Standard formats: AB12 CDE, A123 ABC, ABC 123A
+3. Look for the distinctive yellow (rear) or white (front) plate backgrounds
 
-UK number plate formats:
-- Current format: AB12 ABC (2 letters, 2 numbers, 3 letters)
-- Prefix format: A123 ABC (letter, 1-3 numbers, 3 letters)
-- Suffix format: ABC 123A (3 letters, 1-3 numbers, letter)
+VERIFICATION:
+- Report the EXACT text as displayed, including any separators (/, -, :)
+- Do not "correct" or modify what you see - report raw text faithfully
+- If multiple timestamps visible, report the clearest one
 
 Return a JSON object with:
 {
-  "timestamp": "YYYY-MM-DD HH:MM:SS" format if found, or null if not found,
-  "timestamp_raw_text": "exact timestamp text as seen",
-  "timestamp_confidence": 0-100 score,
-  "timestamp_location": "where in the image (e.g., 'bottom-left corner')",
-  "vrm": "THE NUMBER PLATE" normalized with space (e.g., "AB12 CDE") or null,
-  "vrm_raw_text": "exact plate text as seen in image",
+  "timestamp": "YYYY-MM-DD HH:MM:SS" format (CONVERT the displayed format to this standard),
+  "timestamp_raw_text": "EXACT characters as displayed in image (e.g., '22/11/2025 17:05:23')",
+  "timestamp_confidence": 0-100 (lower if any digits are ambiguous),
+  "timestamp_location": "precise location (e.g., 'bottom-left corner overlay')",
+  "vrm": "PLATE TEXT" with space (e.g., "LS10 XRX") or null,
+  "vrm_raw_text": "exact plate text as displayed",
   "vrm_confidence": 0-100 score,
-  "vrm_location": "where in the image (e.g., 'front of vehicle', 'rear plate')"
+  "vrm_location": "where in image (e.g., 'rear plate on silver vehicle')"
 }
 
-If items not found, set their values to null with 0 confidence.
-
+If items not found, set values to null with 0 confidence.
 Return ONLY the JSON object, no other text."""
         
         try:
