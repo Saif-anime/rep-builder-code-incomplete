@@ -597,14 +597,36 @@ async def run_case_pipeline(
                 "location": combined_result.get("location")
             })
     
-    # Determine best VRM from extractions (highest confidence)
+    # Determine best VRM from extractions using aggregation + majority voting
     detected_vrm = None
     vrm_confidence = 0
     if extracted_vrms:
-        best_vrm = max(extracted_vrms, key=lambda x: x.get("confidence", 0))
-        detected_vrm = best_vrm.get("vrm")
-        vrm_confidence = best_vrm.get("confidence", 0)
-        logger.info(f"Best detected VRM: {detected_vrm} with confidence {vrm_confidence}")
+        # Aggregate VRMs by normalizing and counting occurrences with weighted confidence
+        from collections import Counter
+        
+        # Group by VRM and sum confidence scores
+        vrm_scores = {}
+        vrm_counts = Counter()
+        for v in extracted_vrms:
+            vrm_text = v.get("vrm", "").upper().replace(" ", "") if v.get("vrm") else None
+            if vrm_text:
+                vrm_counts[vrm_text] += 1
+                if vrm_text not in vrm_scores:
+                    vrm_scores[vrm_text] = {"total_confidence": 0, "best_confidence": 0, "original": v.get("vrm")}
+                vrm_scores[vrm_text]["total_confidence"] += v.get("confidence", 0)
+                vrm_scores[vrm_text]["best_confidence"] = max(vrm_scores[vrm_text]["best_confidence"], v.get("confidence", 0))
+        
+        if vrm_scores:
+            # Calculate combined score: (count * avg_confidence) to favor frequent + high-confidence matches
+            best_vrm_key = max(vrm_scores.keys(), key=lambda k: (vrm_counts[k] * vrm_scores[k]["total_confidence"] / vrm_counts[k]))
+            best_vrm_data = vrm_scores[best_vrm_key]
+            detected_vrm = best_vrm_data["original"]  # Use original formatting with space
+            vrm_confidence = int(best_vrm_data["total_confidence"] / vrm_counts[best_vrm_key])  # Average confidence
+            
+            logger.info(f"VRM aggregation: {len(extracted_vrms)} detections, {len(vrm_scores)} unique VRMs")
+            for vrm_key, count in vrm_counts.most_common(3):
+                logger.info(f"  {vrm_scores[vrm_key]['original']}: {count} occurrences, avg confidence {vrm_scores[vrm_key]['total_confidence'] / count:.0f}")
+            logger.info(f"Best detected VRM: {detected_vrm} (seen {vrm_counts[best_vrm_key]}x, avg confidence {vrm_confidence})")
         
         # Update case with detected VRM if not already set or if higher confidence
         if detected_vrm and (not case.vrm or vrm_confidence > 70):
@@ -1383,13 +1405,33 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
                 "location": combined_result.get("location")
             })
     
-    # Determine best VRM from extractions
+    # Determine best VRM from extractions using aggregation + majority voting
     detected_vrm = None
     vrm_confidence = 0
     if extracted_vrms:
-        best_vrm = max(extracted_vrms, key=lambda x: x.get("confidence", 0))
-        detected_vrm = best_vrm.get("vrm")
-        vrm_confidence = best_vrm.get("confidence", 0)
+        from collections import Counter
+        
+        # Group by VRM and sum confidence scores
+        vrm_scores = {}
+        vrm_counts = Counter()
+        for v in extracted_vrms:
+            vrm_text = v.get("vrm", "").upper().replace(" ", "") if v.get("vrm") else None
+            if vrm_text:
+                vrm_counts[vrm_text] += 1
+                if vrm_text not in vrm_scores:
+                    vrm_scores[vrm_text] = {"total_confidence": 0, "best_confidence": 0, "original": v.get("vrm")}
+                vrm_scores[vrm_text]["total_confidence"] += v.get("confidence", 0)
+                vrm_scores[vrm_text]["best_confidence"] = max(vrm_scores[vrm_text]["best_confidence"], v.get("confidence", 0))
+        
+        if vrm_scores:
+            # Calculate combined score: favor frequent + high-confidence matches
+            best_vrm_key = max(vrm_scores.keys(), key=lambda k: (vrm_counts[k] * vrm_scores[k]["total_confidence"] / vrm_counts[k]))
+            best_vrm_data = vrm_scores[best_vrm_key]
+            detected_vrm = best_vrm_data["original"]
+            vrm_confidence = int(best_vrm_data["total_confidence"] / vrm_counts[best_vrm_key])
+            
+            logger.info(f"VRM aggregation: {len(extracted_vrms)} detections, {len(vrm_scores)} unique VRMs")
+            logger.info(f"Best detected VRM: {detected_vrm} (seen {vrm_counts[best_vrm_key]}x, avg confidence {vrm_confidence})")
         
         # Update case with detected VRM
         if detected_vrm and (not case.vrm or vrm_confidence > 70):

@@ -388,7 +388,7 @@ export function EvidenceAnalysisReport({
   });
 
   const { data: weatherData, isLoading: loadingWeather } = useQuery<WeatherResponse>({
-    queryKey: ['/api/evidence/bundles', bundleId, 'weather'],
+    queryKey: [`/api/evidence/bundles/${bundleId}/weather`],
     enabled: !!bundleId,
   });
 
