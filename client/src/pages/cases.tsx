@@ -33,6 +33,7 @@ import {
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { PipelineAnalysisReport } from "@/components/pipeline-analysis-report";
+import { UKNumberPlate } from "@/components/uk-number-plate";
 import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle, CaseVehicle } from "@shared/schema";
 
 type CaseWithDetails = EnforcementCase & {
@@ -493,11 +494,12 @@ export default function CasesPage() {
                   </CardTitle>
                   {getStatusBadge(caseItem.status)}
                 </div>
-                <CardDescription>
-                  {caseItem.vrm && (
-                    <span className="font-mono font-semibold">{caseItem.vrm}</span>
+                <CardDescription className="mt-1">
+                  {caseItem.vrm ? (
+                    <UKNumberPlate vrm={caseItem.vrm} size="sm" />
+                  ) : (
+                    <span className="italic text-muted-foreground">No VRM</span>
                   )}
-                  {!caseItem.vrm && <span className="italic">No VRM</span>}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -527,9 +529,9 @@ export default function CasesPage() {
                   <FolderOpen className="h-5 w-5" />
                   Case #{selectedCase.id.slice(0, 8)}
                 </SheetTitle>
-                <SheetDescription>
+                <SheetDescription className="pt-2">
                   {selectedCase.vrm ? (
-                    <span className="font-mono font-bold text-foreground">{selectedCase.vrm}</span>
+                    <UKNumberPlate vrm={selectedCase.vrm} size="md" />
                   ) : (
                     "No vehicle registration"
                   )}
@@ -556,7 +558,7 @@ export default function CasesPage() {
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-2">
-                                  <span className="font-mono font-bold text-lg">{vehicle.registrationNumber}</span>
+                                  <UKNumberPlate vrm={vehicle.registrationNumber} size="md" />
                                   <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">
                                     <CheckCircle2 className="h-3 w-3 mr-1" />
                                     Verified

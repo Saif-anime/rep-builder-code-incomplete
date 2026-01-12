@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { UKNumberPlate } from "@/components/uk-number-plate";
 import { format, subDays } from "date-fns";
 
 interface SessionFlag {
@@ -448,8 +449,12 @@ export default function FlaggedSessionsPage() {
                       onClick={() => openFlagDetail(flag)}
                       data-testid={`row-flag-${flag.id}`}
                     >
-                      <TableCell className="font-mono font-bold">
-                        {flag.session?.vrm || "N/A"}
+                      <TableCell>
+                        {flag.session?.vrm ? (
+                          <UKNumberPlate vrm={flag.session.vrm} size="sm" />
+                        ) : (
+                          <span className="text-muted-foreground italic">N/A</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs font-mono">
                         <div>{flag.session?.entryAt ? format(new Date(flag.session.entryAt), "dd/MM HH:mm") : "-"}</div>
@@ -509,8 +514,13 @@ export default function FlaggedSessionsPage() {
               <Flag className="h-5 w-5" />
               Flag Details
             </SheetTitle>
-            <SheetDescription>
-              {selectedFlag?.session?.vrm || "Unknown VRM"} - {selectedFlag?.site?.name || "Unknown Site"}
+            <SheetDescription className="flex items-center gap-2 pt-1">
+              {selectedFlag?.session?.vrm ? (
+                <UKNumberPlate vrm={selectedFlag.session.vrm} size="sm" />
+              ) : (
+                <span className="italic">Unknown VRM</span>
+              )}
+              <span>- {selectedFlag?.site?.name || "Unknown Site"}</span>
             </SheetDescription>
           </SheetHeader>
 
@@ -558,9 +568,13 @@ export default function FlaggedSessionsPage() {
                 <h4 className="text-sm font-medium">Session Details</h4>
                 <Card>
                   <CardContent className="p-4 space-y-2">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">VRM</span>
-                      <span className="text-sm font-mono font-bold">{selectedFlag.session?.vrm || "N/A"}</span>
+                      {selectedFlag.session?.vrm ? (
+                        <UKNumberPlate vrm={selectedFlag.session.vrm} size="sm" />
+                      ) : (
+                        <span className="text-sm italic text-muted-foreground">N/A</span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Observe From</span>

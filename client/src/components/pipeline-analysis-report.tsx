@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { UKNumberPlate } from "@/components/uk-number-plate";
 
 interface AnalysisReport {
   caseSummary: {
@@ -253,10 +254,10 @@ export function PipelineAnalysisReport({ caseId, onPcnIssued }: PipelineAnalysis
       
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="text-center p-2 bg-muted/30 rounded">
-            <Car className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">VRM</p>
-            <p className="font-mono text-sm font-medium">{report.caseSummary.vrm}</p>
+          <div className="text-center p-2 bg-muted/30 rounded flex flex-col items-center">
+            <Car className="h-4 w-4 mb-1 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground mb-1">VRM</p>
+            <UKNumberPlate vrm={report.caseSummary.vrm} size="sm" />
           </div>
           <div className="text-center p-2 bg-muted/30 rounded">
             <FileText className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />

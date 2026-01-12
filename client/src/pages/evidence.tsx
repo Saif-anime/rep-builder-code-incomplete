@@ -34,6 +34,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceAnalysisReport } from "@/components/evidence-analysis-report";
 import { EvidenceViewer, EvidenceGallery } from "@/components/evidence-viewer";
+import { UKNumberPlate } from "@/components/uk-number-plate";
 import type { Evidence, ParkingSite, Camera as CameraType, CaseAnalysis, CaseVehicle, BayType } from "@shared/schema";
 import { BAY_TYPES } from "@shared/schema";
 
@@ -490,10 +491,7 @@ export default function EvidencePage() {
                             {bundle.vrm && (
                               <>
                                 <Separator orientation="vertical" className="h-3 hidden sm:block" />
-                                <span className="font-mono text-[10px] sm:text-xs flex items-center gap-1">
-                                  <Car className="h-3 w-3" />
-                                  {bundle.vrm}
-                                </span>
+                                <UKNumberPlate vrm={bundle.vrm} size="sm" />
                               </>
                             )}
                           </CardDescription>
@@ -627,10 +625,7 @@ export default function EvidencePage() {
                   {selectedBundle.evidenceCount} file{selectedBundle.evidenceCount !== 1 ? "s" : ""}
                 </Badge>
                 {selectedBundle.vrm && (
-                  <Badge variant="outline" className="font-mono whitespace-nowrap">
-                    <Car className="h-3 w-3 mr-1 shrink-0" />
-                    {selectedBundle.vrm}
-                  </Badge>
+                  <UKNumberPlate vrm={selectedBundle.vrm} size="sm" />
                 )}
               </div>
 
@@ -702,7 +697,7 @@ export default function EvidencePage() {
                       <div className="flex items-center gap-2 mb-3">
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
                         <span className="font-semibold text-green-700 dark:text-green-400">DVLA Vehicle Verified</span>
-                        <Badge variant="outline" className="ml-auto font-mono">{vehicleData.vrm}</Badge>
+                        <UKNumberPlate vrm={vehicleData.vrm} size="md" className="ml-auto" />
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <div className="text-center p-2 bg-background rounded-md">
