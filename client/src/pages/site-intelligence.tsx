@@ -15,7 +15,7 @@ import { Slider } from "@/components/ui/slider";
 import { 
   ArrowLeft, Plus, Trash2, Edit, Upload, Image, Video, 
   FileText, Map, AlertTriangle, Car, Clock, Loader2,
-  Eye, MapPin
+  Eye, MapPin, X, ZoomIn, ZoomOut, ExternalLink
 } from "lucide-react";
 import { FaBrain } from "react-icons/fa";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -93,6 +93,9 @@ export default function SiteIntelligencePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadCategory, setUploadCategory] = useState("BAY_PHOTO");
   const [aiInstructions, setAiInstructions] = useState("");
+  const [previewAttachment, setPreviewAttachment] = useState<SiteAttachment | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
   const [bayForm, setBayForm] = useState({
     bayIdentifier: "",
@@ -614,12 +617,71 @@ export default function SiteIntelligencePage() {
                     </div>
                     
                     {attachment.attachmentType === "IMAGE" && (
-                      <div className="aspect-video bg-muted rounded-md overflow-hidden">
-                        <img
-                          src={attachment.filePath.replace(/^uploads\//, "/uploads/")}
-                          alt={attachment.title}
-                          className="w-full h-full object-cover"
-                        />
+                      <div 
+                        className="aspect-video bg-muted rounded-md overflow-hidden cursor-pointer relative group"
+                        onClick={() => {
+                          setPreviewAttachment(attachment);
+                          setPreviewZoom(1);
+                        }}
+                        data-testid={`preview-attachment-${attachment.id}`}
+                      >
+                        {imageErrors[attachment.id] ? (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
+                            <Image className="h-8 w-8 mb-2" />
+                            <p className="text-xs">Preview unavailable</p>
+                          </div>
+                        ) : (
+                          <>
+                            <img
+                              src={attachment.filePath || ""}
+                              alt={attachment.title}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={() => {
+                                console.error(`Failed to load image: ${attachment.filePath}`);
+                                setImageErrors(prev => ({ ...prev, [attachment.id]: true }));
+                              }}
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="h-8 w-8 text-white" />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    
+                    {attachment.attachmentType === "PDF" && (
+                      <div 
+                        className="aspect-video bg-muted rounded-md overflow-hidden cursor-pointer flex flex-col items-center justify-center hover-elevate"
+                        onClick={() => window.open(attachment.filePath || "", "_blank")}
+                        data-testid={`open-pdf-${attachment.id}`}
+                      >
+                        <FileText className="h-10 w-10 text-red-500 mb-2" />
+                        <p className="text-xs text-muted-foreground">Click to open PDF</p>
+                      </div>
+                    )}
+                    
+                    {attachment.attachmentType === "VIDEO" && (
+                      <div 
+                        className="aspect-video bg-muted rounded-md overflow-hidden cursor-pointer flex flex-col items-center justify-center hover-elevate"
+                        onClick={() => {
+                          setPreviewAttachment(attachment);
+                          setPreviewZoom(1);
+                        }}
+                        data-testid={`preview-video-${attachment.id}`}
+                      >
+                        <Video className="h-10 w-10 text-blue-500 mb-2" />
+                        <p className="text-xs text-muted-foreground">Click to play video</p>
+                      </div>
+                    )}
+                    
+                    {!["IMAGE", "PDF", "VIDEO"].includes(attachment.attachmentType) && (
+                      <div 
+                        className="aspect-video bg-muted rounded-md overflow-hidden cursor-pointer flex flex-col items-center justify-center hover-elevate"
+                        onClick={() => window.open(attachment.filePath || "", "_blank")}
+                      >
+                        <FileText className="h-10 w-10 text-muted-foreground mb-2" />
+                        <p className="text-xs text-muted-foreground">Click to download</p>
                       </div>
                     )}
                     
@@ -891,6 +953,92 @@ Example:
               {editingPattern ? "Update" : "Add"} Pattern
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image/Video Preview Modal (Lightbox) */}
+      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) setPreviewAttachment(null); }}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 overflow-hidden">
+          <div className="relative">
+            {/* Header with controls */}
+            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent">
+              <div className="text-white">
+                <p className="font-medium">{previewAttachment?.title}</p>
+                <p className="text-sm text-white/70">{previewAttachment?.category.replace("_", " ")}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {previewAttachment?.attachmentType === "IMAGE" && (
+                  <>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-white hover:bg-white/20"
+                      onClick={() => setPreviewZoom(z => Math.max(0.5, z - 0.25))}
+                      data-testid="button-zoom-out"
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </Button>
+                    <span className="text-white text-sm min-w-[4rem] text-center">{Math.round(previewZoom * 100)}%</span>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-white hover:bg-white/20"
+                      onClick={() => setPreviewZoom(z => Math.min(3, z + 0.25))}
+                      data-testid="button-zoom-in"
+                    >
+                      <ZoomIn className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/20"
+                  onClick={() => window.open(previewAttachment?.filePath || "", "_blank")}
+                  data-testid="button-open-new-tab"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/20"
+                  onClick={() => setPreviewAttachment(null)}
+                  data-testid="button-close-preview"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="flex items-center justify-center bg-black min-h-[60vh] max-h-[85vh] overflow-auto">
+              {previewAttachment?.attachmentType === "IMAGE" && (
+                <img
+                  src={previewAttachment?.filePath || ""}
+                  alt={previewAttachment?.title || "Preview"}
+                  className="max-w-full transition-transform duration-200"
+                  style={{ transform: `scale(${previewZoom})` }}
+                  onError={(e) => {
+                    console.error(`Failed to load full image: ${previewAttachment?.filePath}`);
+                  }}
+                />
+              )}
+              {previewAttachment?.attachmentType === "VIDEO" && (
+                <video
+                  src={previewAttachment?.filePath || ""}
+                  controls
+                  autoPlay
+                  className="max-w-full max-h-[80vh]"
+                  onError={(e) => {
+                    console.error(`Failed to load video: ${previewAttachment?.filePath}`);
+                  }}
+                >
+                  Your browser does not support the video tag.
+                </video>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

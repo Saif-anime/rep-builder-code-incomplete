@@ -105,6 +105,16 @@ def pattern_to_dict(pattern: SiteBehaviorPattern):
 
 
 def attachment_to_dict(attachment: SiteIntelligenceAttachment):
+    file_url = None
+    if attachment.file_path:
+        if attachment.file_path.startswith(settings.UPLOAD_DIR):
+            relative_path = attachment.file_path[len(settings.UPLOAD_DIR):].lstrip("/\\")
+            file_url = f"/uploads/{relative_path}"
+        elif attachment.file_path.startswith("/uploads/"):
+            file_url = attachment.file_path
+        else:
+            file_url = f"/uploads/{attachment.file_path}"
+    
     return {
         "id": attachment.id,
         "siteId": attachment.site_id,
@@ -113,7 +123,7 @@ def attachment_to_dict(attachment: SiteIntelligenceAttachment):
         "category": attachment.category,
         "title": attachment.title,
         "description": attachment.description,
-        "filePath": attachment.file_path,
+        "filePath": file_url,
         "fileType": attachment.file_type,
         "mimeType": attachment.mime_type,
         "fileSize": attachment.file_size,

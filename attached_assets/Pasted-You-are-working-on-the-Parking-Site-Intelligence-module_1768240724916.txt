@@ -1,0 +1,90 @@
+You are working on the Parking Site Intelligence module
+Route: /sites/:id/intelligence
+Tab: Attachments
+
+ISSUE:
+Uploaded images (Bay Photos, Camera Views, Maps) are NOT rendering as previews.
+Files appear as placeholders only.
+Users cannot click and open images to verify details.
+
+TASK:
+Fix image rendering and enable full preview functionality.
+
+------------------------------------
+REQUIREMENTS
+------------------------------------
+
+1. IMAGE RENDERING
+- Correctly render image thumbnails for:
+  - JPG
+  - PNG
+  - WEBP
+- Use the stored file URL or public storage path
+- Ensure <img> src points to the resolved file URL (not filename only)
+- Handle broken/missing URLs gracefully with a fallback placeholder
+
+------------------------------------
+2. CLICK TO VIEW (LIGHTBOX / MODAL)
+------------------------------------
+- Clicking an image should:
+  - Open a full-size preview in a modal/lightbox
+  - Maintain aspect ratio
+  - Allow zoom (mouse wheel or buttons)
+  - Allow close via ❌ button or ESC key
+
+------------------------------------
+3. FILE TYPE HANDLING
+------------------------------------
+- Images → show thumbnail preview
+- PDFs → show PDF icon + filename
+  - Clicking opens PDF in new tab
+- Videos → show video icon + filename
+  - Clicking opens playable modal or new tab
+
+------------------------------------
+4. UX & UI CONSISTENCY
+------------------------------------
+- Keep existing card layout
+- Do NOT change upload logic
+- Do NOT remove delete icon
+- Maintain current labels (Bay Photo, Site Map, etc.)
+
+------------------------------------
+5. PERFORMANCE
+------------------------------------
+- Lazy-load images
+- Use thumbnail sizes for grid
+- Full resolution only when preview opens
+
+------------------------------------
+6. ACCESS CONTROL
+------------------------------------
+- Respect existing authentication
+- Only load files user has permission to view
+
+------------------------------------
+7. ERROR HANDLING
+------------------------------------
+- If image fails to load:
+  - Show "Preview unavailable"
+  - Log error to console (non-blocking)
+
+------------------------------------
+IMPLEMENTATION NOTES
+------------------------------------
+- Fix incorrect file URL mapping if present
+- Ensure backend returns full public file path
+- Ensure frontend uses correct storage base URL
+- Refactor Attachments card component if required
+
+------------------------------------
+FINAL CHECKLIST
+------------------------------------
+✓ Images visible as thumbnails  
+✓ Clicking image opens preview  
+✓ PDFs open correctly  
+✓ Videos playable  
+✓ No console errors  
+✓ No regression in uploads or deletes  
+
+Implement cleanly and safely.
