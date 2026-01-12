@@ -15,7 +15,7 @@ import { Slider } from "@/components/ui/slider";
 import { 
   ArrowLeft, Plus, Trash2, Edit, Upload, Image, Video, 
   FileText, Map, AlertTriangle, Car, Clock, Loader2,
-  Eye, Brain, MapPin
+  Eye, Lightbulb, MapPin
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -391,7 +391,7 @@ export default function SiteIntelligencePage() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="gap-1">
-            <Brain className="h-3 w-3" />
+            <Lightbulb className="h-3 w-3" />
             {intelligence?.summary.totalBays || 0} Bays
           </Badge>
           <Badge variant="outline" className="gap-1">
@@ -639,7 +639,7 @@ export default function SiteIntelligencePage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Brain className="h-5 w-5" />
+                <Lightbulb className="h-5 w-5" />
                 Site-Specific AI Instructions
               </CardTitle>
               <CardDescription>
