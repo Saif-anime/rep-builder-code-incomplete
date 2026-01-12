@@ -40,6 +40,13 @@ The system employs a full-stack architecture consisting of a React frontend, a P
 - **Flagged Sessions Review Dashboard:** Operator UI to review and override AI-generated flags and recommendations, with full audit trails for manual decisions.
 - **Enforcement Case Management:** Unified workflow to group evidence into cases, supporting bundle-level AI analysis and timeline reconciliation.
 - **DVLA Vehicle Verification:** Automated number plate detection with integration to DVLA API for vehicle data, tax, and MOT status verification, including rate limiting and audit trails.
+- **Site Intelligence System:** Bay-level intelligence recording for signage clarity scores (1-5), marking condition scores, and behavior patterns. Integrated into case pipeline to adjust enforcement confidence:
+  - Poor signage clarity (≤2): -15% confidence adjustment
+  - Poor marking condition (≤2): -10% confidence adjustment
+  - Good scores (≥4): +5% confidence bonus
+  - Automatic legal risk upgrade when confidence drops significantly
+  - Officer guidance and known issues surfaced in decision output
+  - Supports attachment uploads (bay photos, signage photos, site maps, walkthrough videos)
 
 **Feature Specifications:**
 - **AI Analysis:** Utilizes OpenAI GPT-4.1 (via Replit AI) for violation detection, confidence scoring, and automated explanation generation. OpenAI GPT-4o is used for detailed Vision GPT image analysis (vehicle, bay, human, signage detection) with confidence notes.
