@@ -15,11 +15,173 @@ from backend.services.ocr_service import ocr_service
 from backend.services.evidence_summary_service import evidence_summary_service
 from backend.api.dependencies import get_current_user, require_role
 from backend.config import settings
+import httpx
+import json
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
 import logging
 logger = logging.getLogger(__name__)
+
+async def interpret_ai_instructions(
+    ai_instructions: str,
+    evidence_context: dict,
+    current_decision: dict
+) -> dict:
+    """
+    Use OpenAI to interpret site-specific AI instructions and potentially modify the decision.
+    
+    Args:
+        ai_instructions: The AI instructions text from Site Intelligence
+        evidence_context: Context about the evidence (duration, bay type, VRM, etc.)
+        current_decision: The current decision before AI instruction interpretation
+    
+    Returns:
+        Dictionary with instruction_applied, modified_decision, reasoning
+    """
+    api_key = os.getenv("AI_INTEGRATIONS_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+    base_url = os.getenv("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://api.openai.com/v1")
+    
+    if not api_key or not ai_instructions or not ai_instructions.strip():
+        return {
+            "instruction_applied": False,
+            "reasoning": "No AI instructions configured for this site",
+            "original_decision": current_decision,
+            "modified_decision": None
+        }
+    
+    prompt = f"""You are a UK parking enforcement decision assistant. A site administrator has configured specific AI instructions for this parking site. Your job is to interpret these instructions and determine if they should modify the current enforcement decision.
+
+SITE AI INSTRUCTIONS:
+{ai_instructions}
+
+EVIDENCE CONTEXT:
+- Bay Type: {evidence_context.get('bay_type', 'Unknown')}
+- Duration Observed: {evidence_context.get('duration_minutes', 'Unknown')} minutes
+- Vehicle Registration: {evidence_context.get('vrm', 'Unknown')}
+- Observe From: {evidence_context.get('observe_from', 'Unknown')}
+- Observe To: {evidence_context.get('observe_to', 'Unknown')}
+- Site Name: {evidence_context.get('site_name', 'Unknown')}
+- Timestamp Confidence: {evidence_context.get('timestamp_confidence', 'Unknown')}
+- Validation Warnings: {', '.join(evidence_context.get('validation_warnings', [])) or 'None'}
+
+CURRENT DECISION:
+- Status: {current_decision.get('status', 'Unknown')}
+- Recommendation: {current_decision.get('recommendation', 'Unknown')}
+- Confidence: {current_decision.get('overallConfidence', 0)}%
+- Legal Risk: {current_decision.get('legalRisk', 'Unknown')}
+- Reasoning: {current_decision.get('reasoning', 'Unknown')}
+
+Based on the AI instructions, should the decision be modified? Consider:
+1. Does the AI instruction apply to this specific situation?
+2. Should the decision status change (PCN_ELIGIBLE, NO_PCN, REVIEW_REQUIRED)?
+3. Should confidence be adjusted?
+4. Should legal risk be changed?
+
+Return a JSON object:
+{{
+  "instruction_applies": true/false,
+  "should_modify_decision": true/false,
+  "new_status": "PCN_ELIGIBLE" | "NO_PCN" | "REVIEW_REQUIRED" | null,
+  "confidence_adjustment": number (-50 to +50) or 0,
+  "legal_risk_change": "low" | "medium" | "high" | null,
+  "reasoning": "explanation of how the AI instruction was interpreted",
+  "recommendation_override": "new recommendation text or null",
+  "additional_notes": "any operator guidance from the AI instructions"
+}}
+
+Return ONLY the JSON object."""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4o",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 800,
+                    "temperature": 0.3
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"AI Instructions interpretation failed: {response.status_code}")
+                return {
+                    "instruction_applied": False,
+                    "reasoning": f"AI interpretation failed: API error {response.status_code}",
+                    "original_decision": current_decision,
+                    "modified_decision": None
+                }
+            
+            data = response.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # Parse JSON response
+            try:
+                content = content.strip()
+                if content.startswith("```"):
+                    content = content.split("```")[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                ai_result = json.loads(content)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse AI instruction response: {content[:200]}")
+                return {
+                    "instruction_applied": False,
+                    "reasoning": "Failed to parse AI interpretation response",
+                    "original_decision": current_decision,
+                    "modified_decision": None
+                }
+            
+            # Build the modified decision if applicable
+            if ai_result.get("should_modify_decision") and ai_result.get("instruction_applies"):
+                modified_decision = current_decision.copy()
+                
+                if ai_result.get("new_status"):
+                    modified_decision["status"] = ai_result["new_status"]
+                
+                conf_adj = ai_result.get("confidence_adjustment", 0)
+                if conf_adj:
+                    new_conf = max(0, min(100, current_decision.get("overallConfidence", 70) + conf_adj))
+                    modified_decision["overallConfidence"] = new_conf
+                
+                if ai_result.get("legal_risk_change"):
+                    modified_decision["legalRisk"] = ai_result["legal_risk_change"]
+                
+                if ai_result.get("recommendation_override"):
+                    modified_decision["recommendation"] = ai_result["recommendation_override"]
+                
+                modified_decision["aiInstructionsApplied"] = True
+                modified_decision["aiInstructionsReasoning"] = ai_result.get("reasoning", "")
+                modified_decision["aiInstructionNotes"] = ai_result.get("additional_notes", "")
+                
+                return {
+                    "instruction_applied": True,
+                    "reasoning": ai_result.get("reasoning", "AI instruction applied"),
+                    "original_decision": current_decision,
+                    "modified_decision": modified_decision,
+                    "additional_notes": ai_result.get("additional_notes", "")
+                }
+            else:
+                return {
+                    "instruction_applied": False,
+                    "reasoning": ai_result.get("reasoning", "AI instruction did not apply to this case"),
+                    "original_decision": current_decision,
+                    "modified_decision": None
+                }
+                
+    except Exception as e:
+        logger.error(f"AI instruction interpretation error: {e}")
+        return {
+            "instruction_applied": False,
+            "reasoning": f"AI interpretation error: {str(e)}",
+            "original_decision": current_decision,
+            "modified_decision": None
+        }
 
 def resolve_case_from_id(db: Session, id_param: str, user_id: int = None, auto_create: bool = False):
     """
@@ -1371,6 +1533,45 @@ async def run_case_pipeline_internal(case_id: int, db: Session, current_user) ->
             logger.info(f"Site intelligence applied (internal): adjustment={guidance.confidence_adjustment}")
         except Exception as e:
             logger.warning(f"Could not apply site intelligence (internal): {e}")
+    
+    # Integrate AI Instructions from Site Intelligence
+    ai_instruction_result = None
+    if case.site_id:
+        try:
+            site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
+            if site and site.ai_instructions and site.ai_instructions.strip():
+                # Build evidence context for AI interpretation
+                evidence_context = {
+                    "bay_type": case.bay_type or "Unknown",
+                    "duration_minutes": duration_minutes,
+                    "vrm": detected_vrm or case.vrm,
+                    "observe_from": first_time.isoformat() if first_time else None,
+                    "observe_to": last_time.isoformat() if last_time else None,
+                    "site_name": site_name,
+                    "timestamp_confidence": evidence_summary.duration_confidence.value,
+                    "validation_warnings": evidence_summary.validation_warnings or []
+                }
+                
+                # Interpret AI instructions
+                ai_instruction_result = await interpret_ai_instructions(
+                    ai_instructions=site.ai_instructions,
+                    evidence_context=evidence_context,
+                    current_decision=decision
+                )
+                
+                # Apply modified decision if AI instructions changed it
+                if ai_instruction_result.get("instruction_applied") and ai_instruction_result.get("modified_decision"):
+                    decision = ai_instruction_result["modified_decision"]
+                    decision["aiInstructionsApplied"] = True
+                    decision["aiInstructionsReasoning"] = ai_instruction_result.get("reasoning", "")
+                    logger.info(f"AI instructions applied: {ai_instruction_result.get('reasoning', '')}")
+                else:
+                    decision["aiInstructionsApplied"] = False
+                    decision["aiInstructionsReasoning"] = ai_instruction_result.get("reasoning", "No modification needed")
+        except Exception as e:
+            logger.warning(f"Could not apply AI instructions: {e}")
+            decision["aiInstructionsApplied"] = False
+            decision["aiInstructionsError"] = str(e)
     
     # Update case and create/update pipeline results
     case.status = "ANALYSED"

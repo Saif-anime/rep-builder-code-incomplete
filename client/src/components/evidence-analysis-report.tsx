@@ -38,6 +38,7 @@ import {
   BatteryCharging,
   PlugZap,
   Cable,
+  Lightbulb,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -247,6 +248,10 @@ interface PipelineResults {
     reasoning: string;
     plainEnglishExplanation: string;
     blockers: string[];
+    aiInstructionsApplied?: boolean;
+    aiInstructionsReasoning?: string;
+    aiInstructionNotes?: string;
+    siteIntelligenceApplied?: boolean;
   } | null;
   analysisCompletedAt: string | null;
 }
@@ -515,6 +520,36 @@ export function EvidenceAnalysisReport({
               </Badge>
             )}
           </div>
+          
+          {decision?.aiInstructionsApplied && (
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800" data-testid="ai-instructions-applied">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">AI Instructions Applied</p>
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                    {decision.aiInstructionsReasoning || "Site-specific AI instructions have influenced this decision."}
+                  </p>
+                  {decision.aiInstructionNotes && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 italic">
+                      Note: {decision.aiInstructionNotes}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {decision?.aiInstructionsApplied === false && decision?.aiInstructionsReasoning && (
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg border" data-testid="ai-instructions-considered">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  AI Instructions: {decision.aiInstructionsReasoning}
+                </p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
