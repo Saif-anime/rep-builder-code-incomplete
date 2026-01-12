@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -38,6 +38,7 @@ function ProtectedRoutes() {
       <Route path="/recommendations" component={RecommendationsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/anpr-scans" component={AnprScansPage} />
+      <Route path="/parking-sites">{() => <Redirect to="/admin/sites" />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
