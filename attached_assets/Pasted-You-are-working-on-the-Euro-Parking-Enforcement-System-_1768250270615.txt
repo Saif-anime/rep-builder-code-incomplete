@@ -1,0 +1,125 @@
+You are working on the Euro Parking Enforcement System.
+
+FEATURE TO ADD:
+Analyse historical weather conditions based on the timestamp found INSIDE evidence images
+and display the weather report in Evidence Summary and AI Reports.
+
+------------------------------------
+GOAL
+------------------------------------
+When evidence is uploaded:
+1. Extract the date & time from the image itself (OCR timestamp).
+2. Use the parking site location (lat/lng).
+3. Fetch historical weather data for that exact date & time.
+4. Store and display the weather report clearly.
+
+------------------------------------
+STEP 1: TIMESTAMP EXTRACTION
+------------------------------------
+- Use OCR (PaddleOCR or Tesseract) to extract timestamp from images.
+- Accept common CCTV formats:
+  - DD/MM/YYYY HH:mm:ss
+  - YYYY-MM-DD HH:mm:ss
+  - DD-MM-YYYY HH:mm
+- Normalize timestamp to ISO 8601.
+- If multiple images:
+  - Use earliest timestamp as Observe From
+  - Use latest timestamp as Observe To
+
+------------------------------------
+STEP 2: LOCATION RESOLUTION
+------------------------------------
+- Get site latitude & longitude from Parking Sites table.
+- Do NOT rely on EXIF GPS (may be missing).
+- Always use site location as the weather source.
+
+------------------------------------
+STEP 3: HISTORICAL WEATHER FETCH
+------------------------------------
+- Use a historical weather API:
+  - OpenWeatherMap (One Call Timemachine)
+  - OR Meteostat
+  - OR Visual Crossing Historical API
+
+- Query parameters:
+  - Latitude
+  - Longitude
+  - Evidence timestamp (UTC adjusted to site timezone)
+
+------------------------------------
+STEP 4: WEATHER DATA TO EXTRACT
+------------------------------------
+Return and store:
+- Weather condition (Clear / Rain / Snow / Fog)
+- Temperature (°C)
+- Rainfall (mm)
+- Wind speed (mph)
+- Visibility (if available)
+- Weather severity flag (Normal / Adverse)
+
+------------------------------------
+STEP 5: STORAGE
+------------------------------------
+Store weather data linked to:
+- Evidence bundle ID
+- Timestamp used
+- API source
+- Confidence level
+
+------------------------------------
+STEP 6: UI DISPLAY
+------------------------------------
+Add a new section:
+
+"EVIDENCE WEATHER REPORT"
+
+Show:
+- Date & time used
+- Location (site name)
+- Weather condition icon
+- Temperature
+- Rain / Snow indicator
+- Wind speed
+- Visibility
+- Weather source
+
+Example:
+"Weather at 10 Jan 2026 15:23 — Light Rain, 6°C, Wind 12 mph"
+
+------------------------------------
+STEP 7: AI DECISION SUPPORT
+------------------------------------
+Expose weather data to AI rules:
+- Low visibility → reduce confidence
+- Heavy rain/snow → allow grace period
+- Severe weather → add manual review flag
+
+------------------------------------
+STEP 8: FALLBACK LOGIC
+------------------------------------
+- If timestamp OCR fails:
+  - Use manual capture time
+  - Flag weather confidence as LOW
+- If API fails:
+  - Display "Weather unavailable"
+  - Do NOT block PCN flow
+
+------------------------------------
+CONSTRAINTS
+------------------------------------
+- Do NOT re-analyse weather on every page load
+- Cache results per evidence bundle
+- Do NOT change existing evidence logic
+- Do NOT block enforcement decisions
+
+------------------------------------
+FINAL VALIDATION
+------------------------------------
+✓ Timestamp comes from image OCR  
+✓ Correct historical weather returned  
+✓ Weather visible in Evidence Summary  
+✓ Weather visible in AI Reports  
+✓ Used in confidence calculation  
+✓ Safe fallback handling  
+
+Implement clean, production-ready code.
