@@ -1641,7 +1641,9 @@ async def reanalyze_case_evidence(
         raise HTTPException(status_code=404, detail={"error": "Case not found and could not be created"})
     
     case.status = "ANALYSING"
+    case.vrm = None  # Clear VRM to force fresh extraction on reanalysis
     db.commit()
+    logger.info(f"Cleared VRM for case {case.id} to force fresh extraction")
     
     # Update all bundles linked to this case
     bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).all()
