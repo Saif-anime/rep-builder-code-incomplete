@@ -457,12 +457,12 @@ export default function AdminSitesPage() {
                         <div className="flex items-center justify-end gap-1">
                           <Button 
                             size="icon" 
-                            variant="ghost" 
-                            title="Site Intelligence" 
+                            variant="outline" 
+                            title="Site Intelligence - Click to add AI instructions" 
                             data-testid={`button-intelligence-site-${site.id}`}
                             onClick={() => navigate(`/sites/${site.id}/intelligence`)}
                           >
-                            <Brain className="h-4 w-4 text-primary" />
+                            <Brain className="h-4 w-4 text-blue-600" />
                           </Button>
                           <Link href={`/sites/${site.id}/signage`}>
                             <Button size="icon" variant="ghost" title="Site Signage" data-testid={`button-signage-site-${site.id}`}>
