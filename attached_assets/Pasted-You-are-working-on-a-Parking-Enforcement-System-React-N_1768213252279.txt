@@ -1,0 +1,162 @@
+You are working on a Parking Enforcement System (React + Node + DB).
+
+TASK:
+Fix and enhance the **AI Reports** feature so that every report always shows a complete, explainable, and legally defensible analysis.
+
+DO NOT change existing UI styling unless required.
+DO NOT remove existing functionality unless explicitly stated.
+
+----------------------------------
+CORE REQUIREMENTS
+----------------------------------
+
+1. AI REPORT CREATION
+When an analysis is completed:
+- Always create an AI Report record
+- Even if evidence is partial or confidence is low
+- Status should default to:
+  - Pending
+  - Confidence: 0%–100% based on data quality
+  - Data flag: FULL or PARTIAL
+
+----------------------------------
+2. SECTION STRUCTURE (MANDATORY)
+----------------------------------
+
+Each AI Report must contain the following sections:
+
+SECTION 1: Evidence Summary
+- Case Reference
+- Parking Site name
+- Evidence count (images + videos)
+- Capture source (ANPR / Manual Upload / CCTV)
+- First observed timestamp
+- Last observed timestamp
+
+If no evidence exists:
+- Show “No evidence uploaded yet”
+- DO NOT show errors
+
+----------------------------------
+SECTION 2: Duration Calculation
+----------------------------------
+Logic:
+- Sort all evidence timestamps (OCR / EXIF / Metadata)
+- Determine:
+  - Observe From = earliest valid timestamp
+  - Observe To = latest valid timestamp
+- Calculate duration in minutes
+
+Rules:
+- Duration must work across ANY date/year
+- Never block calculation due to old timestamps
+- If timestamps conflict:
+  - Show warning badge: “Timestamp inconsistency detected”
+  - Still calculate using best available data
+
+----------------------------------
+SECTION 3: Signage & Regulation Check
+----------------------------------
+Display:
+- Bay type (Disabled / EV / Loading / Parent-Child / General)
+- Relevant site rules pulled from Parking Site Intelligence
+- Signage confidence score
+
+If signage data missing:
+- Show “Manual signage review required”
+- Do NOT fail report
+
+----------------------------------
+SECTION 4: Vehicle & Registry Data
+----------------------------------
+Display:
+- Vehicle Registration (VRM)
+- DVLA lookup result (if available)
+- Make, model, fuel type, tax status
+- EV status (for EV bays)
+
+Rules:
+- If DVLA lookup fails:
+  - Cache last successful lookup
+  - Never show lookup error to user
+  - Show “Registry data unavailable” instead
+
+----------------------------------
+SECTION 5: Decision Explanation
+----------------------------------
+AI must:
+- Clearly explain WHY a decision was made
+- Reference:
+  - Evidence
+  - Duration
+  - Bay rules
+  - Vehicle eligibility
+
+Decision states:
+- Issue PCN
+- Do Not Issue
+- Hold for Review
+- Dismiss
+
+Each decision must include:
+- Confidence %
+- Human-readable reasoning
+- Compliance notes (UK parking standards)
+
+----------------------------------
+3. CONFIDENCE SCORING
+----------------------------------
+Confidence must be calculated using:
+- Evidence count
+- Timestamp consistency
+- Plate recognition accuracy
+- Signage visibility
+- Bay rule clarity
+
+Show confidence badge:
+- LOW (0–39%)
+- MEDIUM (40–69%)
+- HIGH (70–100%)
+
+----------------------------------
+4. UI BEHAVIOUR
+----------------------------------
+- AI Reports list must never show empty cards
+- Each row must display:
+  - Status
+  - VRM or “Unknown VRM”
+  - Confidence %
+  - Evidence count
+- Clicking a report opens the full Analysis Report modal
+
+----------------------------------
+5. ERROR HANDLING (CRITICAL)
+----------------------------------
+- Never show raw errors to users
+- Never block reports due to missing data
+- Replace errors with:
+  - Warnings
+  - Manual review indicators
+  - Partial data badges
+
+----------------------------------
+6. DATA STORAGE
+----------------------------------
+Persist:
+- Full AI reasoning
+- Inputs used
+- Confidence score
+- Final decision
+- Timestamp calculation results
+
+----------------------------------
+FINAL GOAL
+----------------------------------
+Ensure AI Reports are:
+- Legally defensible
+- Auditor-friendly
+- Transparent
+- Never empty
+- Never blocked by missing or old data
+
+Implement this cleanly and update existing logic where necessary.

@@ -383,16 +383,18 @@ export default function RecommendationsPage() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                                 <div>
                                   <span className="text-muted-foreground">Case Reference:</span>{" "}
-                                  <span className="font-mono">{selectedReport.caseReference?.substring(0, 12)}</span>
+                                  <span className="font-mono">{selectedReport.caseReference?.substring(0, 12) || "Pending"}</span>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Site:</span>{" "}
-                                  <span className="font-medium">{selectedReport.siteName}</span>
+                                  <span className="font-medium">{selectedReport.siteName || "Not assigned"}</span>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Evidence Count:</span>{" "}
                                   <span className="font-medium">
-                                    {evidence?.imageCount || 0} images, {evidence?.videoCount || 0} videos
+                                    {selectedReport.evidenceCount > 0 
+                                      ? `${evidence?.imageCount || selectedReport.evidenceCount} images, ${evidence?.videoCount || 0} videos`
+                                      : "No evidence uploaded yet"}
                                   </span>
                                 </div>
                                 <div>
@@ -401,12 +403,14 @@ export default function RecommendationsPage() {
                                     {evidence?.timestamps?.[0]?.source === "camera_overlay" ? "ANPR Camera" : "Manual Upload"}
                                   </span>
                                 </div>
-                                {evidence?.timeRange && (
-                                  <div className="col-span-1 sm:col-span-2">
-                                    <span className="text-muted-foreground">Time Window:</span>{" "}
+                                <div className="col-span-1 sm:col-span-2">
+                                  <span className="text-muted-foreground">Time Window:</span>{" "}
+                                  {evidence?.timeRange?.first || evidence?.timeRange?.last ? (
                                     <span>{formatDate(evidence.timeRange.first)} - {formatDate(evidence.timeRange.last)}</span>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <span className="text-amber-600">Awaiting timestamp extraction</span>
+                                  )}
+                                </div>
                               </div>
                             </CardContent>
                           </CollapsibleContent>
@@ -431,25 +435,47 @@ export default function RecommendationsPage() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                                 <div>
                                   <span className="text-muted-foreground">First Seen:</span>{" "}
-                                  <span className="font-medium">{formatDate(evidence?.entryWindow?.start || evidence?.timeRange?.first)}</span>
+                                  <span className="font-medium">
+                                    {formatDate(evidence?.entryWindow?.start || evidence?.timeRange?.first) !== "N/A" 
+                                      ? formatDate(evidence?.entryWindow?.start || evidence?.timeRange?.first) 
+                                      : <span className="text-amber-600">Pending extraction</span>}
+                                  </span>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Last Seen:</span>{" "}
-                                  <span className="font-medium">{formatDate(evidence?.exitWindow?.end || evidence?.timeRange?.last)}</span>
+                                  <span className="font-medium">
+                                    {formatDate(evidence?.exitWindow?.end || evidence?.timeRange?.last) !== "N/A"
+                                      ? formatDate(evidence?.exitWindow?.end || evidence?.timeRange?.last)
+                                      : <span className="text-amber-600">Pending extraction</span>}
+                                  </span>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Total Stay:</span>{" "}
-                                  <span className="font-medium">{formatDuration(evidence?.timeRange?.durationMinutes || regulations?.durationMinutes)}</span>
+                                  <span className="font-medium">
+                                    {formatDuration(evidence?.timeRange?.durationMinutes || regulations?.durationMinutes) !== "N/A"
+                                      ? formatDuration(evidence?.timeRange?.durationMinutes || regulations?.durationMinutes)
+                                      : <span className="text-amber-600">Awaiting calculation</span>}
+                                  </span>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Allowed Duration:</span>{" "}
-                                  <span className="font-medium">{formatDuration(regulations?.maxStayAllowed)}</span>
+                                  <span className="font-medium">
+                                    {formatDuration(regulations?.maxStayAllowed) !== "N/A"
+                                      ? formatDuration(regulations?.maxStayAllowed)
+                                      : <span className="text-muted-foreground">Site rules not configured</span>}
+                                  </span>
                                 </div>
                                 {regulations?.overstayMinutes > 0 && (
                                   <div className="col-span-1 sm:col-span-2">
                                     <Badge variant="destructive">
                                       Overstay: {formatDuration(regulations.overstayMinutes)}
                                     </Badge>
+                                  </div>
+                                )}
+                                {!evidence?.timeRange?.durationMinutes && !regulations?.durationMinutes && (
+                                  <div className="col-span-1 sm:col-span-2 flex items-center gap-2 text-amber-600">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <span className="text-xs">Duration calculation requires valid timestamps from evidence</span>
                                   </div>
                                 )}
                               </div>
@@ -475,6 +501,12 @@ export default function RecommendationsPage() {
                             <CardContent className="pt-0">
                               <div className="space-y-3 text-sm">
                                 <div className="flex items-center justify-between">
+                                  <span className="text-muted-foreground">Bay Type:</span>
+                                  <span className="font-medium capitalize">
+                                    {regulations?.bayType?.replace(/_/g, " ") || "General Parking"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
                                   <span className="text-muted-foreground">Signage Present:</span>
                                   {signage?.entranceSignage?.status === "compliant" ? (
                                     <Badge variant="outline" className="text-green-600">
@@ -482,9 +514,13 @@ export default function RecommendationsPage() {
                                     </Badge>
                                   ) : signage?.entranceSignage?.status === "partial" ? (
                                     <Badge variant="secondary">Partial</Badge>
-                                  ) : (
+                                  ) : signage?.entranceSignage?.status ? (
                                     <Badge variant="outline">
-                                      {signage?.entranceSignage?.status || "Unknown"}
+                                      {signage.entranceSignage.status}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-amber-600">
+                                      <AlertTriangle className="h-3 w-3 mr-1" />Manual review required
                                     </Badge>
                                   )}
                                 </div>
@@ -497,6 +533,10 @@ export default function RecommendationsPage() {
                                   {regulations?.evaluation?.breachDetected ? (
                                     <Badge variant="destructive">
                                       <XCircle className="h-3 w-3 mr-1" />Breach Detected
+                                    </Badge>
+                                  ) : regulations?.isOverstay ? (
+                                    <Badge variant="destructive">
+                                      <XCircle className="h-3 w-3 mr-1" />Overstay Violation
                                     </Badge>
                                   ) : (
                                     <Badge variant="outline" className="text-green-600">
@@ -538,27 +578,47 @@ export default function RecommendationsPage() {
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">Vehicle Type:</span>{" "}
-                                  <span className="font-medium">{vision?.vehicleType || dvla?.vehicleType || "Unknown"}</span>
+                                  <span className="font-medium">{vision?.vehicleType || dvla?.vehicleType || dvla?.typeApproval || "Unknown"}</span>
                                 </div>
-                                {dvla?.make && (
+                                <div>
+                                  <span className="text-muted-foreground">Make:</span>{" "}
+                                  <span className="font-medium">{dvla?.make || vision?.make || "Unknown"}</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">Colour:</span>{" "}
+                                  <span className="font-medium">{dvla?.colour || vision?.colour || "Unknown"}</span>
+                                </div>
+                                {dvla?.fuelType && (
                                   <div>
-                                    <span className="text-muted-foreground">Make:</span>{" "}
-                                    <span className="font-medium">{dvla.make}</span>
+                                    <span className="text-muted-foreground">Fuel Type:</span>{" "}
+                                    <span className="font-medium">{dvla.fuelType}</span>
                                   </div>
                                 )}
-                                {dvla?.colour && (
+                                {dvla?.taxStatus && (
                                   <div>
-                                    <span className="text-muted-foreground">Colour:</span>{" "}
-                                    <span className="font-medium">{dvla.colour}</span>
-                                  </div>
-                                )}
-                                {dvla?.verified && (
-                                  <div className="col-span-1 sm:col-span-2">
-                                    <Badge variant="outline" className="text-green-600">
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />Registry Verified
+                                    <span className="text-muted-foreground">Tax Status:</span>{" "}
+                                    <Badge variant={dvla.taxStatus === "Taxed" ? "outline" : "destructive"} className={dvla.taxStatus === "Taxed" ? "text-green-600" : ""}>
+                                      {dvla.taxStatus}
                                     </Badge>
                                   </div>
                                 )}
+                                <div className="col-span-1 sm:col-span-2">
+                                  {dvla?.verified ? (
+                                    <Badge variant="outline" className="text-green-600">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />Registry Verified
+                                    </Badge>
+                                  ) : selectedReport.vrm ? (
+                                    <span className="text-xs text-amber-600 flex items-center gap-1">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Registry data unavailable
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-amber-600 flex items-center gap-1">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      VRM detection required for registry lookup
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </CardContent>
                           </CollapsibleContent>

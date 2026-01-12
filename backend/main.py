@@ -187,20 +187,95 @@ async def get_recommendations():
         } for r in recs]
 
 @app.get("/api/analysis-reports")
-async def get_analysis_reports():
+async def get_analysis_reports(siteId: str = None, action: str = None):
     from backend.db import get_db_context
-    from backend.db.models import CaseAnalysis
+    from backend.db.models import CasePipelineResults, EnforcementCase, ParkingSite, Evidence, CaseEvidence
     
     with get_db_context() as db:
-        analyses = db.query(CaseAnalysis).all()
-        return [{
-            "id": a.id,
-            "caseId": a.case_id,
-            "summary": a.summary,
-            "recommendation": a.recommendation,
-            "confidenceScore": a.confidence_score,
-            "generatedAt": a.generated_at.isoformat() if a.generated_at else None
-        } for a in analyses]
+        query = db.query(CasePipelineResults, EnforcementCase, ParkingSite).join(
+            EnforcementCase, CasePipelineResults.case_id == EnforcementCase.id
+        ).outerjoin(
+            ParkingSite, EnforcementCase.site_id == ParkingSite.id
+        )
+        
+        if siteId and siteId != "all":
+            try:
+                query = query.filter(EnforcementCase.site_id == int(siteId))
+            except ValueError:
+                pass
+        
+        if action and action != "all":
+            query = query.filter(
+                CasePipelineResults.decision.op('->')('status').astext == action
+            )
+        
+        results = query.order_by(CasePipelineResults.created_at.desc()).all()
+        
+        reports = []
+        for pipeline, case, site in results:
+            evidence_count = db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).count()
+            
+            decision = pipeline.decision or {}
+            evidence_timeline = pipeline.evidence_timeline or {}
+            vision = pipeline.vision_results or {}
+            dvla = pipeline.dvla_data or {}
+            signage = pipeline.signage_compliance or {}
+            regulations = pipeline.regulation_evaluation or {}
+            
+            overall_confidence = decision.get("overallConfidence", 0)
+            if isinstance(overall_confidence, (int, float)):
+                confidence_percent = overall_confidence if overall_confidence > 1 else overall_confidence * 100
+            else:
+                confidence_percent = 0
+            
+            reports.append({
+                "caseId": case.id,
+                "caseReference": str(case.id)[:12] if case.id else "",
+                "siteName": site.site_name if site else "Unknown Site",
+                "siteId": case.site_id,
+                "vrm": case.vrm or vision.get("vrm") or dvla.get("vrm"),
+                "evidenceCount": evidence_count or case.evidence_count or 0,
+                "analysisTimestamp": pipeline.analysis_completed_at.isoformat() if pipeline.analysis_completed_at else pipeline.created_at.isoformat(),
+                "pipelineResults": {
+                    "pipelineStatus": pipeline.pipeline_status,
+                    "evidenceTimeline": {
+                        "imageCount": evidence_timeline.get("imageCount", evidence_count),
+                        "videoCount": evidence_timeline.get("videoCount", 0),
+                        "timestamps": evidence_timeline.get("timestamps", []),
+                        "timeRange": evidence_timeline.get("timeRange", {
+                            "first": evidence_timeline.get("observeFrom"),
+                            "last": evidence_timeline.get("observeTo"),
+                            "durationMinutes": evidence_timeline.get("durationMinutes")
+                        }),
+                        "entryWindow": evidence_timeline.get("entryWindow"),
+                        "exitWindow": evidence_timeline.get("exitWindow")
+                    },
+                    "visionResults": vision,
+                    "dvlaResults": dvla,
+                    "regulationEvaluation": {
+                        "bayType": case.bay_type or regulations.get("bayType"),
+                        "durationMinutes": regulations.get("durationMinutes"),
+                        "maxStayAllowed": regulations.get("maxStayAllowed"),
+                        "overstayMinutes": regulations.get("overstayMinutes"),
+                        "isOverstay": regulations.get("isOverstay", False)
+                    },
+                    "signageCompliance": signage,
+                    "decisionEngine": {
+                        "status": decision.get("status", "REVIEW_REQUIRED"),
+                        "overallConfidence": confidence_percent / 100 if confidence_percent > 1 else confidence_percent,
+                        "recommendation": decision.get("recommendation", "Manual review required"),
+                        "explanation": decision.get("explanation") or decision.get("reasoning") or "Analysis pending review",
+                        "reasoning": decision.get("reasoning", ""),
+                        "legalRisk": decision.get("legalRisk", "MEDIUM"),
+                        "violations": decision.get("violations", [])
+                    },
+                    "riskAssessment": {
+                        "level": decision.get("legalRisk", "medium").lower() if decision.get("legalRisk") else "medium"
+                    }
+                }
+            })
+        
+        return reports
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
