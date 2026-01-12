@@ -6,7 +6,13 @@ import { z } from "zod";
 import { Shield, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -74,14 +80,16 @@ export default function LoginPage() {
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
-      
+
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-4 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl bg-primary">
             <Shield className="h-9 w-9 text-primary-foreground" />
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">Euro Parking Services</CardTitle>
+            <CardTitle className="text-2xl font-bold">
+              Euro Parking Services
+            </CardTitle>
             <CardDescription className="mt-2">
               AI-Powered Parking Enforcement System
             </CardDescription>
@@ -161,7 +169,8 @@ export default function LoginPage() {
 
           <div className="mt-6 rounded-md bg-muted p-4">
             <p className="text-xs text-muted-foreground text-center">
-              For demo access, use credentials provided by your system administrator.
+              For demo access, use credentials provided by your system
+              administrator.
             </p>
           </div>
         </CardContent>

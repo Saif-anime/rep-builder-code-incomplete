@@ -100,7 +100,9 @@ export default function DashboardPage() {
                 <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
               </div>
               <div className="min-w-0">
-                <p className="text-lg sm:text-2xl font-bold">{stats?.totalSites || 0}</p>
+                <p className="text-lg sm:text-2xl font-bold">
+                  {stats?.totalSites || 0}
+                </p>
                 <p className="text-xs text-muted-foreground truncate">Sites</p>
               </div>
             </div>
@@ -113,8 +115,12 @@ export default function DashboardPage() {
                 <HardDrive className="h-4 w-4 sm:h-5 sm:w-5 text-purple-500" />
               </div>
               <div className="min-w-0">
-                <p className="text-lg sm:text-2xl font-bold truncate">{stats?.storageUsed || "0 GB"}</p>
-                <p className="text-xs text-muted-foreground truncate">Storage</p>
+                <p className="text-lg sm:text-2xl font-bold truncate">
+                  {stats?.storageUsed || "0 GB"}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  Storage
+                </p>
               </div>
             </div>
           </CardContent>
@@ -127,7 +133,9 @@ export default function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-lg sm:text-2xl font-bold">
-                  {(stats?.recentEvents?.length || 0) > 0 ? stats?.recentEvents.length : 0}
+                  {(stats?.recentEvents?.length || 0) > 0
+                    ? stats?.recentEvents.length
+                    : 0}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">ANPR</p>
               </div>
@@ -162,16 +170,24 @@ export default function DashboardPage() {
                           <span className="font-mono font-bold text-xs sm:text-sm">
                             {event.plateText}
                           </span>
-                          <ViolationBadge type={event.violationType} showIcon={false} />
+                          <ViolationBadge
+                            type={event.violationType}
+                            showIcon={false}
+                          />
                         </div>
                         <span className="font-mono text-[10px] sm:text-xs text-muted-foreground">
-                          {format(new Date(event.timestamp), "dd/MM/yyyy HH:mm")}
+                          {format(
+                            new Date(event.timestamp),
+                            "dd/MM/yyyy HH:mm",
+                          )}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center sm:flex-col gap-2 sm:items-end ml-10 sm:ml-0">
                       <Badge
-                        variant={event.status === "confirmed" ? "default" : "secondary"}
+                        variant={
+                          event.status === "confirmed" ? "default" : "secondary"
+                        }
                         className="text-[10px] sm:text-xs"
                       >
                         {event.status}
@@ -189,7 +205,9 @@ export default function DashboardPage() {
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <AlertTriangle className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">No recent violations</p>
+                <p className="text-sm text-muted-foreground">
+                  No recent violations
+                </p>
               </div>
             )}
           </CardContent>
@@ -220,7 +238,9 @@ export default function DashboardPage() {
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Clock className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">No recent activity</p>
+                <p className="text-sm text-muted-foreground">
+                  No recent activity
+                </p>
               </div>
             )}
           </CardContent>
