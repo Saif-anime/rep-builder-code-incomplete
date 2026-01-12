@@ -1,0 +1,218 @@
+You are a full-stack engineer working on a UK Parking Enforcement platform.
+
+TASK:
+Remove the existing “brain icon” implementation and replace it with a
+proper “Parking Site Intelligence” system.
+
+This intelligence is site-specific and is used to guide future evidence analysis.
+
+--------------------------------------------------
+1️⃣ REMOVE OLD IMPLEMENTATION
+--------------------------------------------------
+- Remove any existing brain icon logic
+- Remove old handlers, components, or placeholder code
+- Remove unused tables or flags related to old intelligence logic
+- Ensure no legacy references remain
+
+--------------------------------------------------
+2️⃣ PARKING SITES TABLE UI UPDATE
+--------------------------------------------------
+Update the Parking Sites table:
+
+For each site row:
+- Add a 🧠 (Brain icon) button
+- Position it consistently in the actions column
+- Tooltip: “Site Intelligence”
+
+On click:
+- Navigate to: /sites/:id/intelligence
+
+--------------------------------------------------
+3️⃣ NEW ROUTE & PAGE
+--------------------------------------------------
+Create a new page:
+
+Route:
+  /sites/:id/intelligence
+
+Purpose:
+  Manage all intelligence related ONLY to this parking site
+
+--------------------------------------------------
+4️⃣ INTELLIGENCE PAGE SECTIONS
+--------------------------------------------------
+The Intelligence page must contain the following sections:
+
+--------------------------------------------------
+A) SITE OVERVIEW (READ-ONLY)
+--------------------------------------------------
+- Site name
+- Location
+- Operator
+- Total bays
+- Active regulations
+
+--------------------------------------------------
+B) ATTACHMENTS SECTION
+--------------------------------------------------
+Allow uploading and managing:
+- Photos (JPEG, PNG)
+- Maps (images or PDFs)
+- Videos (MP4)
+- Site layout diagrams
+
+Requirements:
+- Multiple attachments supported
+- Each attachment has:
+  - Type
+  - Description
+  - Uploaded date
+- Stored per site
+
+--------------------------------------------------
+C) SITE BEHAVIOUR NOTES
+--------------------------------------------------
+Provide a rich text editor to store:
+- Common misuse patterns
+- Peak abuse times
+- Known issues (e.g. “EV bays often abused after 6pm”)
+- Local context notes
+
+Notes must be:
+- Editable
+- Versioned (optional but recommended)
+- Stored per site
+
+--------------------------------------------------
+D) BAY-SPECIFIC INTELLIGENCE
+--------------------------------------------------
+For each bay type at the site:
+- Disabled
+- EV
+- Parent & Child
+- Loading
+- Authorised
+- General
+
+Allow:
+- Selecting bay type
+- Adding bay-specific notes
+- Uploading bay-specific photos or diagrams
+- Marking known enforcement sensitivities
+
+Example:
+  “Disabled bays near entrance often partially obscured by foliage.”
+
+--------------------------------------------------
+E) AI INSTRUCTIONS (CRITICAL)
+--------------------------------------------------
+Add a dedicated section:
+“AI Instructions for This Site”
+
+Allow storing:
+- Plain-English instructions for AI analysis
+- Enforcement nuances
+- Exceptions and local rules
+
+Example:
+  “During football matches, Parent & Child bays are frequently misused.
+   Require stronger evidence before recommending PCN.”
+
+These instructions MUST:
+- Be site-specific
+- Be retrievable during evidence analysis
+- Never auto-generate PCNs
+- Be treated as guidance, not rules
+
+--------------------------------------------------
+5️⃣ BACKEND DATA MODEL
+--------------------------------------------------
+Add or update tables:
+
+parking_site_intelligence
+- id
+- site_id
+- created_at
+- updated_at
+
+intelligence_attachments
+- id
+- site_id
+- type (photo | map | video | document)
+- file_url
+- description
+- uploaded_at
+
+site_behaviour_notes
+- id
+- site_id
+- content
+- created_at
+- updated_at
+
+bay_intelligence
+- id
+- site_id
+- bay_type
+- notes
+- attachments_json
+- created_at
+
+ai_site_instructions
+- id
+- site_id
+- instruction_text
+- created_at
+- updated_at
+
+--------------------------------------------------
+6️⃣ API ENDPOINTS
+--------------------------------------------------
+Implement:
+- GET  /api/sites/:id/intelligence
+- POST /api/sites/:id/intelligence/attachments
+- POST /api/sites/:id/intelligence/notes
+- POST /api/sites/:id/intelligence/bays
+- POST /api/sites/:id/intelligence/ai-instructions
+
+--------------------------------------------------
+7️⃣ INTEGRATION WITH ANALYSIS (READ-ONLY)
+--------------------------------------------------
+During evidence analysis:
+- Fetch site intelligence
+- Fetch bay-specific intelligence
+- Fetch AI instructions
+
+Use them ONLY to:
+- Add context
+- Improve explanations
+- Adjust confidence scoring
+
+NEVER:
+- Auto-issue PCNs
+- Override legal rules
+- Make irreversible decisions
+
+--------------------------------------------------
+8️⃣ UI & UX REQUIREMENTS
+--------------------------------------------------
+- Responsive layout
+- Clean admin-style UI
+- Sections collapsible
+- Clear “Save” actions
+- Confirmation on delete
+
+--------------------------------------------------
+9️⃣ SAFETY & AUDIT
+--------------------------------------------------
+- All intelligence is auditable
+- Changes are traceable
+- Clear disclaimer:
+  “Site intelligence provides context and guidance only.”
+
+--------------------------------------------------
+FINAL RULE:
+This system enhances human + AI understanding.
+It does NOT replace legal enforcement rules.
+
+END TASK.
