@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -173,27 +174,22 @@ export default function RecommendationsPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-        <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-          <SelectTrigger className="w-full sm:w-[280px]" data-testid="select-site">
-            <SelectValue placeholder="All Sites" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-3 w-3" />
-                All Sites
-              </div>
-            </SelectItem>
-            {sites.map((site) => (
-              <SelectItem key={site.id} value={String(site.id)}>
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-3 w-3" />
-                  {site.siteName}
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={selectedSiteId || "all"}
+          onValueChange={setSelectedSiteId}
+          placeholder="All Sites"
+          searchPlaceholder="Search sites..."
+          emptyMessage="No sites found"
+          triggerClassName="w-full sm:w-[280px]"
+          data-testid="select-site"
+          options={[
+            { value: "all", label: "All Sites" },
+            ...sites.map((site) => ({
+              value: String(site.id),
+              label: site.siteName,
+            })),
+          ]}
+        />
 
         <Select value={actionFilter} onValueChange={setActionFilter}>
           <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-action-filter">

@@ -57,6 +57,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { UKNumberPlate } from "@/components/uk-number-plate";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { format, subDays } from "date-fns";
 
 interface SessionFlag {
@@ -323,19 +324,21 @@ export default function FlaggedSessionsPage() {
           <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             <div className="space-y-2">
               <Label htmlFor="site-filter">Site</Label>
-              <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                <SelectTrigger id="site-filter" data-testid="select-site-filter">
-                  <SelectValue placeholder="All sites" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sites</SelectItem>
-                  {sites?.slice(0, 50).map((site) => (
-                    <SelectItem key={site.id} value={String(site.id)}>
-                      {site.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={selectedSiteId}
+                onValueChange={setSelectedSiteId}
+                placeholder="All sites"
+                searchPlaceholder="Search sites..."
+                emptyMessage="No sites found"
+                data-testid="select-site-filter"
+                options={[
+                  { value: "all", label: "All Sites" },
+                  ...(sites?.map((site) => ({
+                    value: String(site.id),
+                    label: site.name,
+                  })) || []),
+                ]}
+              />
             </div>
 
             <div className="space-y-2">

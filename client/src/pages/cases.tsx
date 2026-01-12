@@ -34,6 +34,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { PipelineAnalysisReport } from "@/components/pipeline-analysis-report";
 import { UKNumberPlate } from "@/components/uk-number-plate";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import type { ParkingSite, Evidence, EnforcementCase, CaseAnalysis, EvidenceBundle, CaseVehicle } from "@shared/schema";
 
 type CaseWithDetails = EnforcementCase & {
@@ -378,18 +379,18 @@ export default function CasesPage() {
               <div className="flex flex-col gap-4 py-4">
                 <div className="flex flex-col gap-2">
                   <Label>Parking Site</Label>
-                  <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                    <SelectTrigger data-testid="select-case-site">
-                      <SelectValue placeholder="Select a site" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map((site) => (
-                        <SelectItem key={site.id} value={site.id.toString()}>
-                          {site.siteName} {site.city && `- ${site.city}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={selectedSiteId}
+                    onValueChange={setSelectedSiteId}
+                    placeholder="Select a site"
+                    searchPlaceholder="Search sites..."
+                    emptyMessage="No sites found"
+                    data-testid="select-case-site"
+                    options={sites.map((site) => ({
+                      value: site.id.toString(),
+                      label: `${site.siteName}${site.city ? ` - ${site.city}` : ""}`,
+                    }))}
+                  />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Vehicle Registration (Optional)</Label>
@@ -446,19 +447,21 @@ export default function CasesPage() {
             </div>
             <div className="flex flex-col gap-2 min-w-[150px]">
               <Label>Site</Label>
-              <Select value={siteFilter} onValueChange={setSiteFilter}>
-                <SelectTrigger data-testid="select-filter-site">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sites</SelectItem>
-                  {sites.map((site) => (
-                    <SelectItem key={site.id} value={site.id.toString()}>
-                      {site.siteName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={siteFilter}
+                onValueChange={setSiteFilter}
+                placeholder="All Sites"
+                searchPlaceholder="Search sites..."
+                emptyMessage="No sites found"
+                data-testid="select-filter-site"
+                options={[
+                  { value: "all", label: "All Sites" },
+                  ...sites.map((site) => ({
+                    value: site.id.toString(),
+                    label: site.siteName,
+                  })),
+                ]}
+              />
             </div>
           </div>
         </CardContent>
