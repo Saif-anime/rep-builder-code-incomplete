@@ -6,8 +6,8 @@ import os
 
 from backend.db import get_db
 from backend.db.models import (
-    User, Evidence, ParkingEvent, Camera, ParkingSite, ParkingSession, 
-    AuditLog, AnprEvent, EnforcementCase
+    User, Evidence, Camera, ParkingSite,
+    AuditLog, AnprEvent, EnforcementCase, CaseAnalysis
 )
 from backend.api.dependencies import get_current_user
 
@@ -21,17 +21,19 @@ async def get_dashboard_stats(
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     
     pending_count = db.query(EnforcementCase).filter(
-        EnforcementCase.status.in_(["pending", "pending_review", "awaiting_review"])
+        EnforcementCase.status.in_(["NEW", "pending", "pending_review", "awaiting_review", "ANALYZING"])
     ).count()
     
-    violations_today = db.query(EnforcementCase).filter(
+    violations_today = db.query(EnforcementCase).join(
+        CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id, isouter=True
+    ).filter(
         EnforcementCase.created_at >= today_start,
-        EnforcementCase.ai_decision == "ISSUE_PCN"
+        CaseAnalysis.recommendation == "ISSUE_PCN"
     ).count()
     
     processed_today = db.query(EnforcementCase).filter(
         EnforcementCase.updated_at >= today_start,
-        EnforcementCase.status.in_(["completed", "approved", "closed", "pcn_issued"])
+        EnforcementCase.status.in_(["COMPLETED", "completed", "approved", "closed", "pcn_issued", "PCN_ISSUED"])
     ).count()
     
     active_cameras = db.query(Camera).filter(Camera.status == "online").count()
@@ -59,8 +61,10 @@ async def get_dashboard_stats(
         AnprEvent.created_at >= today_start
     ).count()
     
-    recent_cases = db.query(EnforcementCase).filter(
-        EnforcementCase.ai_decision == "ISSUE_PCN"
+    recent_cases_with_analysis = db.query(EnforcementCase, CaseAnalysis).outerjoin(
+        CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id
+    ).filter(
+        CaseAnalysis.recommendation == "ISSUE_PCN"
     ).order_by(EnforcementCase.created_at.desc()).limit(10).all()
     
     recent_activity = db.query(AuditLog).order_by(
@@ -80,18 +84,18 @@ async def get_dashboard_stats(
         "anprCount": anpr_count,
         "recentEvents": [{
             "id": c.id,
-            "violationType": c.violation_type or "Unknown",
+            "violationType": c.bay_type or (a.bay_type if a else "Unknown"),
             "plateText": c.vrm or "Unknown",
             "timestamp": c.created_at.isoformat() if c.created_at else None,
-            "confidence": c.ai_confidence or 0,
+            "confidence": a.confidence_score if a else 0,
             "status": c.status or "pending"
-        } for c in recent_cases],
+        } for c, a in recent_cases_with_analysis],
         "recentActivity": [{
             "id": a.id,
             "action": a.action,
             "entityType": a.entity_type,
             "entityId": a.entity_id or "",
-            "userName": users.get(a.user_id).name if a.user_id and users.get(a.user_id) else "System",
+            "userName": users.get(a.user_id).full_name if a.user_id and users.get(a.user_id) else "System",
             "timestamp": a.created_at.isoformat() if a.created_at else None,
             "details": a.details.get("summary") if a.details and isinstance(a.details, dict) else None
         } for a in recent_activity]
