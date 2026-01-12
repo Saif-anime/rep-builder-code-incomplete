@@ -9,8 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Upload, Edit, Trash2, MapPin, Loader2, FileJson, AlertTriangle, Search, FileText } from "lucide-react";
-import { FaBrain } from "react-icons/fa";
+import { Plus, Upload, Edit, Trash2, MapPin, Loader2, FileJson, AlertTriangle, Search, FileText, Lightbulb } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -457,13 +456,14 @@ export default function AdminSitesPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Button 
-                            size="icon" 
-                            variant="secondary"
+                            size="sm"
+                            variant="outline"
                             title="Site Intelligence" 
                             data-testid={`button-intelligence-site-${site.id}`}
                             onClick={() => navigate(`/sites/${site.id}/intelligence`)}
                           >
-                            <FaBrain className="h-4 w-4" />
+                            <Lightbulb className="h-4 w-4 mr-1" />
+                            Intel
                           </Button>
                           <Link href={`/sites/${site.id}/signage`}>
                             <Button size="icon" variant="ghost" title="Site Signage" data-testid={`button-signage-site-${site.id}`}>
