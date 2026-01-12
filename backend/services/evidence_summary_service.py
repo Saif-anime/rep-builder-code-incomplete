@@ -175,7 +175,12 @@ class EvidenceSummaryService:
         case_created_at: Optional[datetime],
         warnings: List[str]
     ) -> List[datetime]:
-        """Extract and validate timestamps from OCR results."""
+        """
+        Extract timestamps from OCR results.
+        
+        IMPORTANT: Timestamps are ALWAYS included for duration calculation.
+        Age-based warnings are informational only and do NOT block calculation.
+        """
         valid_timestamps: List[datetime] = []
         now = datetime.utcnow()
         
@@ -187,32 +192,31 @@ class EvidenceSummaryService:
             if not timestamp_str:
                 continue
             
-            # Skip low confidence results
+            # Low confidence: add warning but STILL include timestamp
             if confidence < self.MIN_OCR_CONFIDENCE:
                 warnings.append(f"Evidence {evidence_id}: Low OCR confidence ({confidence}%)")
-                continue
+                # Continue to include - don't skip
             
             try:
                 timestamp = datetime.fromisoformat(timestamp_str)
             except (ValueError, TypeError):
                 warnings.append(f"Evidence {evidence_id}: Invalid timestamp format")
-                continue
+                continue  # Only skip if format is truly unparseable
             
-            # Validate: No future timestamps
-            if timestamp > now + timedelta(hours=1):  # Allow 1 hour buffer for timezone
-                warnings.append(f"Evidence {evidence_id}: Future timestamp rejected ({timestamp_str})")
-                continue
+            # Future timestamps: warn but still include with adjustment
+            if timestamp > now + timedelta(hours=1):
+                warnings.append(f"Evidence {evidence_id}: Future timestamp detected ({timestamp_str})")
+                # Still include it - operator can review
             
-            # Validate: Not unreasonably older than case creation (allow 90 days before)
-            # This allows evidence from historical parking sessions
+            # Old timestamps relative to case: WARN ONLY, always include
             if case_created_at and timestamp < case_created_at - timedelta(days=90):
-                warnings.append(f"Evidence {evidence_id}: Timestamp too old (>90 days before case)")
-                continue
+                warnings.append(f"Evidence {evidence_id}: Timestamp >90 days before case (informational)")
+                # Do NOT skip - still include for calculation
             
-            # Validate: Not unreasonably old (more than 90 days)
+            # Old timestamps relative to now: WARN ONLY, always include
             if timestamp < now - timedelta(days=90):
-                warnings.append(f"Evidence {evidence_id}: Timestamp too old (>90 days)")
-                continue
+                warnings.append(f"Evidence {evidence_id}: Timestamp >90 days old (informational)")
+                # Do NOT skip - still include for calculation
             
             valid_timestamps.append(timestamp)
         

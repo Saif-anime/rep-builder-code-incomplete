@@ -1,0 +1,138 @@
+You are a senior full-stack engineer working on a UK Parking Enforcement
+Evidence Analysis system.
+
+PROBLEM:
+When evidence files are added, the system fails to calculate:
+- Observe From
+- Observe To
+- Duration
+
+This happens when evidence timestamps are from different dates or years,
+or when timestamps are marked as “too old”.
+
+GOAL:
+ALWAYS calculate Observe From, Observe To, and Duration
+based purely on evidence timestamps, regardless of date or year.
+
+--------------------------------------------------
+1️⃣ CORE RULE (MANDATORY)
+--------------------------------------------------
+The system MUST:
+
+- Ignore case creation date
+- Ignore year/month/day mismatch
+- Ignore “timestamp too old” logic for time calculation
+- Use ONLY the earliest and latest valid evidence timestamps
+
+Time calculation must NEVER be blocked due to age of evidence.
+
+--------------------------------------------------
+2️⃣ TIMESTAMP EXTRACTION LOGIC
+--------------------------------------------------
+For each evidence item:
+
+Priority order for timestamp:
+1. Embedded camera timestamp (if present)
+2. OCR-detected timestamp
+3. EXIF metadata
+4. System upload time (LAST fallback)
+
+If a timestamp is detected:
+- Parse it into a normalized UTC DateTime object
+- Store it as `evidence_timestamp`
+
+--------------------------------------------------
+3️⃣ OBSERVE FROM / TO CALCULATION
+--------------------------------------------------
+When ≥ 2 evidence items exist:
+
+- Observe From = earliest `evidence_timestamp`
+- Observe To   = latest `evidence_timestamp`
+
+This must work even if:
+- Evidence is months or years old
+- Evidence spans different calendar years
+- Case date is newer than evidence date
+
+--------------------------------------------------
+4️⃣ DURATION CALCULATION
+--------------------------------------------------
+Duration = Observe To − Observe From
+
+Rules:
+- Calculate duration in minutes and seconds
+- Duration must always be shown if timestamps exist
+- Never block duration calculation due to validation warnings
+
+Example:
+Observe From: 12-03-2023 09:12:14
+Observe To:   12-03-2023 09:24:52
+Duration:     12 minutes 38 seconds
+
+--------------------------------------------------
+5️⃣ VALIDATION WARNINGS (NON-BLOCKING)
+--------------------------------------------------
+If evidence is:
+- Older than X days
+- From a different year
+- From a different case timeline
+
+Then:
+- Show a warning ONLY
+- DO NOT block Observe From / To
+- DO NOT block Duration
+- DO NOT block PCN eligibility automatically
+
+Warnings must be informational, not fatal.
+
+--------------------------------------------------
+6️⃣ UI REQUIREMENTS
+--------------------------------------------------
+Evidence Summary panel must ALWAYS show:
+
+- Observe From (if ≥1 timestamp exists)
+- Observe To (if ≥2 timestamps exist)
+- Duration (if Observe From & To exist)
+
+If calculation is based on fallback timestamps:
+- Show a small label: “Derived from system time”
+
+--------------------------------------------------
+7️⃣ BACKEND CHANGES
+--------------------------------------------------
+Update evidence processing service to:
+
+- Aggregate all evidence timestamps
+- Sort chronologically
+- Persist:
+  - observe_from
+  - observe_to
+  - duration_seconds
+
+Store these values at case level.
+
+--------------------------------------------------
+8️⃣ REMOVE BLOCKING LOGIC
+--------------------------------------------------
+Remove or refactor any logic that:
+- Prevents duration calculation due to timestamp age
+- Ties time calculation to case creation date
+- Forces manual review ONLY because of old timestamps
+
+Manual review should be triggered by conflicts, not age.
+
+--------------------------------------------------
+9️⃣ TEST CASES (MUST PASS)
+--------------------------------------------------
+✔ Evidence from 2022 → duration calculated
+✔ Evidence from mixed years → duration calculated
+✔ Evidence added today but captured last year → duration calculated
+✔ OCR-only timestamps → duration calculated
+✔ EXIF-only timestamps → duration calculated
+
+--------------------------------------------------
+FINAL RULE:
+Time calculation must be deterministic, chronological,
+and independent of enforcement timelines.
+
+END TASK.
