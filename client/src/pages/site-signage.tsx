@@ -95,9 +95,13 @@ export default function SiteSignagePage() {
           variant: "default"
         });
       } else {
+        const notes = result.notes || "";
+        const isImageBased = notes.includes("image-based") || notes.includes("very little extractable text");
         toast({ 
           title: "PDF processed", 
-          description: "Could not extract clear rules - please review",
+          description: isImageBased 
+            ? "PDF appears to be image-based. Please upload a text-based PDF."
+            : "Could not extract clear rules - please review",
           variant: "destructive"
         });
       }

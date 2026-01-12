@@ -303,25 +303,25 @@ async def upload_site_signage_pdf(
     # Calculate hash
     sha256_hash = hashlib.sha256(content).hexdigest()
     
-    # Extract text from PDF using pdf_parse library
+    # Extract text from PDF using pypdf
     extracted_text = ""
     try:
-        import pdf_parse as pdf_parser
-        parsed = pdf_parser.parse(content)
-        extracted_text = parsed.get("text", "") if parsed else ""
-    except Exception:
-        try:
-            # Fallback: Use PyPDF2 if available
-            from pypdf import PdfReader
-            import io
-            reader = PdfReader(io.BytesIO(content))
-            text_parts = []
-            for page in reader.pages:
-                text_parts.append(page.extract_text() or "")
-            extracted_text = "\n".join(text_parts)
-        except Exception:
-            # Last fallback - just note the file was uploaded
-            extracted_text = f"[PDF uploaded: {file.filename or 'unknown'}]"
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(content))
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            text_parts.append(page_text)
+        extracted_text = "\n".join(text_parts)
+        print(f"[Signage] Extracted {len(extracted_text)} characters from {len(reader.pages)} pages")
+        
+        # If very little text was extracted, it might be a scanned PDF
+        if len(extracted_text.strip()) < 50:
+            print(f"[Signage] Warning: Very little text extracted - PDF may be scanned/image-based")
+    except Exception as e:
+        print(f"[Signage] PDF text extraction failed: {str(e)}")
+        extracted_text = f"[PDF uploaded: {file.filename or 'unknown'} - text extraction failed]"
     
     # Analyze signage using AI
     filename = file.filename or "uploaded.pdf"
@@ -406,10 +406,22 @@ async def activate_signage(
 
 async def analyze_signage_pdf(text: str, filename: str) -> dict:
     """Analyze PDF text to extract signage rules using AI."""
+    # Check if we have meaningful text to analyze
+    clean_text = text.strip() if text else ""
+    if len(clean_text) < 50 or clean_text.startswith("[PDF uploaded"):
+        print(f"[Signage] Insufficient text for AI analysis: {len(clean_text)} chars")
+        return {
+            "title": f"Signage from {filename}",
+            "confidenceScore": 0.1,
+            "notes": "PDF appears to be image-based or contains very little extractable text. Please upload a text-based PDF or manually enter the signage rules.",
+            "rawText": clean_text[:500] if clean_text else None
+        }
+    
     try:
         from openai import OpenAI
         
         client = OpenAI()
+        print(f"[Signage] Analyzing {len(clean_text)} characters with AI...")
         
         prompt = f"""Analyze this parking signage document and extract the following information:
 
@@ -426,7 +438,7 @@ Extract and return a JSON object with:
 6. restrictions: Array of specific restrictions
 7. specialBays: Array of special bay types mentioned (disabled, EV, parent & child, loading)
 8. penalties: Penalty charge amount if mentioned
-9. confidenceScore: Your confidence in the extraction (0-1)
+9. confidenceScore: Your confidence in the extraction (0-1). Use 0.7+ if clear rules found, 0.4-0.7 if partial, below 0.4 if unclear.
 10. notes: Any additional relevant notes
 
 Return ONLY valid JSON."""
@@ -442,12 +454,16 @@ Return ONLY valid JSON."""
         )
         
         result_text = response.choices[0].message.content
+        print(f"[Signage] AI response received")
         
         # Parse JSON from response
         json_match = re.search(r'\{[\s\S]*\}', result_text)
         if json_match:
-            return json.loads(json_match.group())
+            parsed = json.loads(json_match.group())
+            print(f"[Signage] Extracted with confidence: {parsed.get('confidenceScore', 'unknown')}")
+            return parsed
         
+        print(f"[Signage] Could not parse JSON from AI response")
         return {
             "title": f"Signage from {filename}",
             "confidenceScore": 0.3,
@@ -455,6 +471,7 @@ Return ONLY valid JSON."""
         }
         
     except Exception as e:
+        print(f"[Signage] AI analysis error: {str(e)}")
         return {
             "title": f"Signage from {filename}",
             "confidenceScore": 0.2,
