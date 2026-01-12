@@ -380,7 +380,7 @@ export default function SiteIntelligencePage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link href="/parking-sites">
+          <Link href="/admin/sites">
             <Button variant="ghost" size="icon" data-testid="button-back">
               <ArrowLeft className="h-4 w-4" />
             </Button>
