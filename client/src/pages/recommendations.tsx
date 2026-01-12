@@ -52,7 +52,7 @@ interface AnalysisReport {
 }
 
 export default function RecommendationsPage() {
-  const [selectedSiteId, setSelectedSiteId] = useState<string>("");
+  const [selectedSiteId, setSelectedSiteId] = useState<string>("all");
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [selectedReport, setSelectedReport] = useState<AnalysisReport | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["summary", "decision"]));
@@ -175,7 +175,7 @@ export default function RecommendationsPage() {
 
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <SearchableSelect
-          value={selectedSiteId || "all"}
+          value={selectedSiteId}
           onValueChange={setSelectedSiteId}
           placeholder="All Sites"
           searchPlaceholder="Search sites..."

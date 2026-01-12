@@ -59,7 +59,7 @@ export default function CasesPage() {
   const { toast } = useToast();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<CaseWithDetails | null>(null);
-  const [selectedSiteId, setSelectedSiteId] = useState<string>("");
+  const [selectedSiteId, setSelectedSiteId] = useState<string>("none");
   const [vrm, setVrm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [siteFilter, setSiteFilter] = useState<string>("all");
@@ -386,10 +386,13 @@ export default function CasesPage() {
                     searchPlaceholder="Search sites..."
                     emptyMessage="No sites found"
                     data-testid="select-case-site"
-                    options={sites.map((site) => ({
-                      value: site.id.toString(),
-                      label: `${site.siteName}${site.city ? ` - ${site.city}` : ""}`,
-                    }))}
+                    options={[
+                      { value: "none", label: "Select a site..." },
+                      ...sites.map((site) => ({
+                        value: site.id.toString(),
+                        label: `${site.siteName}${site.city ? ` - ${site.city}` : ""}`,
+                      })),
+                    ]}
                   />
                 </div>
                 <div className="flex flex-col gap-2">
