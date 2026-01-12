@@ -273,10 +273,10 @@ class EvidenceSummaryService:
         duration = observe_to - observe_from
         duration_minutes = int(duration.total_seconds() / 60)
         
-        # Validate: Duration > 24 hours is invalid
+        # Validate: Duration > 24 hours is suspicious but still return the value
         if duration_minutes > self.MAX_DURATION_MINUTES:
-            warnings.append(f"Duration exceeds 24 hours ({duration_minutes} minutes) - INVALID")
-            return None, False
+            warnings.append(f"Duration exceeds 24 hours ({duration_minutes} minutes) - requires manual review")
+            return duration_minutes, False  # Return value but mark as invalid
         
         return duration_minutes, True
     
