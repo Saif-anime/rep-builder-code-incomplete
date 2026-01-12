@@ -802,7 +802,7 @@ export function EvidenceAnalysisReport({
       </Card>
 
       {/* Weather Conditions Card */}
-      {(weatherData?.weather || loadingWeather) && (
+      {(weatherData !== undefined || loadingWeather) && (
         <Card data-testid="card-weather">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
