@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Upload, Edit, Trash2, MapPin, Loader2, FileJson, AlertTriangle, Search, FileText, Brain } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -32,6 +32,7 @@ interface SiteFormData {
 
 export default function AdminSitesPage() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editSite, setEditSite] = useState<ParkingSite | null>(null);
   const [deleteSite, setDeleteSite] = useState<ParkingSite | null>(null);
@@ -454,11 +455,15 @@ export default function AdminSitesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Link href={`/sites/${site.id}/intelligence`}>
-                            <Button size="icon" variant="ghost" title="Site Intelligence - Bay Learning" data-testid={`button-intelligence-site-${site.id}`}>
-                              <Brain className="h-4 w-4 text-primary" />
-                            </Button>
-                          </Link>
+                          <Button 
+                            size="icon" 
+                            variant="ghost" 
+                            title="Site Intelligence" 
+                            data-testid={`button-intelligence-site-${site.id}`}
+                            onClick={() => navigate(`/sites/${site.id}/intelligence`)}
+                          >
+                            <Brain className="h-4 w-4 text-primary" />
+                          </Button>
                           <Link href={`/sites/${site.id}/signage`}>
                             <Button size="icon" variant="ghost" title="Site Signage" data-testid={`button-signage-site-${site.id}`}>
                               <FileText className="h-4 w-4" />
