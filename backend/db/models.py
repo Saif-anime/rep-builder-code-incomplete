@@ -72,6 +72,7 @@ class ParkingSite(Base):
     disabled_bays = Column(Integer, default=0)
     ev_bays = Column(Integer, default=0)
     parent_child_bays = Column(Integer, default=0)
+    ai_instructions = Column(Text)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 

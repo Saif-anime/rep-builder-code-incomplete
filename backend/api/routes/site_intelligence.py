@@ -8,6 +8,7 @@ Manages site-specific intelligence for parking enforcement:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
@@ -516,3 +517,58 @@ async def delete_site_attachment(
     db.commit()
     
     return {"success": True, "message": "Attachment deleted"}
+
+
+@router.get("/api/sites/{site_id}/intelligence/ai-instructions")
+async def get_site_ai_instructions(
+    site_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get AI instructions for a specific site."""
+    site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    return {
+        "siteId": site.id,
+        "siteName": site.site_name,
+        "aiInstructions": site.ai_instructions or ""
+    }
+
+
+class AIInstructionsUpdate(BaseModel):
+    aiInstructions: str = ""
+
+
+@router.put("/api/sites/{site_id}/intelligence/ai-instructions")
+async def update_site_ai_instructions(
+    site_id: int,
+    data: AIInstructionsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update AI instructions for a specific site."""
+    site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    site.ai_instructions = data.aiInstructions
+    db.commit()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="update",
+        entity_type="site_ai_instructions",
+        entity_id=str(site_id),
+        details={"siteName": site.site_name, "instructionsLength": len(data.aiInstructions)}
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "siteId": site.id,
+        "siteName": site.site_name,
+        "aiInstructions": site.ai_instructions
+    }
