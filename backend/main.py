@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 import uvicorn
 
 from backend.config import settings
@@ -103,6 +103,11 @@ if os.path.exists(DIST_DIR):
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "backend": "python", "version": "2.0.0"}
+
+@app.get("/parking-sites")
+async def redirect_parking_sites():
+    """Redirect old parking-sites route to admin/sites"""
+    return RedirectResponse(url="/admin/sites", status_code=302)
 
 @app.get("/api/audit-logs")
 async def get_audit_logs(limit: int = 50):
