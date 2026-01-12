@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -91,6 +91,7 @@ export default function SiteIntelligencePage() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadCategory, setUploadCategory] = useState("BAY_PHOTO");
+  const [aiInstructions, setAiInstructions] = useState("");
 
   const [bayForm, setBayForm] = useState({
     bayIdentifier: "",
@@ -115,6 +116,31 @@ export default function SiteIntelligencePage() {
   const { data: intelligence, isLoading } = useQuery<SiteIntelligenceData>({
     queryKey: ["/api/sites", siteId, "intelligence"],
     enabled: !!siteId,
+  });
+
+  const { data: aiInstructionsData } = useQuery<{ siteId: number; siteName: string; aiInstructions: string }>({
+    queryKey: ["/api/sites", siteId, "intelligence", "ai-instructions"],
+    enabled: !!siteId,
+  });
+
+  useEffect(() => {
+    if (aiInstructionsData) {
+      setAiInstructions(aiInstructionsData.aiInstructions || "");
+    }
+  }, [aiInstructionsData, siteId]);
+
+  const saveAiInstructionsMutation = useMutation({
+    mutationFn: async (instructions: string) => {
+      const res = await apiRequest("PUT", `/api/sites/${siteId}/intelligence/ai-instructions`, { aiInstructions: instructions });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "AI Instructions saved successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId, "intelligence", "ai-instructions"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save AI instructions", description: error.message, variant: "destructive" });
+    }
   });
 
   const createBayMutation = useMutation({
@@ -384,6 +410,7 @@ export default function SiteIntelligencePage() {
           <TabsTrigger value="bays" data-testid="tab-bays">Bay Details</TabsTrigger>
           <TabsTrigger value="patterns" data-testid="tab-patterns">Behavior Patterns</TabsTrigger>
           <TabsTrigger value="attachments" data-testid="tab-attachments">Attachments</TabsTrigger>
+          <TabsTrigger value="ai-instructions" data-testid="tab-ai-instructions">AI Instructions</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bays" className="space-y-4">
@@ -606,6 +633,83 @@ export default function SiteIntelligencePage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="ai-instructions" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5" />
+                Site-Specific AI Instructions
+              </CardTitle>
+              <CardDescription>
+                Define custom AI analysis instructions for this parking site. These instructions will guide the AI when analyzing parking evidence at this location.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>AI Instructions</Label>
+                <Textarea
+                  value={aiInstructions}
+                  onChange={(e) => setAiInstructions(e.target.value)}
+                  placeholder="Enter site-specific AI instructions...
+
+Example:
+- This site has a mix of public and permit-only bays
+- The disabled bays near the entrance have poor visibility due to overhanging trees
+- Always check for UK Blue Badge display on the dashboard
+- Loading bay has 20-minute maximum during business hours"
+                  className="min-h-[400px] font-mono text-sm"
+                  data-testid="textarea-ai-instructions"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  {aiInstructions.length} characters
+                </p>
+                <Button 
+                  onClick={() => saveAiInstructionsMutation.mutate(aiInstructions)}
+                  disabled={saveAiInstructionsMutation.isPending}
+                  data-testid="button-save-ai-instructions"
+                >
+                  {saveAiInstructionsMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  Save Instructions
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Instruction Guidelines</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="text-sm text-muted-foreground space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-primary font-medium">Site Context:</span>
+                  Describe unique characteristics of this parking site
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary font-medium">Bay Rules:</span>
+                  Specify any special rules for specific bay types
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary font-medium">Signage Notes:</span>
+                  Document signage visibility issues or common confusion points
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary font-medium">Enforcement Priorities:</span>
+                  Highlight areas that require extra attention
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary font-medium">Known Issues:</span>
+                  Document recurring problems or patterns at this site
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
