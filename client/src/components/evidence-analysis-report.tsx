@@ -55,7 +55,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { CaseAnalysis, CaseVehicle, Evidence, BayType } from "@shared/schema";
 
 interface EvidenceAnalysisReportProps {
-  bundleId: string;
+  bundleId: string | number;
   caseReference: string;
   analysis: CaseAnalysis | null;
   vehicles: CaseVehicle[];
@@ -84,10 +84,8 @@ function formatBayTypeLabel(bayType: string | null | undefined): string {
     "parent_child_bay": "Parent & Child Bay",
     "authorised": "Authorised Bay",
     "authorized": "Authorised Bay",
-    "permit_holders": "Permit Holders Only",
     "authorised_bay": "Authorised Bay",
     "ev": "Electric Vehicle Bay",
-    "ev_bay": "Electric Vehicle Bay",
     "electric_vehicle": "Electric Vehicle Bay",
     "ev_charging": "EV Charging Bay",
     "charging": "EV Charging Bay",
@@ -305,6 +303,101 @@ interface PipelineResults {
         };
       }>;
     };
+    parentChildAnalysis?: {
+      bayType: string;
+      decision: "COMPLIANT" | "NON_COMPLIANT" | "MANUAL_REVIEW" | "REVIEW_REQUIRED";
+      action?: string;
+      reason: string;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      confidenceScore: number;
+      childPresent: boolean;
+      childSeatVisible: boolean;
+      pregnantIndicator: boolean;
+      specialNeedsIndicator: boolean;
+      childDetected?: boolean;
+      observationDurationMinutes?: number;
+      vehiclePositionValid?: boolean;
+      manualReviewRequired: boolean;
+      legalJustification: string;
+      childDetection?: {
+        detected: boolean;
+        confidence: number;
+        framesWithChildren: number;
+        notes: string;
+        supportingEvidence?: Array<{
+          evidenceId: number;
+          timestamp: string | null;
+          description: string;
+          confidence: number;
+        }>;
+      };
+    };
+    authorisedBayAnalysis?: {
+      bayType: string;
+      decision: "COMPLIANT" | "NON_COMPLIANT" | "MANUAL_REVIEW" | "AUTHORISED" | "REVIEW_REQUIRED";
+      action?: string;
+      reason: string;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      confidenceScore: number;
+      authorisationFound?: boolean;
+      authorisationType?: string;
+      permitVisible: boolean;
+      permitType: string | null;
+      permitExpiry: string | null;
+      permitExpired: boolean;
+      vehicleMatchesPermit: boolean;
+      vehiclePositionValid?: boolean;
+      manualReviewRequired: boolean;
+      legalJustification: string;
+      permitCheck?: {
+        permitVisible: boolean;
+        permitReadable?: boolean;
+        matchesVehicle?: boolean;
+        expiryDetected?: boolean;
+        expiryDate?: string | null;
+        notes?: string[];
+      };
+      evidenceQuality?: {
+        visibility: string;
+        issues?: string[];
+        confidence: number;
+      };
+    };
+    evBayAnalysis?: {
+      bayType: string;
+      decision: "COMPLIANT" | "NON_COMPLIANT" | "MANUAL_REVIEW" | "REVIEW_REQUIRED";
+      reason: string;
+      confidence: "HIGH" | "MEDIUM" | "LOW";
+      confidenceScore: number;
+      chargerConnected?: boolean;
+      chargingActive?: boolean;
+      cableConnected?: boolean;
+      chargingPortVisible?: boolean;
+      chargingStationVisible?: boolean;
+      vehicleIsEv?: boolean;
+      vehicleLikelyHybrid?: boolean;
+      evBadgingDetected?: boolean;
+      observationDurationMinutes?: number;
+      manualReviewRequired: boolean;
+      legalJustification: string;
+      chargerAssessment?: {
+        visibility: string;
+        confidence: number;
+        notes: string;
+      };
+      vehicleAssessment?: {
+        makeModel: string;
+        confidence: number;
+        notes: string;
+      };
+      supportingEvidence?: Array<{
+        evidenceId: number;
+        timestamp: string | null;
+        description: string;
+        confidence: number;
+        thumbnailUrl?: string;
+      }>;
+    };
   } | null;
   decision: {
     status: "PCN_ELIGIBLE" | "REVIEW_REQUIRED" | "NO_PCN" | "BLOCKED_BY_BAY_RULE";
@@ -413,10 +506,16 @@ export function EvidenceAnalysisReport({
     enabled: !!bundleId,
   });
 
-  const { data: weatherData, isLoading: loadingWeather } = useQuery<WeatherResponse>({
+  const { data: weatherData, isLoading: loadingWeather, error: weatherError } = useQuery<WeatherResponse>({
     queryKey: [`/api/evidence/bundles/${bundleId}/weather`],
     enabled: !!bundleId,
+    retry: 1,
   });
+  
+  // Debug weather query
+  if (weatherError) {
+    console.error("[Weather Query Error]", weatherError);
+  }
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
@@ -801,28 +900,31 @@ export function EvidenceAnalysisReport({
         </CardContent>
       </Card>
 
-      {/* Weather Conditions Card */}
-      {(weatherData !== undefined || loadingWeather) && (
-        <Card data-testid="card-weather">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Cloud className="h-4 w-4" />
-              Weather Conditions
-              {weatherData?.weather?.earliest?.weather_description && (
-                <Badge variant="outline" className="ml-auto gap-1">
-                  {getWeatherIcon(weatherData.weather.earliest.weather_code, weatherData.weather.earliest.is_day)}
-                  {weatherData.weather.earliest.weather_description}
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loadingWeather ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading weather data...
-              </div>
-            ) : weatherData?.weather?.earliest ? (
+      {/* Weather Conditions Card - Always show */}
+      <Card data-testid="card-weather">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Cloud className="h-4 w-4" />
+            Weather Conditions
+            {weatherData?.weather?.earliest?.weather_description && (
+              <Badge variant="outline" className="ml-auto gap-1">
+                {getWeatherIcon(weatherData.weather.earliest.weather_code, weatherData.weather.earliest.is_day)}
+                {weatherData.weather.earliest.weather_description}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingWeather ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading weather data...
+            </div>
+          ) : weatherError ? (
+            <p className="text-sm text-muted-foreground">
+              Unable to load weather data. Please try again.
+            </p>
+          ) : weatherData?.weather?.earliest ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {weatherData.weather.earliest.temperature_c !== null && (
@@ -957,7 +1059,6 @@ export function EvidenceAnalysisReport({
             )}
           </CardContent>
         </Card>
-      )}
 
       <Card data-testid="card-compliance">
         <CardHeader className="pb-2">
