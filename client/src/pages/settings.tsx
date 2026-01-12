@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -220,6 +220,17 @@ export default function SettingsPage() {
     autoAnalyze: true,
     autoPcn: false,
   });
+
+  useEffect(() => {
+    if (aiSettings) {
+      setLocalAiSettings({
+        detectionThreshold: aiSettings.detectionThreshold,
+        anprThreshold: aiSettings.anprThreshold,
+        autoAnalyze: aiSettings.autoAnalyze,
+        autoPcn: aiSettings.autoPcn,
+      });
+    }
+  }, [aiSettings]);
 
   return (
     <div className="space-y-6">
@@ -602,11 +613,11 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <Label>Object Detection Threshold</Label>
                     <span className="text-sm font-medium">
-                      {aiSettings?.detectionThreshold ?? localAiSettings.detectionThreshold}%
+                      {localAiSettings.detectionThreshold}%
                     </span>
                   </div>
                   <Slider
-                    value={[aiSettings?.detectionThreshold ?? localAiSettings.detectionThreshold]}
+                    value={[localAiSettings.detectionThreshold]}
                     onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, detectionThreshold: value }))}
                     max={100}
                     min={50}
@@ -622,11 +633,11 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <Label>ANPR Confidence Threshold</Label>
                     <span className="text-sm font-medium">
-                      {aiSettings?.anprThreshold ?? localAiSettings.anprThreshold}%
+                      {localAiSettings.anprThreshold}%
                     </span>
                   </div>
                   <Slider
-                    value={[aiSettings?.anprThreshold ?? localAiSettings.anprThreshold]}
+                    value={[localAiSettings.anprThreshold]}
                     onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, anprThreshold: value }))}
                     max={100}
                     min={50}
@@ -648,7 +659,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <Switch
-                    checked={aiSettings?.autoAnalyze ?? localAiSettings.autoAnalyze}
+                    checked={localAiSettings.autoAnalyze}
                     onCheckedChange={(checked) => setLocalAiSettings((s) => ({ ...s, autoAnalyze: checked }))}
                     data-testid="switch-auto-analyze"
                   />
@@ -662,7 +673,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <Switch
-                    checked={aiSettings?.autoPcn ?? localAiSettings.autoPcn}
+                    checked={localAiSettings.autoPcn}
                     onCheckedChange={(checked) => setLocalAiSettings((s) => ({ ...s, autoPcn: checked }))}
                     data-testid="switch-auto-pcn"
                   />
