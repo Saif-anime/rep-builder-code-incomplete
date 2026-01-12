@@ -1035,7 +1035,7 @@ async def run_case_pipeline(
             base_confidence = decision.get("overallConfidence", 70) / 100.0
             guidance = site_intel_service.calculate_enforcement_confidence(
                 site_id=case.site_id,
-                bay_type=bay_type or "Standard",
+                bay_type=case.bay_type or "Standard",
                 base_confidence=base_confidence,
                 observation_time=first_time
             )
