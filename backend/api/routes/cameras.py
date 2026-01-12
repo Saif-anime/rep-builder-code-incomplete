@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
 from backend.db import get_db
-from backend.db.models import User, Camera, AuditLog
+from backend.db.models import User, Camera, AuditLog, AnprEvent
 from backend.api.dependencies import get_current_user, require_role
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -84,9 +85,16 @@ async def delete_camera(
     current_user: User = Depends(require_role("admin"))
 ):
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    if camera:
-        db.delete(camera)
-        db.commit()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    db.query(AnprEvent).filter(AnprEvent.camera_id == camera_id).update(
+        {"camera_id": None}, synchronize_session=False
+    )
+    db.commit()
+    
+    db.delete(camera)
+    db.commit()
     
     audit_log = AuditLog(
         user_id=current_user.id,
