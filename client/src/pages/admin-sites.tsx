@@ -458,13 +458,12 @@ export default function AdminSitesPage() {
                         <div className="flex items-center justify-end gap-1">
                           <Button 
                             size="icon" 
-                            variant="default"
-                            className="bg-blue-500 hover:bg-blue-600"
+                            variant="secondary"
                             title="Site Intelligence" 
                             data-testid={`button-intelligence-site-${site.id}`}
                             onClick={() => navigate(`/sites/${site.id}/intelligence`)}
                           >
-                            <FaBrain className="h-4 w-4 text-white" />
+                            <FaBrain className="h-4 w-4" />
                           </Button>
                           <Link href={`/sites/${site.id}/signage`}>
                             <Button size="icon" variant="ghost" title="Site Signage" data-testid={`button-signage-site-${site.id}`}>
