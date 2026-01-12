@@ -21,6 +21,7 @@ import FlaggedSessionsPage from "@/pages/flagged-sessions";
 import RecommendationsPage from "@/pages/recommendations";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
+import AnprScansPage from "@/pages/anpr-scans";
 
 function ProtectedRoutes() {
   const [location] = useLocation();
@@ -36,6 +37,7 @@ function ProtectedRoutes() {
       <Route path="/flagged-sessions" component={FlaggedSessionsPage} />
       <Route path="/recommendations" component={RecommendationsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/anpr-scans" component={AnprScansPage} />
       <Route component={NotFound} />
     </Switch>
   );

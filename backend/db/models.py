@@ -677,6 +677,34 @@ class SiteBehaviorPattern(Base):
     updated_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
+class AnprScan(Base):
+    """ANPR scan results from folder processing."""
+    __tablename__ = "anpr_scans"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    folder_path = Column(Text, nullable=False)
+    image_filename = Column(Text, nullable=False)
+    image_path = Column(Text, nullable=False)
+    vrm = Column(Text)
+    vrm_confidence = Column(Float)
+    timestamp_extracted = Column(DateTime)
+    timestamp_confidence = Column(Float)
+    dvla_make = Column(Text)
+    dvla_model = Column(Text)
+    dvla_colour = Column(Text)
+    dvla_fuel_type = Column(Text)
+    dvla_tax_status = Column(Text)
+    dvla_mot_status = Column(Text)
+    dvla_year = Column(Integer)
+    dvla_verified = Column(Boolean, nullable=False, default=False)
+    dvla_error = Column(Text)
+    dvla_raw_data = Column(JSONB)
+    status = Column(Text, nullable=False, default="pending")
+    error_message = Column(Text)
+    processed_at = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
 class SiteIntelligenceAttachment(Base):
     """Attachments for site intelligence (photos, maps, videos)."""
     __tablename__ = "site_intelligence_attachments"

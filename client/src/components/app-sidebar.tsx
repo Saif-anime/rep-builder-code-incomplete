@@ -9,6 +9,7 @@ import {
   MapPin,
   Flag,
   Lightbulb,
+  Car,
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,11 @@ const mainNavItems = [
     title: "AI Reports",
     url: "/recommendations",
     icon: Lightbulb,
+  },
+  {
+    title: "ANPR Scanner",
+    url: "/anpr-scans",
+    icon: Car,
   },
 ];
 
