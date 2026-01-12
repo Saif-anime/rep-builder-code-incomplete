@@ -1,0 +1,97 @@
+You are working on a React-based Parking Enforcement System.
+
+TASK:
+Enhance ALL dropdown/select components across the application to include a built-in search/filter capability.
+
+This must apply to:
+- Parking Site selector (Upload Evidence modal)
+- Any dropdown with more than 5 options
+- Admin configuration dropdowns
+- AI Reports filters
+- Evidence filters
+
+DO NOT remove or redesign existing dropdown UI.
+DO NOT break current form submission or validation logic.
+
+----------------------------------
+FUNCTIONAL REQUIREMENTS
+----------------------------------
+
+1. SEARCH BEHAVIOUR
+- Add a text input at the top of each dropdown list
+- User can type to filter options in real-time
+- Matching must be:
+  - Case-insensitive
+  - Partial string match
+  - Match against full label text (e.g. site name + city)
+
+Example:
+Typing "birm" should match:
+- "1–3 Manchester Road – Birmingham"
+- "12–14 Legge In – Birmingham"
+
+----------------------------------
+2. UX RULES
+----------------------------------
+- Search input appears automatically when dropdown opens
+- If there are no matches:
+  - Show “No results found”
+- Keyboard support:
+  - Arrow keys navigate results
+  - Enter selects
+  - Esc closes dropdown
+- Clear search automatically when dropdown closes
+
+----------------------------------
+3. PERFORMANCE
+----------------------------------
+- Filter client-side (no API calls)
+- Debounce input by ~150ms
+- Must handle 1,000+ items smoothly
+
+----------------------------------
+4. ACCESSIBILITY
+----------------------------------
+- Search input must be focusable
+- Dropdown remains screen-reader friendly
+- Maintain existing aria attributes
+
+----------------------------------
+5. IMPLEMENTATION STRATEGY
+----------------------------------
+
+- Create a reusable component:
+  `SearchableSelect`
+- Wrap or replace existing `<select>` logic internally
+- Props must remain compatible with current usage:
+  - value
+  - onChange
+  - options[]
+  - disabled
+  - placeholder
+
+----------------------------------
+6. BACKWARD COMPATIBILITY
+----------------------------------
+- Existing dropdowns should continue to work without changes
+- If a dropdown has < 5 options:
+  - Search input may remain hidden
+
+----------------------------------
+7. VISUAL CONSISTENCY
+----------------------------------
+- Use existing fonts, spacing, and colors
+- No new icons required
+- Do not introduce external UI libraries
+
+----------------------------------
+FINAL CHECK
+----------------------------------
+Verify:
+- Parking Site dropdown is searchable
+- Search works in Evidence upload modal
+- Search works in admin & AI report filters
+- No console errors
+- No regression in form submission
+
+Implement cleanly and refactor existing dropdowns where required.

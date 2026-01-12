@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -349,19 +350,21 @@ export default function EvidencePage() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Parking Site</Label>
-                  <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                    <SelectTrigger data-testid="select-site">
-                      <SelectValue placeholder="Select site" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No site selected</SelectItem>
-                      {parkingSites.map((site) => (
-                        <SelectItem key={site.id} value={site.id.toString()}>
-                          {site.siteName} {site.city && `- ${site.city}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={selectedSiteId}
+                    onValueChange={setSelectedSiteId}
+                    placeholder="Select site"
+                    searchPlaceholder="Search sites..."
+                    emptyMessage="No sites found"
+                    data-testid="select-site"
+                    options={[
+                      { value: "none", label: "No site selected" },
+                      ...parkingSites.map((site) => ({
+                        value: site.id.toString(),
+                        label: `${site.siteName}${site.city ? ` - ${site.city}` : ""}`,
+                      })),
+                    ]}
+                  />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Camera (Optional)</Label>
