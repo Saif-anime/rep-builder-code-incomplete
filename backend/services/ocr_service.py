@@ -38,42 +38,62 @@ class OCRService:
         ext = os.path.splitext(image_path)[1].lower()
         media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
         
-        prompt = """CRITICAL: Carefully read this parking enforcement evidence image and extract the EXACT timestamp AND vehicle number plate (VRM).
+        prompt = """CRITICAL PARKING ENFORCEMENT EVIDENCE - Extract EXACT timestamp AND vehicle number plate (VRM).
 
-TIMESTAMP EXTRACTION - VERY IMPORTANT:
+=== TIMESTAMP EXTRACTION ===
 1. Look at ALL corners and edges for camera overlay text showing date/time
-2. READ EACH DIGIT AND CHARACTER CAREFULLY - accuracy is critical for legal enforcement
+2. READ EACH DIGIT CAREFULLY - accuracy is critical for legal enforcement
 3. Common UK camera overlay formats:
    - DD/MM/YYYY HH:MM:SS (e.g., "22/11/2025 17:05:23")
    - YYYY-MM-DD HH:MM:SS (e.g., "2025-11-22 17:05:23")
-   - DD-MM-YYYY HH:MM:SS (e.g., "22-11-2025 17:05:23")
-4. The timestamp is usually in a corner (often bottom-left or top-right) with a distinct font
-5. Double-check: If digits look similar (1/7, 6/8, 0/O), examine the pixel pattern carefully
-6. NEVER guess digits - if unclear, report lower confidence
+4. Double-check similar digits: 1/7, 6/8, 0/O - examine pixel patterns carefully
+5. NEVER guess - if unclear, report lower confidence
 
-VRM (NUMBER PLATE) - Look for:
-1. UK format plates on vehicles (front or rear)
-2. Standard formats: AB12 CDE, A123 ABC, ABC 123A
-3. Look for the distinctive yellow (rear) or white (front) plate backgrounds
+=== VRM (NUMBER PLATE) EXTRACTION - CRITICAL ACCURACY REQUIRED ===
 
-VERIFICATION:
-- Report the EXACT text as displayed, including any separators (/, -, :)
-- Do not "correct" or modify what you see - report raw text faithfully
-- If multiple timestamps visible, report the clearest one
+STEP 1 - LOCATE THE PLATE:
+- Find the rectangular plate on vehicle (front white or rear yellow background)
+- UK plates have black text on white/yellow background
+- Standard UK dimensions: 520mm x 111mm (front/rear)
+
+STEP 2 - READ EACH CHARACTER INDIVIDUALLY:
+Read the plate LEFT to RIGHT, spelling out EACH character one by one.
+UK plates have 7 characters in format: XX00 XXX (2 letters, 2 numbers, space, 3 letters)
+
+STEP 3 - CHARACTER VERIFICATION:
+Common OCR confusion pairs - check EACH character carefully:
+- 0 (zero) vs O (letter) - zeros are typically rounder and may have a slash
+- 1 (one) vs I (letter I) vs L (letter L) - check serifs and proportions
+- 5 (five) vs S (letter) - 5 has a flat top, S is curved
+- 8 (eight) vs B (letter) - 8 is symmetrical, B has flat left side
+- 2 (two) vs Z (letter) - 2 has curved bottom, Z is angular
+- 6 (six) vs G (letter) - 6 is closed, G has an opening
+- D vs 0 - D has flat left side
+
+STEP 4 - UK FORMAT VALIDATION:
+Current format (2001+): AA00 AAA - Two letters (area code), two numbers (age), three letters (random)
+- First two chars MUST be letters (A-Z, excluding I and Q)
+- Next two chars MUST be numbers (00-99)
+- Last three chars MUST be letters
+If your reading doesn't match this pattern, RE-CHECK the ambiguous characters!
+
+STEP 5 - DOUBLE VERIFICATION:
+Spell out the plate again character by character. If readings differ, use lower confidence.
 
 Return a JSON object with:
 {
   "timestamp": "YYYY-MM-DD HH:MM:SS" format (CONVERT the displayed format to this standard),
-  "timestamp_raw_text": "EXACT characters as displayed in image (e.g., '22/11/2025 17:05:23')",
+  "timestamp_raw_text": "EXACT characters as displayed in image",
   "timestamp_confidence": 0-100 (lower if any digits are ambiguous),
   "timestamp_location": "precise location (e.g., 'bottom-left corner overlay')",
-  "vrm": "PLATE TEXT" with space (e.g., "LS10 XRX") or null,
-  "vrm_raw_text": "exact plate text as displayed",
-  "vrm_confidence": 0-100 score,
-  "vrm_location": "where in image (e.g., 'rear plate on silver vehicle')"
+  "vrm": "PLATE TEXT" with space after 4th char (e.g., "LS10 XRX") or null,
+  "vrm_raw_text": "exact plate text character by character",
+  "vrm_confidence": 0-100 score (lower if ANY character is ambiguous),
+  "vrm_location": "where in image (e.g., 'rear plate on silver vehicle')",
+  "vrm_char_by_char": "L-S-1-0 X-R-X (spell out each character you see)"
 }
 
-If items not found, set values to null with 0 confidence.
+ACCURACY IS CRITICAL - wrong VRM means wrong vehicle charged. When in doubt, reduce confidence.
 Return ONLY the JSON object, no other text."""
         
         try:
@@ -137,9 +157,15 @@ Return ONLY the JSON object, no other text."""
                 content = content.replace("```", "")
             result = json.loads(content.strip())
             
+            # Log character-by-character breakdown for debugging
+            if result.get("vrm_char_by_char"):
+                logger.info(f"VRM char-by-char breakdown: {result.get('vrm_char_by_char')}")
+            
             # Normalize VRM if found
             if result.get("vrm"):
+                original_vrm = result["vrm"]
                 result["vrm"] = self._normalize_vrm(result["vrm"])
+                logger.info(f"VRM extracted: '{original_vrm}' -> normalized: '{result['vrm']}' (confidence: {result.get('vrm_confidence', 0)})")
             
             # Remap for backward compatibility
             return {
@@ -150,7 +176,8 @@ Return ONLY the JSON object, no other text."""
                 "vrm": result.get("vrm"),
                 "vrm_raw_text": result.get("vrm_raw_text"),
                 "vrm_confidence": result.get("vrm_confidence", 0),
-                "vrm_location": result.get("vrm_location")
+                "vrm_location": result.get("vrm_location"),
+                "vrm_char_by_char": result.get("vrm_char_by_char")
             }
         except json.JSONDecodeError:
             # Try regex fallback
