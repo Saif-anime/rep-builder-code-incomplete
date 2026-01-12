@@ -25,6 +25,7 @@ interface DashboardStats {
   activeCameras: number;
   totalSites: number;
   storageUsed: string;
+  anprCount: number;
   recentEvents: Array<{
     id: number;
     violationType: string;
@@ -133,11 +134,9 @@ export default function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-lg sm:text-2xl font-bold">
-                  {(stats?.recentEvents?.length || 0) > 0
-                    ? stats?.recentEvents.length
-                    : 0}
+                  {stats?.anprCount || 0}
                 </p>
-                <p className="text-xs text-muted-foreground truncate">ANPR</p>
+                <p className="text-xs text-muted-foreground truncate">ANPR Today</p>
               </div>
             </div>
           </CardContent>

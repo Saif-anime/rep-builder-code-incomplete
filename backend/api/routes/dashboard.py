@@ -6,7 +6,8 @@ import os
 
 from backend.db import get_db
 from backend.db.models import (
-    User, Evidence, ParkingEvent, Camera, ParkingSite, ParkingSession
+    User, Evidence, ParkingEvent, Camera, ParkingSite, ParkingSession, 
+    AuditLog, AnprEvent, EnforcementCase
 )
 from backend.api.dependencies import get_current_user
 
@@ -17,14 +18,20 @@ async def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    pending_count = db.query(Evidence).filter(Evidence.status == "pending").count()
-    
-    violations_count = db.query(ParkingEvent).filter(ParkingEvent.is_violation == True).count()
-    
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    processed_today = db.query(Evidence).filter(
-        Evidence.status.in_(["completed", "approved"]),
-        Evidence.analysis_completed_at >= today_start
+    
+    pending_count = db.query(EnforcementCase).filter(
+        EnforcementCase.status.in_(["pending", "pending_review", "awaiting_review"])
+    ).count()
+    
+    violations_today = db.query(EnforcementCase).filter(
+        EnforcementCase.created_at >= today_start,
+        EnforcementCase.ai_decision == "ISSUE_PCN"
+    ).count()
+    
+    processed_today = db.query(EnforcementCase).filter(
+        EnforcementCase.updated_at >= today_start,
+        EnforcementCase.status.in_(["completed", "approved", "closed", "pcn_issued"])
     ).count()
     
     active_cameras = db.query(Camera).filter(Camera.status == "online").count()
@@ -36,7 +43,10 @@ async def get_dashboard_stats(
     if os.path.exists(uploads_dir):
         for root, dirs, files in os.walk(uploads_dir):
             for f in files:
-                storage_bytes += os.path.getsize(os.path.join(root, f))
+                try:
+                    storage_bytes += os.path.getsize(os.path.join(root, f))
+                except:
+                    pass
     
     if storage_bytes >= 1024 * 1024 * 1024:
         storage_used = f"{storage_bytes / (1024 * 1024 * 1024):.1f} GB"
@@ -45,21 +55,44 @@ async def get_dashboard_stats(
     else:
         storage_used = f"{storage_bytes / 1024:.1f} KB"
     
-    recent_events = db.query(ParkingEvent).order_by(ParkingEvent.created_at.desc()).limit(10).all()
+    anpr_count = db.query(AnprEvent).filter(
+        AnprEvent.created_at >= today_start
+    ).count()
+    
+    recent_cases = db.query(EnforcementCase).filter(
+        EnforcementCase.ai_decision == "ISSUE_PCN"
+    ).order_by(EnforcementCase.created_at.desc()).limit(10).all()
+    
+    recent_activity = db.query(AuditLog).order_by(
+        AuditLog.created_at.desc()
+    ).limit(10).all()
+    
+    activity_user_ids = [a.user_id for a in recent_activity if a.user_id]
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(activity_user_ids)).all()} if activity_user_ids else {}
     
     return {
         "pendingReview": pending_count,
-        "totalViolations": violations_count,
+        "totalViolations": violations_today,
         "processedToday": processed_today,
         "activeCameras": active_cameras,
         "totalSites": total_sites,
         "storageUsed": storage_used,
+        "anprCount": anpr_count,
         "recentEvents": [{
-            "id": e.id,
-            "violationType": e.violation_type,
-            "plateText": "",
-            "timestamp": e.created_at.isoformat() if e.created_at else None,
-            "confidence": e.ai_confidence,
-            "status": e.status
-        } for e in recent_events]
+            "id": c.id,
+            "violationType": c.violation_type or "Unknown",
+            "plateText": c.vrm or "Unknown",
+            "timestamp": c.created_at.isoformat() if c.created_at else None,
+            "confidence": c.ai_confidence or 0,
+            "status": c.status or "pending"
+        } for c in recent_cases],
+        "recentActivity": [{
+            "id": a.id,
+            "action": a.action,
+            "entityType": a.entity_type,
+            "entityId": a.entity_id or "",
+            "userName": users.get(a.user_id).name if a.user_id and users.get(a.user_id) else "System",
+            "timestamp": a.created_at.isoformat() if a.created_at else None,
+            "details": a.details.get("summary") if a.details and isinstance(a.details, dict) else None
+        } for a in recent_activity]
     }
