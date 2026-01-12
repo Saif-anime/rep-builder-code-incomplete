@@ -159,15 +159,20 @@ export default function SettingsPage() {
   });
 
   const updateAiSettingsMutation = useMutation({
-    mutationFn: async (data: typeof aiSettings) => {
-      return apiRequest("PATCH", "/api/settings/ai", data);
+    mutationFn: async (data: { detectionThreshold: number; anprThreshold: number; autoAnalyze: boolean; autoPcn: boolean }) => {
+      const response = await apiRequest("PATCH", "/api/settings/ai", data);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to save settings");
+      }
+      return response.json();
     },
     onSuccess: () => {
       toast({ title: "Settings saved", description: "AI settings have been updated." });
       queryClient.invalidateQueries({ queryKey: ["/api/settings/ai"] });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to save settings.", variant: "destructive" });
     },
   });
 
