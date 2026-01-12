@@ -1825,3 +1825,63 @@ async def get_case_pcn(
         "issuedAt": pcn.issued_at.isoformat() if pcn.issued_at else None,
         "createdAt": pcn.created_at.isoformat() if pcn.created_at else None
     }
+
+@router.get("/{id}/weather")
+async def get_case_weather(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get weather data for a case based on evidence timestamps.
+    Accepts either case ID or bundle ID.
+    """
+    from backend.services.weather_service import get_weather_for_evidence
+    
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if not case:
+        return {"weather": None, "message": "Case not found"}
+    
+    if not case.site_id:
+        return {"weather": None, "message": "No site associated with case"}
+    
+    # Get all evidence for this case through bundles
+    bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).all()
+    bundle_ids = [b.id for b in bundles]
+    
+    if not bundle_ids:
+        return {"weather": None, "message": "No evidence bundles for case"}
+    
+    evidence_list = db.query(Evidence).filter(
+        Evidence.bundle_id.in_(bundle_ids)
+    ).order_by(Evidence.timestamp.asc()).all()
+    
+    if not evidence_list:
+        return {"weather": None, "message": "No evidence in case"}
+    
+    timestamps = [e.timestamp for e in evidence_list if e.timestamp]
+    if not timestamps:
+        return {"weather": None, "message": "No timestamps on evidence"}
+    
+    earliest_ts = min(timestamps)
+    latest_ts = max(timestamps)
+    
+    earliest_weather = await get_weather_for_evidence(db, case.site_id, earliest_ts)
+    
+    latest_weather = None
+    if latest_ts != earliest_ts:
+        latest_weather = await get_weather_for_evidence(db, case.site_id, latest_ts)
+    
+    return {
+        "weather": {
+            "earliest": earliest_weather,
+            "latest": latest_weather,
+            "observation_period": {
+                "start": earliest_ts.isoformat(),
+                "end": latest_ts.isoformat()
+            }
+        },
+        "site_id": case.site_id,
+        "case_id": case.id
+    }

@@ -507,15 +507,10 @@ export function EvidenceAnalysisReport({
   });
 
   const { data: weatherData, isLoading: loadingWeather, error: weatherError } = useQuery<WeatherResponse>({
-    queryKey: [`/api/evidence/bundles/${bundleId}/weather`],
+    queryKey: [`/api/cases/${bundleId}/weather`],
     enabled: !!bundleId,
     retry: 1,
   });
-  
-  // Debug weather query
-  if (weatherError) {
-    console.error("[Weather Query Error]", weatherError);
-  }
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
