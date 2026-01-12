@@ -215,8 +215,8 @@ export default function SettingsPage() {
   });
 
   const [localAiSettings, setLocalAiSettings] = useState({
-    detectionThreshold: 0.7,
-    anprThreshold: 0.8,
+    detectionThreshold: 85,
+    anprThreshold: 80,
     autoAnalyze: true,
     autoPcn: false,
   });
@@ -602,12 +602,12 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <Label>Object Detection Threshold</Label>
                     <span className="text-sm font-medium">
-                      {Math.round((aiSettings?.detectionThreshold || localAiSettings.detectionThreshold) * 100)}%
+                      {aiSettings?.detectionThreshold ?? localAiSettings.detectionThreshold}%
                     </span>
                   </div>
                   <Slider
-                    value={[(aiSettings?.detectionThreshold || localAiSettings.detectionThreshold) * 100]}
-                    onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, detectionThreshold: value / 100 }))}
+                    value={[aiSettings?.detectionThreshold ?? localAiSettings.detectionThreshold]}
+                    onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, detectionThreshold: value }))}
                     max={100}
                     min={50}
                     step={5}
@@ -622,12 +622,12 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <Label>ANPR Confidence Threshold</Label>
                     <span className="text-sm font-medium">
-                      {Math.round((aiSettings?.anprThreshold || localAiSettings.anprThreshold) * 100)}%
+                      {aiSettings?.anprThreshold ?? localAiSettings.anprThreshold}%
                     </span>
                   </div>
                   <Slider
-                    value={[(aiSettings?.anprThreshold || localAiSettings.anprThreshold) * 100]}
-                    onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, anprThreshold: value / 100 }))}
+                    value={[aiSettings?.anprThreshold ?? localAiSettings.anprThreshold]}
+                    onValueChange={([value]) => setLocalAiSettings((s) => ({ ...s, anprThreshold: value }))}
                     max={100}
                     min={50}
                     step={5}
