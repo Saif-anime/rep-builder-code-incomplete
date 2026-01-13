@@ -506,13 +506,15 @@ export function EvidenceAnalysisReport({
     enabled: !!bundleId,
   });
 
-  const { data: weatherData, isLoading: loadingWeather, error: weatherError } = useQuery<WeatherResponse>({
-    queryKey: [`/api/cases/${bundleId}/weather`],
+  const { data: weatherData, isLoading: loadingWeather, error: weatherError, status: weatherStatus } = useQuery<WeatherResponse>({
+    queryKey: ["/api/cases", bundleId, "weather"],
     enabled: !!bundleId,
     retry: 1,
+    staleTime: 0,
+    gcTime: 0,
   });
 
-  console.log("[Weather Debug]", { bundleId, loadingWeather, weatherError: weatherError?.message, weatherData });
+  console.log("[Weather Debug]", { bundleId, loadingWeather, weatherStatus, weatherError: weatherError?.message, hasData: !!weatherData });
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
