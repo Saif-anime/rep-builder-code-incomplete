@@ -512,6 +512,8 @@ export function EvidenceAnalysisReport({
     retry: 1,
   });
 
+  console.log("[Weather Debug]", { bundleId, loadingWeather, weatherError: weatherError?.message, weatherData });
+
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", `/api/cases/${bundleId}/reanalyze-evidence`);
