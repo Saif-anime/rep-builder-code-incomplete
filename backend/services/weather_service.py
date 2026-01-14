@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, Tuple, List
 from sqlalchemy.orm import Session
 from enum import Enum
 
-from backend.db.models import Evidence, EvidenceBundle, EnforcementCase, ParkingSite, CasePipelineResult
+from backend.db.models import Evidence, EvidenceBundle, EnforcementCase, ParkingSite, CasePipelineResults
 
 
 class WeatherSeverity(str, Enum):

@@ -119,9 +119,14 @@ export function HourlyWeatherSelector({
   const { data, isLoading, refetch } = useQuery<HourlyWeatherResponse>({
     queryKey: [`/api/evidence/weather/${siteId}/hourly`, selectedDate],
     queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      const headers: HeadersInit = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(
         `/api/evidence/weather/${siteId}/hourly?date=${selectedDate}`,
-        { credentials: "include" }
+        { credentials: "include", headers }
       );
       if (!response.ok) throw new Error("Failed to fetch weather");
       return response.json();
