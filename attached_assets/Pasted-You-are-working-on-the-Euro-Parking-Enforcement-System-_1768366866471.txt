@@ -1,0 +1,169 @@
+You are working on the Euro Parking Enforcement System.
+
+CRITICAL INSTRUCTION:
+REMOVE ALL EXISTING WEATHER-RELATED CODE, DATA, API CALLS, UI COMPONENTS,
+DATABASE FIELDS, CACHE LOGIC, AND AI RULES.
+
+Do NOT reuse or reference any previous weather implementation.
+
+------------------------------------
+OBJECTIVE
+------------------------------------
+Rebuild a clean, deterministic weather analysis system that:
+- Uses ONLY timestamps derived from evidence
+- Fetches HISTORICAL weather data
+- Displays accurate weather results in Evidence & AI Reports
+- Never blocks analysis or PCN decisions
+
+------------------------------------
+STEP 0: COMPLETE CLEANUP
+------------------------------------
+Delete or disable:
+- Any existing weather services
+- Any weather DB fields
+- Any cached weather logic
+- Any UI weather panels
+- Any AI decision rules using weather
+
+Confirm zero weather code remains before rebuilding.
+
+------------------------------------
+STEP 1: TIME SOURCE HIERARCHY (MANDATORY)
+------------------------------------
+Determine time strictly in this order:
+
+1. OCR timestamp extracted from image
+2. Observe From / Observe To timestamps
+3. Manual upload timestamp (LAST RESORT)
+
+Rules:
+- NEVER use system current time
+- NEVER use API current weather
+- Normalize all times to UTC internally
+- Store original local time for display
+
+------------------------------------
+STEP 2: TIMESTAMP EXTRACTION
+------------------------------------
+- Use OCR to extract date/time text from images
+- Accept UK CCTV formats:
+  - DD/MM/YYYY HH:mm:ss
+  - DD-MM-YYYY HH:mm
+  - YYYY-MM-DD HH:mm:ss
+- Validate extracted timestamps
+- Reject future dates
+- Detect inconsistent timestamps across images
+
+------------------------------------
+STEP 3: OBSERVE WINDOW LOGIC
+------------------------------------
+If multiple timestamps exist:
+- Observe From = earliest valid timestamp
+- Observe To   = latest valid timestamp
+- Duration = Observe To - Observe From
+
+If only one timestamp:
+- Use same value for From & To
+
+------------------------------------
+STEP 4: LOCATION RESOLUTION
+------------------------------------
+- Always use Parking Site latitude & longitude
+- Do NOT rely on EXIF GPS
+- Do NOT allow user override
+
+------------------------------------
+STEP 5: HISTORICAL WEATHER QUERY
+------------------------------------
+Fetch historical weather using ONE provider only:
+(OpenWeather Timemachine OR Meteostat OR Visual Crossing)
+
+Query rules:
+- If Observe From == Observe To:
+  - Fetch weather at that exact time
+- If Observe window > 0:
+  - Fetch weather at midpoint time
+
+------------------------------------
+STEP 6: WEATHER DATA NORMALIZATION
+------------------------------------
+Extract and store:
+- Condition (Clear / Rain / Snow / Fog / Ice)
+- Temperature (°C)
+- Precipitation (mm)
+- Wind speed (mph)
+- Visibility (meters if available)
+- Weather severity classification:
+  - Normal
+  - Reduced Visibility
+  - Adverse
+  - Severe
+
+------------------------------------
+STEP 7: DATA STORAGE
+------------------------------------
+Store weather data linked to:
+- Evidence bundle ID
+- Observe From timestamp
+- Observe To timestamp
+- API source
+- Data confidence level
+
+Weather data must be immutable once saved.
+
+------------------------------------
+STEP 8: UI DISPLAY
+------------------------------------
+Add a NEW section:
+
+"EVIDENCE WEATHER ANALYSIS"
+
+Display:
+- Time window used
+- Site name
+- Weather condition icon
+- Temperature
+- Rain / snow indicator
+- Wind speed
+- Visibility
+- Weather source
+- Confidence badge
+
+------------------------------------
+STEP 9: AI USAGE (READ-ONLY)
+------------------------------------
+AI may:
+- Read weather data
+- Mention it in reasoning
+- Adjust confidence scoring
+
+AI may NOT:
+- Recalculate weather
+- Change weather data
+- Fetch new weather
+
+------------------------------------
+STEP 10: FAIL-SAFE BEHAVIOUR
+------------------------------------
+If timestamp invalid or missing:
+- Show "Weather unavailable – time not reliable"
+- Set confidence LOW
+- Continue enforcement workflow
+
+If weather API fails:
+- Log error
+- Show "Weather unavailable"
+- Do NOT retry repeatedly
+
+------------------------------------
+FINAL VERIFICATION CHECKLIST
+------------------------------------
+✓ All old weather code removed
+✓ Weather tied ONLY to evidence time
+✓ Uses historical weather (not live)
+✓ Observe From / To respected
+✓ UI displays clearly
+✓ No blocking errors
+✓ No silent fallbacks
+
+Implement clean, readable, production-ready code.
