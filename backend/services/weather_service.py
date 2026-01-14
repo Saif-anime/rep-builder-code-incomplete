@@ -349,9 +349,9 @@ async def get_evidence_weather(
     ocr_timestamps = []
     case_id = bundle.case_id
     if case_id:
-        pipeline_result = db.query(CasePipelineResult).filter(
-            CasePipelineResult.case_id == case_id
-        ).order_by(CasePipelineResult.created_at.desc()).first()
+        pipeline_result = db.query(CasePipelineResults).filter(
+            CasePipelineResults.case_id == case_id
+        ).order_by(CasePipelineResults.created_at.desc()).first()
         
         if pipeline_result and pipeline_result.evidence_timeline:
             timeline = pipeline_result.evidence_timeline

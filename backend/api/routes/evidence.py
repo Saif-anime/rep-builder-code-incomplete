@@ -851,15 +851,7 @@ async def select_weather_hour(
                         pass
                 
                 if case:
-                    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
-                    if case_analysis:
-                        analysis_data = case_analysis.analysis_data or {}
-                        analysis_data["weather"] = selected_weather
-                        analysis_data["weather_manually_selected"] = True
-                        case_analysis.analysis_data = analysis_data
-                        case_analysis.updated_at = datetime.utcnow()
-                        db.commit()
-                        updated_case = case.id
+                    updated_case = case.id
                     
                     audit_log = AuditLog(
                         user_id=current_user.id,
