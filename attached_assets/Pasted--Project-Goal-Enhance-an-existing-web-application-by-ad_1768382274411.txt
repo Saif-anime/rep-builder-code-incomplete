@@ -1,0 +1,211 @@
+🔹 Project Goal
+
+Enhance an existing web application by adding real-time PTZ control and live video for a Hikvision ANPR PTZ camera (Model: DS-2DE7A425IW-AEB(T5)), without breaking existing features.
+
+🔹 Tech Stack (MANDATORY)
+
+Backend: Node.js + TypeScript
+
+Framework: Express
+
+Real-time: WebSocket
+
+Auth to camera: Digest Authentication
+
+Frontend: React + TypeScript
+
+Streaming: RTSP (camera) → WebRTC-ready (MediaMTX compatible)
+
+Deployment target: Replit
+
+🔹 Key Constraints
+
+Do NOT replace existing application
+
+Add PTZ control as a modular feature
+
+Camera credentials must NEVER be exposed to frontend
+
+Browser must NEVER directly call the camera
+
+All camera communication must go through backend
+
+PTZ must behave like a joystick (continuous + stop)
+
+🔧 Backend Requirements (Node.js + TS)
+1. Camera Configuration
+
+Create a config file:
+
+camera.ts
+
+
+Fields:
+
+CAMERA_IP
+
+USERNAME
+
+PASSWORD
+
+CHANNEL = 1
+
+Use Digest Auth for all camera calls.
+
+2. PTZ Control API
+
+Implement ISAPI PTZ control:
+
+Endpoint:
+
+PUT /ISAPI/PTZCtrl/channels/1/continuous
+
+
+XML body:
+
+<PTZData>
+  <pan>{-100 to 100}</pan>
+  <tilt>{-100 to 100}</tilt>
+  <zoom>{-100 to 100}</zoom>
+</PTZData>
+
+
+Include:
+
+move left / right / up / down
+
+zoom in / zoom out
+
+STOP command (0,0,0)
+
+3. WebSocket PTZ Gateway
+
+Create WebSocket server:
+
+Accept joystick commands from frontend
+
+Throttle to max 10 commands/second
+
+Automatically send STOP when client disconnects
+
+Validate pan/tilt/zoom limits
+
+Return PTZ status
+
+4. REST API
+
+Expose:
+
+POST /api/ptz/move
+
+POST /api/ptz/stop
+
+POST /api/ptz/preset/:id
+
+GET /api/ptz/status
+
+Secure endpoints so only authenticated users can access.
+
+🎥 Live Video
+
+Provide RTSP URL builder
+
+Prepare MediaMTX-compatible config
+
+Frontend should be WebRTC-ready
+
+Do NOT embed camera RTSP credentials in UI
+
+🖥️ Frontend Requirements (React + TS)
+PTZ Control Panel Component
+
+Create a reusable component:
+
+On-screen joystick (mouse + touch)
+
+Buttons for:
+
+Left / Right / Up / Down
+
+Zoom In / Zoom Out
+
+Stop
+
+Uses WebSocket for PTZ commands
+
+Sends STOP on mouseup / touchend
+
+Live Stream Component
+
+Placeholder video component
+
+Ready to attach WebRTC stream
+
+Must not block UI if stream is unavailable
+
+Integration
+
+Mount PTZ UI inside existing dashboard layout
+
+No breaking changes to current routes
+
+Clean modular structure
+
+🧠 AI / ANPR Future-Ready (Do Not Implement Now)
+
+Prepare hooks for future Python service:
+
+/api/ai/events
+
+/api/ai/ptz-adjust
+
+Webhook-based communication
+
+DO NOT implement AI logic yet — just structure.
+
+🔐 Security
+
+Never expose camera IP publicly
+
+Rate-limit PTZ commands
+
+Validate all inputs
+
+Use environment variables for secrets
+
+📁 Expected Folder Structure
+/server
+  /ptz
+    ptz.service.ts
+    ptz.ws.ts
+  camera.ts
+  index.ts
+
+/client
+  /components
+    PTZJoystick.tsx
+    LiveStream.tsx
+
+✅ Output Expectations
+
+Working PTZ movement
+
+Smooth joystick control
+
+Safe STOP handling
+
+Modular integration with existing app
+
+Clean, commented, production-quality code
+
+🔹 Important
+
+Assume this project will later integrate:
+
+Python-based ANPR
+
+Auto-tracking
+
+Event-based PTZ movement
+
+Design accordingly.

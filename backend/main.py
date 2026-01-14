@@ -26,6 +26,7 @@ from backend.api.routes.dashboard import router as dashboard_router
 from backend.api.routes.site_intelligence import router as site_intelligence_router
 from backend.api.routes.anpr import router as anpr_router
 from backend.api.routes.settings import router as settings_router
+from backend.api.routes.ptz import router as ptz_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -94,6 +95,7 @@ app.include_router(dashboard_router)
 app.include_router(site_intelligence_router)
 app.include_router(anpr_router)
 app.include_router(settings_router)
+app.include_router(ptz_router)
 
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")

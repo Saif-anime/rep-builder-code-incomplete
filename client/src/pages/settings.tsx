@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Gamepad2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +57,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Camera as CameraType, Bay, ParkingSite } from "@shared/schema";
+import { PTZJoystick, LiveStream } from "@/components/ptz";
 
 const cameraSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -79,6 +81,8 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [isCameraDialogOpen, setIsCameraDialogOpen] = useState(false);
   const [isBayDialogOpen, setIsBayDialogOpen] = useState(false);
+  const [ptzCameraId, setPtzCameraId] = useState<number | null>(null);
+  const [ptzCameraName, setPtzCameraName] = useState<string>("");
 
   const { data: cameras, isLoading: camerasLoading } = useQuery<CameraType[]>({
     queryKey: ["/api/cameras"],
@@ -443,6 +447,18 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-2">
                           <Button 
                             variant="ghost" 
+                            size="icon"
+                            onClick={() => {
+                              setPtzCameraId(camera.id);
+                              setPtzCameraName(camera.name);
+                            }}
+                            title="PTZ Control"
+                            data-testid={`button-ptz-camera-${camera.id}`}
+                          >
+                            <Gamepad2 className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
                             size="icon" 
                             onClick={() => checkCameraMutation.mutate(camera.id)}
                             disabled={isChecking}
@@ -708,6 +724,30 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={ptzCameraId !== null} onOpenChange={(open) => !open && setPtzCameraId(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Gamepad2 className="h-5 w-5" />
+              PTZ Control - {ptzCameraName}
+            </DialogTitle>
+          </DialogHeader>
+          {ptzCameraId && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LiveStream
+                cameraId={ptzCameraId}
+                cameraName={ptzCameraName}
+              />
+              <PTZJoystick cameraId={ptzCameraId} />
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground mt-2">
+            <p>Use the joystick or directional buttons to control camera movement.</p>
+            <p>PTZ commands require network access to the camera. Local cameras (192.168.x.x) may not be reachable from cloud servers.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
