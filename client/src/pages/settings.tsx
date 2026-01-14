@@ -59,7 +59,7 @@ import type { Camera as CameraType, Bay, ParkingSite } from "@shared/schema";
 
 const cameraSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  siteId: z.string().min(1, "Parking site is required"),
+  siteId: z.string().optional(),
   ipAddress: z.string().min(1, "IP address is required"),
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
@@ -124,7 +124,11 @@ export default function SettingsPage() {
 
   const addCameraMutation = useMutation({
     mutationFn: async (data: CameraFormValues) => {
-      return apiRequest("POST", "/api/cameras", data);
+      const payload = {
+        ...data,
+        siteId: data.siteId && data.siteId !== "none" ? data.siteId : undefined,
+      };
+      return apiRequest("POST", "/api/cameras", payload);
     },
     onSuccess: () => {
       toast({ title: "Camera added", description: "Camera has been configured successfully." });
@@ -301,14 +305,15 @@ export default function SettingsPage() {
                       name="siteId"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Parking Site</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <FormLabel>Parking Site (Optional)</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
                             <FormControl>
                               <SelectTrigger data-testid="select-camera-site">
-                                <SelectValue placeholder="Select a parking site" />
+                                <SelectValue placeholder="Select a parking site (optional)" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
+                              <SelectItem value="none">No Site - Use IP as Location</SelectItem>
                               {parkingSites.map((site) => (
                                 <SelectItem key={site.id} value={site.id.toString()}>
                                   {site.siteName} {site.city && `- ${site.city}`}

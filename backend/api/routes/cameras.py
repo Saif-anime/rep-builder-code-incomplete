@@ -52,6 +52,7 @@ async def create_camera(
 ):
     site_id = body.get("siteId") or body.get("site_id")
     location = body.get("location")
+    ip_address = body.get("ipAddress") or body.get("ip_address")
     
     if not location and site_id:
         site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
@@ -59,7 +60,7 @@ async def create_camera(
             location = site.name
     
     if not location:
-        location = body.get("name", "Unknown Location")
+        location = f"Camera @ {ip_address}" if ip_address else body.get("name", "Unknown Location")
     
     camera = Camera(
         name=body.get("name"),
