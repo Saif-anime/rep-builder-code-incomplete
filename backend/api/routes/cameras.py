@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
 from backend.db import get_db
-from backend.db.models import User, Camera, AuditLog, AnprEvent
+from backend.db.models import User, Camera, AuditLog, AnprEvent, ParkingSite
 from backend.api.dependencies import get_current_user, require_role
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -50,9 +50,20 @@ async def create_camera(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin", "operator"))
 ):
+    site_id = body.get("siteId") or body.get("site_id")
+    location = body.get("location")
+    
+    if not location and site_id:
+        site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+        if site:
+            location = site.name
+    
+    if not location:
+        location = body.get("name", "Unknown Location")
+    
     camera = Camera(
         name=body.get("name"),
-        location=body.get("location"),
+        location=location,
         ip_address=body.get("ipAddress") or body.get("ip_address"),
         username=body.get("username"),
         password=body.get("password"),
@@ -60,7 +71,7 @@ async def create_camera(
         isapi_url=body.get("isapiUrl") or body.get("isapi_url"),
         is_active=body.get("isActive", True) if body.get("isActive") is not None else body.get("is_active", True),
         status=body.get("status", "offline"),
-        site_id=body.get("siteId") or body.get("site_id")
+        site_id=site_id
     )
     db.add(camera)
     db.commit()
