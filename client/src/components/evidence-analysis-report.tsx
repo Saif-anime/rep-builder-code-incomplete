@@ -940,10 +940,67 @@ export function EvidenceAnalysisReport({
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading weather data...
             </div>
-          ) : weatherError ? (
-            <div className="text-sm text-muted-foreground">
-              <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-500" />
-              Weather unavailable
+          ) : weatherError || weatherData?.status !== "available" ? (
+            <div className="space-y-3">
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium">Observation Time</span>
+                </div>
+                {weatherData?.observe_from ? (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">From</p>
+                      <p className="font-medium">
+                        {new Date(weatherData.observe_from).toLocaleString("en-GB", { 
+                          day: "2-digit", month: "short", year: "numeric",
+                          hour: "2-digit", minute: "2-digit" 
+                        })}
+                      </p>
+                    </div>
+                    {weatherData?.observe_to && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">To</p>
+                        <p className="font-medium">
+                          {new Date(weatherData.observe_to).toLocaleString("en-GB", { 
+                            day: "2-digit", month: "short", year: "numeric",
+                            hour: "2-digit", minute: "2-digit" 
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : analysis?.observeFrom ? (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">From</p>
+                      <p className="font-medium">
+                        {new Date(analysis.observeFrom).toLocaleString("en-GB", { 
+                          day: "2-digit", month: "short", year: "numeric",
+                          hour: "2-digit", minute: "2-digit" 
+                        })}
+                      </p>
+                    </div>
+                    {analysis?.observeTo && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">To</p>
+                        <p className="font-medium">
+                          {new Date(analysis.observeTo).toLocaleString("en-GB", { 
+                            day: "2-digit", month: "short", year: "numeric",
+                            hour: "2-digit", minute: "2-digit" 
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No observation time recorded</p>
+                )}
+              </div>
+              <div className="text-sm text-muted-foreground flex items-center gap-1">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Weather unavailable - use "Select Hour" to manually pick weather data
+              </div>
             </div>
           ) : weatherData?.status === "available" && weatherData.weather ? (
             <div className="space-y-4">
