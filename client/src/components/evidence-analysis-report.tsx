@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -524,6 +524,55 @@ export function EvidenceAnalysisReport({
     staleTime: 60000,
   });
 
+  // Track if we've already attempted auto-fetch for this bundle
+  const autoFetchAttempted = useRef(false);
+  
+  // Auto-fetch weather mutation
+  const autoFetchWeatherMutation = useMutation({
+    mutationFn: async ({ observeDate, observeHour }: { observeDate: string; observeHour: number }) => {
+      if (!siteId) throw new Error("No site ID");
+      const response = await apiRequest("POST", `/api/evidence/weather/${siteId}/select-hour`, {
+        date: observeDate,
+        hour: observeHour,
+        case_identifier: bundleId,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/pipeline/results`] });
+    },
+  });
+
+  // Auto-fetch weather based on observe hour when weather is unavailable
+  useEffect(() => {
+    // Skip if already loading, already attempted, or mutation in progress
+    if (loadingWeather || autoFetchAttempted.current || autoFetchWeatherMutation.isPending) {
+      return;
+    }
+    
+    // Only auto-fetch if weather is unavailable
+    const weatherUnavailable = weatherError || weatherData?.status !== "available";
+    if (!weatherUnavailable) {
+      return;
+    }
+    
+    // Get observe time from evidence summary (pipelineResults)
+    const observeFrom = pipelineResults?.evidenceTimeline?.evidenceSummary?.observeFrom;
+    if (!observeFrom || !siteId) {
+      return;
+    }
+    
+    // Extract date and hour from observe time
+    const observeDate = new Date(observeFrom);
+    const dateStr = observeDate.toISOString().split('T')[0];
+    const hour = observeDate.getHours();
+    
+    // Mark as attempted and trigger auto-fetch
+    autoFetchAttempted.current = true;
+    autoFetchWeatherMutation.mutate({ observeDate: dateStr, observeHour: hour });
+  }, [loadingWeather, weatherError, weatherData, pipelineResults, siteId, bundleId]);
+
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", `/api/cases/${bundleId}/reanalyze-evidence`);
@@ -935,10 +984,10 @@ export function EvidenceAnalysisReport({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingWeather ? (
+          {loadingWeather || autoFetchWeatherMutation.isPending ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading weather data...
+              {autoFetchWeatherMutation.isPending ? "Auto-fetching weather for observation hour..." : "Loading weather data..."}
             </div>
           ) : weatherError || weatherData?.status !== "available" ? (
             <div className="space-y-3">
