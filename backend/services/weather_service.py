@@ -397,7 +397,7 @@ async def get_evidence_weather(
             "observe_from": observe_from.isoformat() if observe_from else None,
             "observe_to": observe_to.isoformat() if observe_to else None,
             "time_source": time_source,
-            "site_name": site.name
+            "site_name": site.site_name
         }
     
     query_time = calculate_query_time(observe_from, observe_to)
@@ -412,7 +412,7 @@ async def get_evidence_weather(
             "observe_from": observe_from.isoformat() if observe_from else None,
             "observe_to": observe_to.isoformat() if observe_to else None,
             "time_source": time_source,
-            "site_name": site.name
+            "site_name": site.site_name
         }
     
     duration_minutes = None
@@ -426,7 +426,7 @@ async def get_evidence_weather(
         "duration_minutes": duration_minutes,
         "time_source": time_source,
         "confidence": confidence,
-        "site_name": site.name,
+        "site_name": site.site_name,
         "site_postcode": site.postcode,
         "latitude": coords[0],
         "longitude": coords[1],
