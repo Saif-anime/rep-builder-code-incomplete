@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
+from datetime import datetime
+import httpx
 
 from backend.db import get_db
 from backend.db.models import User, Camera, AuditLog, AnprEvent, ParkingSite
@@ -129,10 +131,52 @@ async def check_camera(
     if not camera:
         raise HTTPException(status_code=404, detail={"error": "Camera not found"})
     
+    online = False
+    message = "Camera offline"
+    method = "isapi"
+    
+    try:
+        url = f"http://{camera.ip_address}/ISAPI/System/deviceInfo"
+        auth = httpx.DigestAuth(camera.username, camera.password)
+        
+        async with httpx.AsyncClient(auth=auth, timeout=5.0) as client:
+            response = await client.get(url)
+            
+            if response.status_code == 200:
+                online = True
+                message = "Camera online and responding"
+                camera.status = "online"
+                camera.status_message = message
+                camera.last_online_at = datetime.utcnow()
+            elif response.status_code == 401:
+                message = "Authentication failed - check username/password"
+                camera.status = "error"
+                camera.status_message = message
+            else:
+                message = f"Camera returned HTTP {response.status_code}"
+                camera.status = "error"
+                camera.status_message = message
+                
+    except httpx.TimeoutException:
+        message = "Connection timeout - camera may be offline or unreachable"
+        camera.status = "offline"
+        camera.status_message = message
+    except httpx.ConnectError:
+        message = "Cannot connect - check IP address and network"
+        camera.status = "offline"
+        camera.status_message = message
+    except Exception as e:
+        message = f"Connection error: {str(e)}"
+        camera.status = "error"
+        camera.status_message = message
+    
+    camera.last_checked_at = datetime.utcnow()
+    db.commit()
+    
     return {
-        "online": False,
-        "message": "Camera health check not implemented in Python backend",
-        "method": "placeholder",
+        "online": online,
+        "message": message,
+        "method": method,
         "camera": {
             "status": camera.status,
             "statusMessage": camera.status_message,
