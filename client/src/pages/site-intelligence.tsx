@@ -307,26 +307,49 @@ export default function SiteIntelligencePage() {
     setPatternDialogOpen(true);
   };
 
-  const handleFileUpload = async (file: File, title: string) => {
+  const handleFileUpload = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+    
     setIsUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+    
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("category", uploadCategory);
-      formData.append("title", title || file.name);
-      
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`/api/sites/${siteId}/intelligence/attachments`, {
-        method: "POST",
-        body: formData,
-        headers: { Authorization: `Bearer ${token}` }
-      });
       
-      if (!res.ok) {
-        throw new Error("Upload failed");
+      for (const file of fileArray) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("category", uploadCategory);
+          formData.append("title", file.name);
+          
+          const res = await fetch(`/api/sites/${siteId}/intelligence/attachments`, {
+            method: "POST",
+            body: formData,
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (!res.ok) {
+            throw new Error(`Upload failed for ${file.name}`);
+          }
+          successCount++;
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to upload ${file.name}:`, error);
+        }
       }
       
-      toast({ title: "File uploaded successfully" });
+      if (successCount > 0) {
+        toast({ 
+          title: `${successCount} file${successCount > 1 ? 's' : ''} uploaded successfully`,
+          description: failCount > 0 ? `${failCount} file(s) failed to upload` : undefined
+        });
+      } else {
+        toast({ title: "All uploads failed", variant: "destructive" });
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId, "intelligence"] });
     } catch (error: any) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
@@ -578,14 +601,18 @@ export default function SiteIntelligencePage() {
                 ref={fileInputRef}
                 className="hidden"
                 accept="image/*,video/*,.pdf"
+                multiple
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileUpload(file, file.name);
+                  const files = e.target.files;
+                  if (files && files.length > 0) {
+                    handleFileUpload(files);
+                    e.target.value = "";
+                  }
                 }}
               />
               <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading} data-testid="button-upload">
                 {isUploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
-                Upload
+                {isUploading ? "Uploading..." : "Upload Files"}
               </Button>
             </div>
           </div>
