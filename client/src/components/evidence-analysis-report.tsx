@@ -118,6 +118,36 @@ interface ExtractedVrm {
   }>;
 }
 
+interface WeatherData {
+  observation_time: string | null;
+  temperature_c: number | null;
+  humidity_percent: number | null;
+  precipitation_mm: number | null;
+  rain_mm: number | null;
+  snowfall_mm: number | null;
+  visibility_m: number | null;
+  wind_speed_mph: number | null;
+  weather_code: number | null;
+  weather_description: string | null;
+  condition: string | null;
+  is_day: boolean | null;
+  severity: string | null;
+  api_source: string | null;
+}
+
+interface WeatherResponse {
+  status: "available" | "unavailable" | "error";
+  message?: string;
+  observe_from?: string;
+  observe_to?: string;
+  duration_minutes?: number;
+  time_source?: string;
+  confidence?: string;
+  site_name?: string;
+  site_postcode?: string;
+  query_time?: string;
+  weather?: WeatherData;
+}
 
 interface PipelineResults {
   caseId: string;
@@ -429,6 +459,43 @@ function getConfidenceBadgeVariant(confidence: "HIGH" | "MEDIUM" | "LOW"): "defa
   }
 }
 
+function getWeatherIcon(condition: string | null, isDay: boolean | null) {
+  if (!condition) return <Cloud className="h-5 w-5" />;
+  
+  switch (condition) {
+    case "Clear":
+      return isDay ? <Sun className="h-5 w-5 text-yellow-500" /> : <Moon className="h-5 w-5 text-blue-400" />;
+    case "Cloudy":
+      return <Cloud className="h-5 w-5 text-gray-400" />;
+    case "Rain":
+      return <CloudRain className="h-5 w-5 text-blue-500" />;
+    case "Snow":
+      return <CloudSnow className="h-5 w-5 text-blue-200" />;
+    case "Fog":
+      return <CloudFog className="h-5 w-5 text-gray-500" />;
+    case "Ice":
+      return <CloudSnow className="h-5 w-5 text-cyan-400" />;
+    case "Storm":
+      return <CloudRain className="h-5 w-5 text-purple-500" />;
+    default:
+      return <Cloud className="h-5 w-5" />;
+  }
+}
+
+function getSeverityBadge(severity: string | null) {
+  switch (severity) {
+    case "Normal":
+      return <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">Normal</Badge>;
+    case "Reduced Visibility":
+      return <Badge variant="secondary" className="bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">Reduced Visibility</Badge>;
+    case "Adverse":
+      return <Badge variant="destructive" className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">Adverse</Badge>;
+    case "Severe":
+      return <Badge variant="destructive">Severe</Badge>;
+    default:
+      return null;
+  }
+}
 
 export function EvidenceAnalysisReport({
   bundleId,
@@ -450,6 +517,11 @@ export function EvidenceAnalysisReport({
     enabled: !!bundleId,
   });
 
+  const { data: weatherData, isLoading: loadingWeather, error: weatherError } = useQuery<WeatherResponse>({
+    queryKey: [`/api/cases/${bundleId}/weather`],
+    enabled: !!bundleId,
+    staleTime: 60000,
+  });
 
   const runPipelineMutation = useMutation({
     mutationFn: async () => {
@@ -461,7 +533,7 @@ export function EvidenceAnalysisReport({
       queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/pipeline/results`] });
       queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
       queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/evidence`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/evidence/bundles/${bundleId}/weather`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
     },
     onError: (error: Error) => {
       toast({ title: "Analysis failed", description: error.message, variant: "destructive" });
@@ -831,6 +903,151 @@ export function EvidenceAnalysisReport({
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Evidence Weather Analysis */}
+      <Card data-testid="card-weather">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Cloud className="h-4 w-4" />
+            Evidence Weather Analysis
+            {weatherData?.weather && (
+              <Badge variant="outline" className="ml-auto gap-1">
+                {getWeatherIcon(weatherData.weather.condition, weatherData.weather.is_day)}
+                {weatherData.weather.condition}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingWeather ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading weather data...
+            </div>
+          ) : weatherError ? (
+            <div className="text-sm text-muted-foreground">
+              <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-500" />
+              Weather unavailable
+            </div>
+          ) : weatherData?.status === "available" && weatherData.weather ? (
+            <div className="space-y-4">
+              {/* Time Window */}
+              <div className="p-2 bg-muted/50 rounded text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Time Window:</span>
+                  <span className="font-medium">
+                    {weatherData.observe_from && weatherData.observe_to ? (
+                      <>
+                        {new Date(weatherData.observe_from).toLocaleString("en-GB", { 
+                          day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" 
+                        })}
+                        {weatherData.observe_from !== weatherData.observe_to && (
+                          <> → {new Date(weatherData.observe_to).toLocaleTimeString("en-GB", { 
+                            hour: "2-digit", minute: "2-digit" 
+                          })}</>
+                        )}
+                      </>
+                    ) : "Unknown"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Time Source:</span>
+                  <Badge variant="outline" className="text-xs">
+                    {weatherData.time_source === "OCR" ? "OCR Extracted" : 
+                     weatherData.time_source === "CAMERA_META" ? "Camera Timestamp" : 
+                     weatherData.time_source === "UPLOAD" ? "Upload Time" : "Unknown"}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Site:</span>
+                  <span className="font-medium">{weatherData.site_name}</span>
+                </div>
+              </div>
+
+              {/* Weather Data Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {weatherData.weather.temperature_c !== null && (
+                  <div className="flex items-center gap-2">
+                    <Thermometer className="h-4 w-4 text-orange-500" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Temperature</p>
+                      <p className="font-medium">{weatherData.weather.temperature_c.toFixed(1)}°C</p>
+                    </div>
+                  </div>
+                )}
+                {weatherData.weather.wind_speed_mph !== null && (
+                  <div className="flex items-center gap-2">
+                    <Wind className="h-4 w-4 text-gray-500" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Wind</p>
+                      <p className="font-medium">{weatherData.weather.wind_speed_mph.toFixed(0)} mph</p>
+                    </div>
+                  </div>
+                )}
+                {weatherData.weather.visibility_m !== null && (
+                  <div className="flex items-center gap-2">
+                    <Eye className="h-4 w-4 text-purple-500" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Visibility</p>
+                      <p className="font-medium">
+                        {weatherData.weather.visibility_m >= 1000 
+                          ? `${(weatherData.weather.visibility_m / 1000).toFixed(1)} km`
+                          : `${weatherData.weather.visibility_m} m`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {weatherData.weather.humidity_percent !== null && (
+                  <div className="flex items-center gap-2">
+                    <Droplets className="h-4 w-4 text-blue-500" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Humidity</p>
+                      <p className="font-medium">{weatherData.weather.humidity_percent}%</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Rain/Snow Indicators */}
+              {(weatherData.weather.rain_mm !== null && weatherData.weather.rain_mm > 0) && (
+                <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                  <CloudRain className="h-4 w-4" />
+                  <span>Rainfall: {weatherData.weather.rain_mm.toFixed(1)} mm</span>
+                </div>
+              )}
+              {(weatherData.weather.snowfall_mm !== null && weatherData.weather.snowfall_mm > 0) && (
+                <div className="flex items-center gap-2 text-sm text-cyan-600 dark:text-cyan-400">
+                  <CloudSnow className="h-4 w-4" />
+                  <span>Snowfall: {weatherData.weather.snowfall_mm.toFixed(1)} mm</span>
+                </div>
+              )}
+
+              {/* Severity Badge */}
+              <div className="flex items-center justify-between pt-2 border-t">
+                <span className="text-xs text-muted-foreground">Weather Severity:</span>
+                {getSeverityBadge(weatherData.weather.severity)}
+              </div>
+
+              {/* Confidence Badge */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
+                <span>Confidence: 
+                  <Badge variant={weatherData.confidence === "HIGH" ? "default" : 
+                                  weatherData.confidence === "MEDIUM" ? "secondary" : "outline"} 
+                         className="ml-2 text-xs">
+                    {weatherData.confidence}
+                  </Badge>
+                </span>
+                <span>Source: Open-Meteo Archive</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4 inline mr-1" />
+              {weatherData?.message || "Weather unavailable - time not reliable"}
+            </div>
+          )}
         </CardContent>
       </Card>
 

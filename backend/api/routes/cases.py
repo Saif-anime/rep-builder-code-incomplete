@@ -1826,3 +1826,37 @@ async def get_case_pcn(
         "createdAt": pcn.created_at.isoformat() if pcn.created_at else None
     }
 
+
+@router.get("/{id}/weather")
+async def get_case_weather(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get historical weather data for a case based on evidence timestamps.
+    Uses strict time source hierarchy: OCR > Camera Meta > Upload Time.
+    Accepts either case ID or bundle ID.
+    """
+    from backend.services.weather_service import get_evidence_weather
+    
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if bundle:
+        weather_result = await get_evidence_weather(db, bundle.id)
+        return weather_result
+    
+    if case:
+        bundles = db.query(EvidenceBundle).filter(EvidenceBundle.case_id == case.id).order_by(EvidenceBundle.created_at.desc()).all()
+        if bundles:
+            weather_result = await get_evidence_weather(db, bundles[0].id)
+            return weather_result
+        return {
+            "status": "error",
+            "message": "No evidence bundles found for case"
+        }
+    
+    return {
+        "status": "error",
+        "message": "Case or bundle not found"
+    }

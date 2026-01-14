@@ -10,10 +10,8 @@ import httpx
 from backend.db import get_db
 from backend.db.models import (
     User, Evidence, EvidenceBundle, CaseEvidence, EnforcementCase,
-    CasePipelineResults, AuditLog, ParkingSite, CaseAnalysis, CaseVehicle,
-    WeatherObservation
+    CasePipelineResults, AuditLog, ParkingSite, CaseAnalysis, CaseVehicle
 )
-from backend.services.weather_service import get_weather_for_evidence
 import logging
 
 logger = logging.getLogger(__name__)
