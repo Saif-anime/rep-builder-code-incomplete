@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, Tuple, List
 from sqlalchemy.orm import Session
 from enum import Enum
 
-from backend.db.models import Evidence, EvidenceBundle, EnforcementCase, ParkingSite
+from backend.db.models import Evidence, EvidenceBundle, EnforcementCase, ParkingSite, CasePipelineResult
 
 
 class WeatherSeverity(str, Enum):
@@ -91,6 +91,30 @@ async def geocode_postcode(postcode: str) -> Optional[Tuple[float, float]]:
         return None
 
 
+def filter_outlier_timestamps(timestamps: List[datetime]) -> List[datetime]:
+    """
+    Filter out outlier timestamps using IQR method.
+    If most timestamps cluster together, remove ones that are far off.
+    """
+    if len(timestamps) < 3:
+        return timestamps
+    
+    sorted_ts = sorted(timestamps)
+    median = sorted_ts[len(sorted_ts) // 2]
+    
+    max_deviation_days = 7
+    
+    valid = []
+    for ts in sorted_ts:
+        days_diff = abs((ts - median).total_seconds()) / 86400
+        if days_diff <= max_deviation_days:
+            valid.append(ts)
+    
+    if len(valid) >= 2:
+        return valid
+    return timestamps
+
+
 def extract_observe_window(
     evidence_list: List[Evidence],
     ocr_timestamps: Optional[List[datetime]] = None
@@ -112,6 +136,7 @@ def extract_observe_window(
     
     if ocr_timestamps and len(ocr_timestamps) > 0:
         valid_ocr = [ts for ts in ocr_timestamps if ts and ts < datetime.utcnow()]
+        valid_ocr = filter_outlier_timestamps(valid_ocr)
         if valid_ocr:
             observe_from = min(valid_ocr)
             observe_to = max(valid_ocr)
@@ -122,6 +147,7 @@ def extract_observe_window(
     if evidence_list:
         timestamps = [e.timestamp for e in evidence_list if e.timestamp]
         timestamps = [ts for ts in timestamps if ts < datetime.utcnow()]
+        timestamps = filter_outlier_timestamps(timestamps)
         
         if timestamps:
             observe_from = min(timestamps)
@@ -321,14 +347,23 @@ async def get_evidence_weather(
         }
     
     ocr_timestamps = []
-    for ev in evidence_list:
-        if ev.ocr_result and isinstance(ev.ocr_result, dict):
-            if "timestamp" in ev.ocr_result:
-                try:
-                    ts = datetime.fromisoformat(ev.ocr_result["timestamp"].replace("Z", "+00:00"))
-                    ocr_timestamps.append(ts.replace(tzinfo=None))
-                except:
-                    pass
+    case_id = bundle.case_id
+    if case_id:
+        pipeline_result = db.query(CasePipelineResult).filter(
+            CasePipelineResult.case_id == case_id
+        ).order_by(CasePipelineResult.created_at.desc()).first()
+        
+        if pipeline_result and pipeline_result.evidence_timeline:
+            timeline = pipeline_result.evidence_timeline
+            if isinstance(timeline, dict) and "timestamps" in timeline:
+                for ts_entry in timeline["timestamps"]:
+                    if "timestamp" in ts_entry and ts_entry.get("source") == "ocr":
+                        try:
+                            ts_str = ts_entry["timestamp"]
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            ocr_timestamps.append(ts.replace(tzinfo=None))
+                        except Exception as e:
+                            print(f"[Weather] Failed to parse OCR timestamp: {e}")
     
     observe_from, observe_to, time_source, confidence = extract_observe_window(
         evidence_list, 
