@@ -73,6 +73,7 @@ The system employs a full-stack architecture consisting of a React frontend, a P
 - **AI Integration:** OpenAI (GPT-4.1 for violation analysis, GPT-4o for Vision GPT image analysis).
 - **Database:** PostgreSQL.
 - **ANPR Cameras:** Hikvision ColorVu Pro (for camera feed integration).
+- **PTZ Camera Control:** Real-time Pan/Tilt/Zoom control via Hikvision ISAPI protocol with Digest Authentication. Supports continuous movement, presets, and joystick interface. WebRTC-ready live stream placeholder for MediaMTX integration.
 - **OCR:** Tesseract.js (for scanned PDF processing in signage inspections).
 - **Vehicle Data:** DVLA API (for vehicle verification and data retrieval).
 - **External Context Providers:** Weather and local events APIs (currently uses mock implementations but designed for integration with real APIs).
