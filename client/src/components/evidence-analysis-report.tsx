@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { HourlyWeatherSelector } from "@/components/hourly-weather-selector";
 import type { CaseAnalysis, CaseVehicle, Evidence, BayType } from "@shared/schema";
 
 interface EvidenceAnalysisReportProps {
@@ -909,14 +910,26 @@ export function EvidenceAnalysisReport({
       {/* Evidence Weather Analysis */}
       <Card data-testid="card-weather">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
+          <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
             <Cloud className="h-4 w-4" />
             Evidence Weather Analysis
             {weatherData?.weather && (
-              <Badge variant="outline" className="ml-auto gap-1">
+              <Badge variant="outline" className="gap-1">
                 {getWeatherIcon(weatherData.weather.condition, weatherData.weather.is_day)}
                 {weatherData.weather.condition}
               </Badge>
+            )}
+            {siteId && (
+              <div className="ml-auto">
+                <HourlyWeatherSelector
+                  siteId={siteId}
+                  caseIdentifier={bundleId}
+                  defaultDate={weatherData?.observe_from?.split('T')[0]}
+                  onWeatherSelected={() => {
+                    queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
+                  }}
+                />
+              </div>
             )}
           </CardTitle>
         </CardHeader>

@@ -748,14 +748,12 @@ async def select_weather_hour(
     {
         "date": "2025-01-10",
         "hour": 14,
-        "case_id": 123,  # Optional - if provided, updates the case
-        "bundle_id": 456  # Optional - if provided, updates the bundle
+        "case_identifier": "123" or "CASE-123"  # Optional - resolves to case/bundle
     }
     """
     date_str = body.get("date")
     hour = body.get("hour")
-    case_id = body.get("case_id")
-    bundle_id = body.get("bundle_id")
+    case_identifier = body.get("case_identifier")
     
     if not date_str or hour is None:
         raise HTTPException(status_code=400, detail="date and hour are required")
@@ -837,10 +835,23 @@ async def select_weather_hour(
             updated_case = None
             updated_bundle = None
             
-            if case_id:
-                case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+            if case_identifier:
+                case = None
+                bundle = None
+                
+                case = db.query(EnforcementCase).filter(EnforcementCase.id == str(case_identifier)).first()
+                
+                if not case:
+                    try:
+                        bundle_id_int = int(case_identifier)
+                        bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id_int).first()
+                        if bundle and bundle.case_id:
+                            case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+                    except (ValueError, TypeError):
+                        pass
+                
                 if case:
-                    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).first()
+                    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
                     if case_analysis:
                         analysis_data = case_analysis.analysis_data or {}
                         analysis_data["weather"] = selected_weather
@@ -848,13 +859,13 @@ async def select_weather_hour(
                         case_analysis.analysis_data = analysis_data
                         case_analysis.updated_at = datetime.utcnow()
                         db.commit()
-                        updated_case = case_id
+                        updated_case = case.id
                     
                     audit_log = AuditLog(
                         user_id=current_user.id,
                         action="update_weather",
                         entity_type="case",
-                        entity_id=str(case_id),
+                        entity_id=str(case.id),
                         details={
                             "hour_selected": hour,
                             "date": date_str,
@@ -863,12 +874,10 @@ async def select_weather_hour(
                     )
                     db.add(audit_log)
                     db.commit()
-            
-            if bundle_id:
-                bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+                
                 if bundle:
                     pipeline = db.query(CasePipelineResults).filter(
-                        CasePipelineResults.bundle_id == bundle_id
+                        CasePipelineResults.bundle_id == bundle.id
                     ).order_by(CasePipelineResults.created_at.desc()).first()
                     
                     if pipeline:
@@ -877,7 +886,7 @@ async def select_weather_hour(
                         enrichment["weather_manually_selected"] = True
                         pipeline.enrichment_data = enrichment
                         db.commit()
-                        updated_bundle = bundle_id
+                        updated_bundle = bundle.id
             
             return {
                 "success": True,
