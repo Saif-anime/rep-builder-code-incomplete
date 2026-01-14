@@ -238,15 +238,42 @@ class EvidenceSummaryService:
         
         return TimeSource.UNKNOWN
     
+    def _filter_outlier_timestamps(
+        self,
+        timestamps: List[datetime]
+    ) -> List[datetime]:
+        """
+        Filter out outlier timestamps that are far from the median.
+        This handles cases where one image has a wrong date (e.g., 2023 when others are 2026).
+        """
+        if len(timestamps) < 3:
+            return timestamps
+        
+        sorted_ts = sorted(timestamps)
+        median = sorted_ts[len(sorted_ts) // 2]
+        
+        max_deviation_days = 7
+        
+        valid = []
+        for ts in sorted_ts:
+            days_diff = abs((ts - median).total_seconds()) / 86400
+            if days_diff <= max_deviation_days:
+                valid.append(ts)
+        
+        if len(valid) >= 2:
+            return valid
+        return timestamps
+    
     def _calculate_observation_window(
         self,
         valid_timestamps: List[datetime]
     ) -> tuple[Optional[datetime], Optional[datetime]]:
-        """Calculate observe from/to from valid timestamps."""
+        """Calculate observe from/to from valid timestamps, filtering outliers."""
         if not valid_timestamps:
             return None, None
         
-        sorted_timestamps = sorted(valid_timestamps)
+        filtered_timestamps = self._filter_outlier_timestamps(valid_timestamps)
+        sorted_timestamps = sorted(filtered_timestamps)
         return sorted_timestamps[0], sorted_timestamps[-1]
     
     def _calculate_duration(
