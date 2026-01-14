@@ -925,6 +925,7 @@ export function EvidenceAnalysisReport({
                   siteId={siteId}
                   caseIdentifier={bundleId}
                   defaultDate={weatherData?.observe_from?.split('T')[0]}
+                  defaultHour={weatherData?.observe_from ? new Date(weatherData.observe_from).getHours() : undefined}
                   onWeatherSelected={() => {
                     queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
                   }}

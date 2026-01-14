@@ -62,6 +62,7 @@ interface Props {
   siteId: number;
   caseIdentifier?: string | number;
   defaultDate?: string;
+  defaultHour?: number;
   onWeatherSelected?: (weather: HourlyWeather) => void;
 }
 
@@ -107,13 +108,14 @@ export function HourlyWeatherSelector({
   siteId,
   caseIdentifier,
   defaultDate,
+  defaultHour,
   onWeatherSelected,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     defaultDate || new Date().toISOString().split("T")[0]
   );
-  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedHour, setSelectedHour] = useState<number | null>(defaultHour ?? null);
   const { toast } = useToast();
 
   const { data, isLoading, refetch } = useQuery<HourlyWeatherResponse>({
@@ -246,7 +248,9 @@ export function HourlyWeatherSelector({
           ) : data?.hourly ? (
             <ScrollArea className="h-[400px] pr-4">
               <div className="space-y-2">
-                {data.hourly.map((hour) => (
+                {data.hourly.map((hour) => {
+                  const isObserveHour = defaultHour === hour.hour;
+                  return (
                   <button
                     key={hour.hour}
                     onClick={() => handleSelectHour(hour.hour)}
@@ -254,6 +258,8 @@ export function HourlyWeatherSelector({
                     className={`w-full p-3 rounded-lg border text-left transition-all hover-elevate ${
                       selectedHour === hour.hour
                         ? "border-primary bg-primary/5"
+                        : isObserveHour
+                        ? "border-blue-400 bg-blue-50 dark:bg-blue-950/30"
                         : "border-border hover:border-primary/50"
                     }`}
                     data-testid={`button-hour-${hour.hour}`}
@@ -264,9 +270,15 @@ export function HourlyWeatherSelector({
                           <span className="text-sm font-medium">
                             {formatHour(hour.hour)}
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            {hour.is_day ? "Day" : "Night"}
-                          </span>
+                          {isObserveHour ? (
+                            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                              Observe
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {hour.is_day ? "Day" : "Night"}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -320,7 +332,8 @@ export function HourlyWeatherSelector({
                       </div>
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
           ) : (
