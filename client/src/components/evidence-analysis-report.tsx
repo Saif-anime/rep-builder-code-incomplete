@@ -924,8 +924,8 @@ export function EvidenceAnalysisReport({
                 <HourlyWeatherSelector
                   siteId={siteId}
                   caseIdentifier={bundleId}
-                  defaultDate={weatherData?.observe_from?.split('T')[0]}
-                  defaultHour={weatherData?.observe_from ? new Date(weatherData.observe_from).getHours() : undefined}
+                  defaultDate={weatherData?.observe_from?.split('T')[0] || (evidenceSummary?.observeFrom ? evidenceSummary.observeFrom.split('T')[0] : undefined)}
+                  defaultHour={weatherData?.observe_from ? new Date(weatherData.observe_from).getHours() : (evidenceSummary?.observeFrom ? new Date(evidenceSummary.observeFrom).getHours() : undefined)}
                   onWeatherSelected={() => {
                     queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
                   }}
@@ -970,22 +970,22 @@ export function EvidenceAnalysisReport({
                       </div>
                     )}
                   </div>
-                ) : analysis?.observeFrom ? (
+                ) : evidenceSummary?.observeFrom ? (
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-xs text-muted-foreground">From</p>
                       <p className="font-medium">
-                        {new Date(analysis.observeFrom).toLocaleString("en-GB", { 
+                        {new Date(evidenceSummary.observeFrom).toLocaleString("en-GB", { 
                           day: "2-digit", month: "short", year: "numeric",
                           hour: "2-digit", minute: "2-digit" 
                         })}
                       </p>
                     </div>
-                    {analysis?.observeTo && (
+                    {evidenceSummary?.observeTo && (
                       <div>
                         <p className="text-xs text-muted-foreground">To</p>
                         <p className="font-medium">
-                          {new Date(analysis.observeTo).toLocaleString("en-GB", { 
+                          {new Date(evidenceSummary.observeTo).toLocaleString("en-GB", { 
                             day: "2-digit", month: "short", year: "numeric",
                             hour: "2-digit", minute: "2-digit" 
                           })}
