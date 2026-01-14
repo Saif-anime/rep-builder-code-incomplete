@@ -616,3 +616,280 @@ async def get_site_weather_at_time(
         "site_id": site_id,
         "site_name": site.site_name
     }
+
+
+@router.get("/weather/{site_id}/hourly")
+async def get_site_hourly_weather(
+    site_id: int,
+    date: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get 24-hour weather data for a specific site and date.
+    Returns all hourly weather data so user can pick a specific hour.
+    
+    Date format: YYYY-MM-DD (e.g., 2025-01-10)
+    """
+    try:
+        query_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    
+    site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    if not site.postcode:
+        return {
+            "hourly": None,
+            "message": "Site has no postcode configured for weather lookup"
+        }
+    
+    from backend.services.weather_service import geocode_postcode, WMO_WEATHER_CODES, WeatherCondition, classify_severity
+    
+    coords = await geocode_postcode(site.postcode)
+    if not coords:
+        return {
+            "hourly": None,
+            "message": f"Could not geocode postcode: {site.postcode}"
+        }
+    
+    date_str = query_date.strftime("%Y-%m-%d")
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={
+                    "latitude": coords[0],
+                    "longitude": coords[1],
+                    "start_date": date_str,
+                    "end_date": date_str,
+                    "hourly": "temperature_2m,relative_humidity_2m,precipitation,rain,snowfall,weather_code,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,is_day",
+                    "timezone": "Europe/London"
+                }
+            )
+            
+            if response.status_code != 200:
+                return {
+                    "hourly": None,
+                    "message": f"Weather API error: {response.status_code}"
+                }
+            
+            data = response.json()
+            hourly = data.get("hourly", {})
+            times = hourly.get("time", [])
+            
+            if not times:
+                return {
+                    "hourly": None,
+                    "message": "No hourly data available for this date"
+                }
+            
+            hourly_data = []
+            for i, time_str in enumerate(times):
+                weather_code = hourly.get("weather_code", [None])[i]
+                wind_speed_kmh = hourly.get("wind_speed_10m", [None])[i]
+                wind_speed_mph = wind_speed_kmh * 0.621371 if wind_speed_kmh else None
+                visibility_m = hourly.get("visibility", [None])[i]
+                precipitation_mm = hourly.get("precipitation", [None])[i]
+                
+                code_info = WMO_WEATHER_CODES.get(weather_code, ("Unknown", WeatherCondition.CLOUDY))
+                
+                hourly_data.append({
+                    "hour": i,
+                    "time": time_str,
+                    "temperature_c": hourly.get("temperature_2m", [None])[i],
+                    "humidity_percent": hourly.get("relative_humidity_2m", [None])[i],
+                    "precipitation_mm": precipitation_mm,
+                    "rain_mm": hourly.get("rain", [None])[i],
+                    "snowfall_mm": hourly.get("snowfall", [None])[i],
+                    "visibility_m": visibility_m,
+                    "wind_speed_mph": round(wind_speed_mph, 1) if wind_speed_mph else None,
+                    "wind_direction_deg": hourly.get("wind_direction_10m", [None])[i],
+                    "weather_code": weather_code,
+                    "weather_description": code_info[0],
+                    "condition": code_info[1].value,
+                    "is_day": hourly.get("is_day", [None])[i] == 1,
+                    "severity": classify_severity(weather_code, visibility_m, precipitation_mm, wind_speed_mph).value
+                })
+            
+            return {
+                "hourly": hourly_data,
+                "date": date_str,
+                "site_id": site_id,
+                "site_name": site.site_name,
+                "site_postcode": site.postcode,
+                "latitude": coords[0],
+                "longitude": coords[1],
+                "api_source": "open_meteo_archive"
+            }
+            
+    except Exception as e:
+        logger.error(f"Weather API error: {e}")
+        return {
+            "hourly": None,
+            "message": f"Failed to fetch weather: {str(e)}"
+        }
+
+
+@router.post("/weather/{site_id}/select-hour")
+async def select_weather_hour(
+    site_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Select a specific hour's weather and optionally update a case/bundle with it.
+    
+    Body:
+    {
+        "date": "2025-01-10",
+        "hour": 14,
+        "case_id": 123,  # Optional - if provided, updates the case
+        "bundle_id": 456  # Optional - if provided, updates the bundle
+    }
+    """
+    date_str = body.get("date")
+    hour = body.get("hour")
+    case_id = body.get("case_id")
+    bundle_id = body.get("bundle_id")
+    
+    if not date_str or hour is None:
+        raise HTTPException(status_code=400, detail="date and hour are required")
+    
+    if not isinstance(hour, int) or hour < 0 or hour > 23:
+        raise HTTPException(status_code=400, detail="hour must be an integer 0-23")
+    
+    try:
+        query_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    
+    site = db.query(ParkingSite).filter(ParkingSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    if not site.postcode:
+        raise HTTPException(status_code=400, detail="Site has no postcode")
+    
+    from backend.services.weather_service import geocode_postcode, WMO_WEATHER_CODES, WeatherCondition, classify_severity
+    
+    coords = await geocode_postcode(site.postcode)
+    if not coords:
+        raise HTTPException(status_code=400, detail=f"Could not geocode postcode: {site.postcode}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={
+                    "latitude": coords[0],
+                    "longitude": coords[1],
+                    "start_date": date_str,
+                    "end_date": date_str,
+                    "hourly": "temperature_2m,relative_humidity_2m,precipitation,rain,snowfall,weather_code,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,is_day",
+                    "timezone": "Europe/London"
+                }
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Weather API error: {response.status_code}")
+            
+            data = response.json()
+            hourly = data.get("hourly", {})
+            times = hourly.get("time", [])
+            
+            if hour >= len(times):
+                raise HTTPException(status_code=400, detail=f"Hour {hour} not available in data")
+            
+            weather_code = hourly.get("weather_code", [None])[hour]
+            wind_speed_kmh = hourly.get("wind_speed_10m", [None])[hour]
+            wind_speed_mph = wind_speed_kmh * 0.621371 if wind_speed_kmh else None
+            visibility_m = hourly.get("visibility", [None])[hour]
+            precipitation_mm = hourly.get("precipitation", [None])[hour]
+            
+            code_info = WMO_WEATHER_CODES.get(weather_code, ("Unknown", WeatherCondition.CLOUDY))
+            
+            selected_weather = {
+                "observation_time": times[hour],
+                "hour": hour,
+                "temperature_c": hourly.get("temperature_2m", [None])[hour],
+                "humidity_percent": hourly.get("relative_humidity_2m", [None])[hour],
+                "precipitation_mm": precipitation_mm,
+                "rain_mm": hourly.get("rain", [None])[hour],
+                "snowfall_mm": hourly.get("snowfall", [None])[hour],
+                "visibility_m": visibility_m,
+                "wind_speed_mph": round(wind_speed_mph, 1) if wind_speed_mph else None,
+                "wind_direction_deg": hourly.get("wind_direction_10m", [None])[hour],
+                "weather_code": weather_code,
+                "weather_description": code_info[0],
+                "condition": code_info[1].value,
+                "is_day": hourly.get("is_day", [None])[hour] == 1,
+                "severity": classify_severity(weather_code, visibility_m, precipitation_mm, wind_speed_mph).value,
+                "selected_by": current_user.username,
+                "selected_at": datetime.utcnow().isoformat(),
+                "api_source": "open_meteo_archive"
+            }
+            
+            updated_case = None
+            updated_bundle = None
+            
+            if case_id:
+                case = db.query(EnforcementCase).filter(EnforcementCase.id == case_id).first()
+                if case:
+                    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).first()
+                    if case_analysis:
+                        analysis_data = case_analysis.analysis_data or {}
+                        analysis_data["weather"] = selected_weather
+                        analysis_data["weather_manually_selected"] = True
+                        case_analysis.analysis_data = analysis_data
+                        case_analysis.updated_at = datetime.utcnow()
+                        db.commit()
+                        updated_case = case_id
+                    
+                    audit_log = AuditLog(
+                        user_id=current_user.id,
+                        action="update_weather",
+                        entity_type="case",
+                        entity_id=str(case_id),
+                        details={
+                            "hour_selected": hour,
+                            "date": date_str,
+                            "weather": selected_weather
+                        }
+                    )
+                    db.add(audit_log)
+                    db.commit()
+            
+            if bundle_id:
+                bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+                if bundle:
+                    pipeline = db.query(CasePipelineResults).filter(
+                        CasePipelineResults.bundle_id == bundle_id
+                    ).order_by(CasePipelineResults.created_at.desc()).first()
+                    
+                    if pipeline:
+                        enrichment = pipeline.enrichment_data or {}
+                        enrichment["weather"] = selected_weather
+                        enrichment["weather_manually_selected"] = True
+                        pipeline.enrichment_data = enrichment
+                        db.commit()
+                        updated_bundle = bundle_id
+            
+            return {
+                "success": True,
+                "weather": selected_weather,
+                "site_id": site_id,
+                "site_name": site.site_name,
+                "updated_case": updated_case,
+                "updated_bundle": updated_bundle
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather selection error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to select weather: {str(e)}")
