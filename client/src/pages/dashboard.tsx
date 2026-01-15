@@ -21,11 +21,15 @@ import { format } from "date-fns";
 interface DashboardStats {
   pendingReview: number;
   totalViolations: number;
+  violationsToday: number;
   processedToday: number;
+  processedWeek: number;
   activeCameras: number;
+  totalCameras: number;
   totalSites: number;
   storageUsed: string;
-  anprCount: number;
+  anprToday: number;
+  anprTotal: number;
   recentEvents: Array<{
     id: number;
     violationType: string;
@@ -68,28 +72,25 @@ export default function DashboardPage() {
           title="Pending Review"
           value={stats?.pendingReview || 0}
           icon={Clock}
-          trend={{ value: 12, isPositive: false }}
           description="Awaiting officer review"
         />
         <StatCard
-          title="Violations Today"
+          title="Total Violations"
           value={stats?.totalViolations || 0}
           icon={AlertTriangle}
-          trend={{ value: 8, isPositive: true }}
-          description="Confirmed violations"
+          description={`${stats?.violationsToday || 0} today`}
         />
         <StatCard
-          title="Processed Today"
-          value={stats?.processedToday || 0}
+          title="Processed Cases"
+          value={stats?.processedWeek || 0}
           icon={CheckCircle}
-          trend={{ value: 15, isPositive: true }}
-          description="Evidence items reviewed"
+          description={`${stats?.processedToday || 0} today`}
         />
         <StatCard
-          title="Active Cameras"
-          value={stats?.activeCameras || 0}
+          title="Cameras"
+          value={stats?.totalCameras || 0}
           icon={Camera}
-          description="Online and recording"
+          description={`${stats?.activeCameras || 0} online`}
         />
       </div>
 
@@ -134,9 +135,9 @@ export default function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-lg sm:text-2xl font-bold">
-                  {stats?.anprCount || 0}
+                  {stats?.anprTotal || 0}
                 </p>
-                <p className="text-xs text-muted-foreground truncate">ANPR Today</p>
+                <p className="text-xs text-muted-foreground truncate">ANPR Events ({stats?.anprToday || 0} today)</p>
               </div>
             </div>
           </CardContent>
@@ -148,7 +149,10 @@ export default function DashboardPage() {
           <CardHeader className="pb-3 px-3 sm:px-6">
             <CardTitle className="text-base sm:text-lg font-medium flex items-center gap-2">
               <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
-              Recent Violations
+              Recent Cases
+              {stats?.recentEvents && stats.recentEvents.length > 0 && (
+                <Badge variant="secondary" className="ml-auto">{stats.recentEvents.length}</Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="px-3 sm:px-6">

@@ -19,23 +19,36 @@ async def get_dashboard_stats(
     current_user: User = Depends(get_current_user)
 ):
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=7)
     
     pending_count = db.query(EnforcementCase).filter(
-        EnforcementCase.status.in_(["NEW", "pending", "pending_review", "awaiting_review", "ANALYZING"])
+        EnforcementCase.status.in_(["NEW", "pending", "pending_review", "awaiting_review", "ANALYZING", "UPLOADED", "BUNDLED"])
+    ).count()
+    
+    violations_with_pcn = db.query(EnforcementCase).join(
+        CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id
+    ).filter(
+        CaseAnalysis.recommendation.in_(["ISSUE_PCN", "Issue PCN", "issue_pcn"])
     ).count()
     
     violations_today = db.query(EnforcementCase).join(
-        CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id, isouter=True
+        CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id
     ).filter(
         EnforcementCase.created_at >= today_start,
-        CaseAnalysis.recommendation == "ISSUE_PCN"
+        CaseAnalysis.recommendation.in_(["ISSUE_PCN", "Issue PCN", "issue_pcn"])
     ).count()
     
     processed_today = db.query(EnforcementCase).filter(
         EnforcementCase.updated_at >= today_start,
-        EnforcementCase.status.in_(["COMPLETED", "completed", "approved", "closed", "pcn_issued", "PCN_ISSUED"])
+        EnforcementCase.status.in_(["COMPLETED", "completed", "approved", "closed", "pcn_issued", "PCN_ISSUED", "ANALYSED", "analyzed"])
     ).count()
     
+    processed_week = db.query(EnforcementCase).filter(
+        EnforcementCase.updated_at >= week_start,
+        EnforcementCase.status.in_(["COMPLETED", "completed", "approved", "closed", "pcn_issued", "PCN_ISSUED", "ANALYSED", "analyzed"])
+    ).count()
+    
+    total_cameras = db.query(Camera).count()
     active_cameras = db.query(Camera).filter(Camera.status == "online").count()
     
     total_sites = db.query(ParkingSite).filter(ParkingSite.is_active == True).count()
@@ -57,15 +70,24 @@ async def get_dashboard_stats(
     else:
         storage_used = f"{storage_bytes / 1024:.1f} KB"
     
-    anpr_count = db.query(AnprEvent).filter(
+    anpr_today = db.query(AnprEvent).filter(
         AnprEvent.created_at >= today_start
     ).count()
+    
+    anpr_total = db.query(AnprEvent).count()
     
     recent_cases_with_analysis = db.query(EnforcementCase, CaseAnalysis).outerjoin(
         CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id
     ).filter(
-        CaseAnalysis.recommendation == "ISSUE_PCN"
+        CaseAnalysis.recommendation.in_(["ISSUE_PCN", "Issue PCN", "issue_pcn"])
     ).order_by(EnforcementCase.created_at.desc()).limit(10).all()
+    
+    if not recent_cases_with_analysis:
+        recent_cases_with_analysis = db.query(EnforcementCase, CaseAnalysis).outerjoin(
+            CaseAnalysis, CaseAnalysis.case_id == EnforcementCase.id
+        ).filter(
+            CaseAnalysis.id != None
+        ).order_by(EnforcementCase.created_at.desc()).limit(10).all()
     
     recent_activity = db.query(AuditLog).order_by(
         AuditLog.created_at.desc()
@@ -76,12 +98,16 @@ async def get_dashboard_stats(
     
     return {
         "pendingReview": pending_count,
-        "totalViolations": violations_today,
+        "totalViolations": violations_with_pcn,
+        "violationsToday": violations_today,
         "processedToday": processed_today,
+        "processedWeek": processed_week,
         "activeCameras": active_cameras,
+        "totalCameras": total_cameras,
         "totalSites": total_sites,
         "storageUsed": storage_used,
-        "anprCount": anpr_count,
+        "anprToday": anpr_today,
+        "anprTotal": anpr_total,
         "recentEvents": [{
             "id": c.id,
             "violationType": c.bay_type or (a.bay_type if a else "Unknown"),
