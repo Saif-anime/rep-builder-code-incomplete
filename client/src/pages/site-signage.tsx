@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { 
   Upload, FileText, Archive, CheckCircle, 
-  AlertTriangle, ArrowLeft, Clock, Eye, RotateCcw, Loader2, File
+  AlertTriangle, ArrowLeft, Clock, Eye, RotateCcw, Loader2, File, Trash2
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -138,6 +138,19 @@ export default function SiteSignagePage() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to activate", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (signageId: string) => {
+      await apiRequest("DELETE", `/api/signage/${signageId}`, {});
+    },
+    onSuccess: () => {
+      toast({ title: "Signage deleted permanently" });
+      queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId, "signage"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
     },
   });
 
@@ -330,6 +343,7 @@ export default function SiteSignagePage() {
                       key={signage.id}
                       signage={signage}
                       onArchive={() => archiveMutation.mutate(signage.id)}
+                      onDelete={() => deleteMutation.mutate(signage.id)}
                       onView={() => setSelectedSignage(signage)}
                       getConfidenceColor={getConfidenceColor}
                       getConfidenceLabel={getConfidenceLabel}
@@ -362,6 +376,7 @@ export default function SiteSignagePage() {
                       key={signage.id}
                       signage={signage}
                       onActivate={() => activateMutation.mutate(signage.id)}
+                      onDelete={() => deleteMutation.mutate(signage.id)}
                       onView={() => setSelectedSignage(signage)}
                       getConfidenceColor={getConfidenceColor}
                       getConfidenceLabel={getConfidenceLabel}
@@ -509,6 +524,7 @@ function SignageCard({
   signage, 
   onArchive, 
   onActivate,
+  onDelete,
   onView,
   getConfidenceColor,
   getConfidenceLabel,
@@ -517,6 +533,7 @@ function SignageCard({
   signage: SignageWithFiles;
   onArchive?: () => void;
   onActivate?: () => void;
+  onDelete?: () => void;
   onView: () => void;
   getConfidenceColor: (score: number) => string;
   getConfidenceLabel: (score: number) => string;
@@ -571,6 +588,11 @@ function SignageCard({
         ) : (
           <Button variant="ghost" size="icon" onClick={onArchive} data-testid={`button-archive-${signage.id}`}>
             <Archive className="h-4 w-4" />
+          </Button>
+        )}
+        {onDelete && (
+          <Button variant="ghost" size="icon" onClick={onDelete} data-testid={`button-delete-${signage.id}`}>
+            <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         )}
       </div>

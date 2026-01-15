@@ -404,6 +404,25 @@ async def activate_signage(
     return signage_to_dict(signage, files)
 
 
+@router.delete("/api/signage/{signage_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_signage(
+    signage_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin"))
+):
+    """Permanently delete a signage record and its associated files."""
+    signage = db.query(ParkingSiteSignage).filter(ParkingSiteSignage.id == signage_id).first()
+    if not signage:
+        raise HTTPException(status_code=404, detail={"error": "Signage not found"})
+    
+    db.query(SignageRuleFile).filter(SignageRuleFile.signage_id == signage_id).delete()
+    
+    db.delete(signage)
+    db.commit()
+    
+    return None
+
+
 async def analyze_signage_pdf(text: str, filename: str) -> dict:
     """Analyze PDF text to extract signage rules using AI."""
     # Check if we have meaningful text to analyze
