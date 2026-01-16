@@ -16,6 +16,8 @@ import {
   Wifi,
   WifiOff,
   Gamepad2,
+  Link,
+  CameraIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,6 +207,9 @@ export default function SettingsPage() {
   });
 
   const [checkingCameraId, setCheckingCameraId] = useState<number | null>(null);
+  const [connectingOnvifId, setConnectingOnvifId] = useState<number | null>(null);
+  const [onvifDialogOpen, setOnvifDialogOpen] = useState(false);
+  const [onvifResult, setOnvifResult] = useState<any>(null);
 
   const checkCameraMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -224,6 +229,29 @@ export default function SettingsPage() {
     onError: () => {
       setCheckingCameraId(null);
       toast({ title: "Error", description: "Failed to check camera status.", variant: "destructive" });
+    },
+  });
+
+  const connectOnvifMutation = useMutation({
+    mutationFn: async (id: number) => {
+      setConnectingOnvifId(id);
+      const response = await apiRequest("POST", `/api/cameras/${id}/onvif/connect`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setConnectingOnvifId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/cameras"] });
+      setOnvifResult(data);
+      setOnvifDialogOpen(true);
+      toast({
+        title: data.success ? "ONVIF Connected" : "ONVIF Connection Failed",
+        description: data.message,
+        variant: data.success ? "default" : "destructive",
+      });
+    },
+    onError: () => {
+      setConnectingOnvifId(null);
+      toast({ title: "Error", description: "Failed to connect via ONVIF.", variant: "destructive" });
     },
   });
 
@@ -448,6 +476,20 @@ export default function SettingsPage() {
                           <Button 
                             variant="ghost" 
                             size="icon"
+                            onClick={() => connectOnvifMutation.mutate(camera.id)}
+                            disabled={connectingOnvifId === camera.id}
+                            title="Connect via ONVIF"
+                            data-testid={`button-onvif-camera-${camera.id}`}
+                          >
+                            {connectingOnvifId === camera.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Link className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
                             onClick={() => {
                               setPtzCameraId(camera.id);
                               setPtzCameraName(camera.name);
@@ -462,6 +504,7 @@ export default function SettingsPage() {
                             size="icon" 
                             onClick={() => checkCameraMutation.mutate(camera.id)}
                             disabled={isChecking}
+                            title="Check Status (ISAPI)"
                             data-testid={`button-refresh-camera-${camera.id}`}
                           >
                             <RefreshCw className={`h-4 w-4 ${isChecking ? "animate-spin" : ""}`} />
@@ -724,6 +767,94 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={onvifDialogOpen} onOpenChange={setOnvifDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link className="h-5 w-5" />
+              ONVIF Connection Result
+            </DialogTitle>
+          </DialogHeader>
+          {onvifResult && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Badge variant={onvifResult.success ? "default" : "destructive"}>
+                  {onvifResult.success ? "Connected" : "Failed"}
+                </Badge>
+                <span className="text-sm text-muted-foreground">{onvifResult.message}</span>
+              </div>
+              
+              {onvifResult.deviceInfo && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Device Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Manufacturer:</span>
+                      <span>{onvifResult.deviceInfo.manufacturer}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Model:</span>
+                      <span>{onvifResult.deviceInfo.model}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Firmware:</span>
+                      <span>{onvifResult.deviceInfo.firmwareVersion}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Serial:</span>
+                      <span className="font-mono text-xs">{onvifResult.deviceInfo.serialNumber}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {onvifResult.profiles && onvifResult.profiles.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Media Profiles</CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-sm space-y-2">
+                    {onvifResult.profiles.map((profile: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                        <span>{profile.name}</span>
+                        {profile.resolution && (
+                          <Badge variant="outline" className="text-xs">
+                            {profile.resolution.width}x{profile.resolution.height}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {onvifResult.capabilities && (
+                <div className="flex gap-2 flex-wrap">
+                  <Badge variant={onvifResult.capabilities.ptz ? "default" : "secondary"}>
+                    PTZ: {onvifResult.capabilities.ptz ? "Yes" : "No"}
+                  </Badge>
+                  <Badge variant={onvifResult.capabilities.snapshot ? "default" : "secondary"}>
+                    Snapshot: {onvifResult.capabilities.snapshot ? "Yes" : "No"}
+                  </Badge>
+                  <Badge variant={onvifResult.capabilities.streaming ? "default" : "secondary"}>
+                    Streaming: {onvifResult.capabilities.streaming ? "Yes" : "No"}
+                  </Badge>
+                </div>
+              )}
+
+              {onvifResult.streamUri && (
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Stream URI:</span>
+                  <code className="ml-2 p-1 bg-muted rounded text-xs break-all">{onvifResult.streamUri}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={ptzCameraId !== null} onOpenChange={(open) => !open && setPtzCameraId(null)}>
         <DialogContent className="max-w-4xl">

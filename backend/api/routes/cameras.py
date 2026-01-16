@@ -184,3 +184,219 @@ async def check_camera(
             "lastOnlineAt": camera.last_online_at.isoformat() if camera.last_online_at else None
         }
     }
+
+
+@router.post("/onvif/test")
+async def test_onvif_connection_endpoint(
+    body: dict,
+    current_user: User = Depends(get_current_user)
+):
+    from backend.services.onvif_service import test_onvif_connection
+    
+    ip_address = body.get("ipAddress") or body.get("ip_address")
+    port = body.get("port", 80)
+    username = body.get("username")
+    password = body.get("password")
+    
+    if not ip_address or not username or not password:
+        raise HTTPException(status_code=400, detail="IP address, username, and password are required")
+    
+    try:
+        port = int(port)
+    except (ValueError, TypeError):
+        port = 80
+    
+    result = await test_onvif_connection(ip_address, port, username, password)
+    return result
+
+
+@router.post("/{camera_id}/onvif/connect")
+async def connect_camera_onvif(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from backend.services.onvif_service import test_onvif_connection
+    
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    port = 80
+    if ":" in camera.ip_address:
+        parts = camera.ip_address.split(":")
+        ip = parts[0]
+        try:
+            port = int(parts[1])
+        except:
+            port = 80
+    else:
+        ip = camera.ip_address
+    
+    result = await test_onvif_connection(ip, port, camera.username, camera.password)
+    
+    if result["success"]:
+        camera.status = "online"
+        camera.status_message = f"ONVIF connected - {result['deviceInfo'].get('manufacturer', '')} {result['deviceInfo'].get('model', '')}"
+        camera.last_online_at = datetime.utcnow()
+    else:
+        camera.status = "error"
+        camera.status_message = result["message"]
+    
+    camera.last_checked_at = datetime.utcnow()
+    db.commit()
+    
+    return {
+        **result,
+        "camera": camera_to_dict(camera)
+    }
+
+
+@router.post("/{camera_id}/onvif/snapshot")
+async def capture_onvif_snapshot(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    import base64
+    from backend.services.onvif_service import OnvifService
+    
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    port = 80
+    if ":" in camera.ip_address:
+        parts = camera.ip_address.split(":")
+        ip = parts[0]
+        try:
+            port = int(parts[1])
+        except:
+            port = 80
+    else:
+        ip = camera.ip_address
+    
+    service = OnvifService(ip, port, camera.username, camera.password)
+    success, msg, _ = await service.connect()
+    
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to connect: {msg}")
+    
+    snapshot_bytes = await service.capture_snapshot()
+    
+    if not snapshot_bytes:
+        raise HTTPException(status_code=500, detail="Failed to capture snapshot")
+    
+    camera.last_snapshot = datetime.utcnow()
+    db.commit()
+    
+    return {
+        "success": True,
+        "image": base64.b64encode(snapshot_bytes).decode('utf-8'),
+        "contentType": "image/jpeg",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/{camera_id}/onvif/ptz")
+async def control_ptz_onvif(
+    camera_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from backend.services.onvif_service import OnvifService
+    
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    action = body.get("action", "move")
+    pan = float(body.get("pan", 0))
+    tilt = float(body.get("tilt", 0))
+    zoom = float(body.get("zoom", 0))
+    
+    port = 80
+    if ":" in camera.ip_address:
+        parts = camera.ip_address.split(":")
+        ip = parts[0]
+        try:
+            port = int(parts[1])
+        except:
+            port = 80
+    else:
+        ip = camera.ip_address
+    
+    service = OnvifService(ip, port, camera.username, camera.password)
+    success, msg, _ = await service.connect()
+    
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to connect: {msg}")
+    
+    if action == "stop":
+        result = await service.ptz_stop()
+    else:
+        result = await service.ptz_move(pan, tilt, zoom)
+    
+    if not result:
+        raise HTTPException(status_code=500, detail="PTZ operation failed - camera may not support PTZ")
+    
+    return {
+        "success": True,
+        "action": action,
+        "pan": pan,
+        "tilt": tilt,
+        "zoom": zoom
+    }
+
+
+@router.get("/{camera_id}/onvif/status")
+async def get_onvif_status(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from backend.services.onvif_service import OnvifService
+    
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    port = 80
+    if ":" in camera.ip_address:
+        parts = camera.ip_address.split(":")
+        ip = parts[0]
+        try:
+            port = int(parts[1])
+        except:
+            port = 80
+    else:
+        ip = camera.ip_address
+    
+    service = OnvifService(ip, port, camera.username, camera.password)
+    success, msg, device_info = await service.connect()
+    
+    if not success:
+        return {
+            "connected": False,
+            "message": msg,
+            "deviceInfo": None,
+            "profiles": [],
+            "capabilities": {},
+            "ptzStatus": None
+        }
+    
+    profiles = await service.get_profiles()
+    capabilities = await service.get_capabilities()
+    ptz_status = await service.get_ptz_status()
+    stream_uri = await service.get_stream_uri()
+    
+    return {
+        "connected": True,
+        "message": "Connected via ONVIF",
+        "deviceInfo": device_info,
+        "profiles": profiles,
+        "capabilities": capabilities,
+        "ptzStatus": ptz_status,
+        "streamUri": stream_uri
+    }
