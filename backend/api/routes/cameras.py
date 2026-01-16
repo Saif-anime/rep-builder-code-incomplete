@@ -235,21 +235,31 @@ async def connect_camera_onvif(
     
     result = await test_onvif_connection(ip, port, camera.username, camera.password)
     
-    if result["success"]:
-        camera.status = "online"
-        camera.status_message = f"ONVIF connected - {result['deviceInfo'].get('manufacturer', '')} {result['deviceInfo'].get('model', '')}"
-        camera.last_online_at = datetime.utcnow()
-    else:
-        camera.status = "error"
-        camera.status_message = result["message"]
-    
-    camera.last_checked_at = datetime.utcnow()
-    db.commit()
-    
-    return {
-        **result,
-        "camera": camera_to_dict(camera)
-    }
+    try:
+        db.refresh(camera)
+        
+        if result["success"]:
+            camera.status = "online"
+            camera.status_message = f"ONVIF connected - {result['deviceInfo'].get('manufacturer', '')} {result['deviceInfo'].get('model', '')}"
+            camera.last_online_at = datetime.utcnow()
+        else:
+            camera.status = "error"
+            camera.status_message = result["message"]
+        
+        camera.last_checked_at = datetime.utcnow()
+        db.commit()
+        
+        return {
+            **result,
+            "camera": camera_to_dict(camera)
+        }
+    except Exception as e:
+        db.rollback()
+        return {
+            **result,
+            "camera": None,
+            "warning": "Camera status could not be updated"
+        }
 
 
 @router.post("/{camera_id}/onvif/snapshot")
