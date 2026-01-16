@@ -1136,7 +1136,7 @@ async def delete_bundle(
     evidence_count = 0
     
     if case:
-        case_reference = case.case_reference
+        case_reference = case.id
         if case.site_id:
             site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
             if site:
