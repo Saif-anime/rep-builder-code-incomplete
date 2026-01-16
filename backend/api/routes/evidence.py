@@ -1180,6 +1180,8 @@ async def delete_bundle(
         db.query(ParkingEvent).filter(ParkingEvent.evidence_id == evidence.id).delete()
         db.delete(evidence)
     
+    db.delete(bundle)
+    
     if case:
         db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
         db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).delete()
@@ -1187,7 +1189,6 @@ async def delete_bundle(
         db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).delete()
         db.delete(case)
     
-    db.delete(bundle)
     db.commit()
     
     audit_log = AuditLog(
@@ -1309,6 +1310,8 @@ async def bulk_delete_bundles(
                 db.query(ParkingEvent).filter(ParkingEvent.evidence_id == evidence.id).delete()
                 db.delete(evidence)
             
+            db.delete(bundle)
+            
             if case:
                 db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
                 db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).delete()
@@ -1316,7 +1319,6 @@ async def bulk_delete_bundles(
                 db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).delete()
                 db.delete(case)
             
-            db.delete(bundle)
             db.commit()
             
             audit_log = AuditLog(
