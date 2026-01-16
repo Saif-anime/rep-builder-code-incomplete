@@ -1181,6 +1181,7 @@ async def delete_bundle(
         db.delete(evidence)
     
     db.delete(bundle)
+    db.flush()
     
     if case:
         db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
@@ -1311,6 +1312,7 @@ async def bulk_delete_bundles(
                 db.delete(evidence)
             
             db.delete(bundle)
+            db.flush()
             
             if case:
                 db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
