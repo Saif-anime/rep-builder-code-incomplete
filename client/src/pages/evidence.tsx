@@ -31,8 +31,12 @@ import {
   AlertTriangle,
   Eye,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  CheckSquare,
+  Square,
+  XCircle
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -103,6 +107,16 @@ export default function EvidencePage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evidenceToDelete, setEvidenceToDelete] = useState<Evidence | null>(null);
   const [deletingEvidenceId, setDeletingEvidenceId] = useState<number | null>(null);
+  
+  // Bundle/Case deletion state
+  const [bundleDeleteConfirmOpen, setBundleDeleteConfirmOpen] = useState(false);
+  const [bundleToDelete, setBundleToDelete] = useState<EvidenceBundle | null>(null);
+  const [deletingBundleId, setDeletingBundleId] = useState<string | null>(null);
+  
+  // Multi-select state
+  const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [isSelectMode, setIsSelectMode] = useState(false);
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
     queryKey: ["/api/evidence/bundles"],
@@ -218,6 +232,115 @@ export default function EvidencePage() {
   const confirmDeleteEvidence = () => {
     if (evidenceToDelete) {
       deleteEvidenceMutation.mutate(evidenceToDelete.id);
+    }
+  };
+
+  // Bundle/Case deletion mutation
+  const deleteBundleMutation = useMutation({
+    mutationFn: async (bundleId: string) => {
+      setDeletingBundleId(bundleId);
+      const response = await fetch(`/api/evidence/bundles/${bundleId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Delete failed");
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Case deleted", description: data.message || "Case and all evidence deleted successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      setBundleDeleteConfirmOpen(false);
+      setBundleToDelete(null);
+      setDeletingBundleId(null);
+      setSelectedBundle(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      setDeletingBundleId(null);
+      setBundleDeleteConfirmOpen(false);
+      setBundleToDelete(null);
+    },
+  });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (bundleIds: string[]) => {
+      const response = await fetch("/api/evidence/bundles/bulk-delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+        body: JSON.stringify({ bundle_ids: bundleIds.map(id => parseInt(id)) }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Bulk delete failed");
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      const msg = `Deleted ${data.deleted} case(s)`;
+      const parts = [];
+      if (data.blocked > 0) parts.push(`${data.blocked} blocked`);
+      if (data.failed > 0) parts.push(`${data.failed} failed`);
+      const details = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+      toast({ 
+        title: "Bulk delete complete", 
+        description: msg + details,
+        variant: (data.blocked > 0 || data.failed > 0) ? "default" : "default"
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      setBulkDeleteConfirmOpen(false);
+      setSelectedBundleIds(new Set());
+      setIsSelectMode(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Bulk delete failed", description: error.message, variant: "destructive" });
+      setBulkDeleteConfirmOpen(false);
+    },
+  });
+
+  const handleDeleteBundle = (bundle: EvidenceBundle) => {
+    setBundleToDelete(bundle);
+    setBundleDeleteConfirmOpen(true);
+  };
+
+  const confirmDeleteBundle = () => {
+    if (bundleToDelete) {
+      deleteBundleMutation.mutate(bundleToDelete.id);
+    }
+  };
+
+  const toggleBundleSelection = (bundleId: string) => {
+    setSelectedBundleIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(bundleId)) {
+        newSet.delete(bundleId);
+      } else {
+        newSet.add(bundleId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllBundles = () => {
+    const allIds = filteredBundles.map(b => b.id);
+    setSelectedBundleIds(new Set(allIds));
+  };
+
+  const deselectAllBundles = () => {
+    setSelectedBundleIds(new Set());
+  };
+
+  const confirmBulkDelete = () => {
+    if (selectedBundleIds.size > 0) {
+      bulkDeleteMutation.mutate(Array.from(selectedBundleIds));
     }
   };
 
@@ -529,6 +652,53 @@ export default function EvidencePage() {
               </Badge>
             </div>
           </div>
+          
+          {/* Selection mode controls */}
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+            <Button 
+              variant={isSelectMode ? "default" : "outline"} 
+              size="sm"
+              onClick={() => {
+                setIsSelectMode(!isSelectMode);
+                if (isSelectMode) {
+                  setSelectedBundleIds(new Set());
+                }
+              }}
+              data-testid="button-toggle-select-mode"
+            >
+              {isSelectMode ? <XCircle className="h-4 w-4 mr-2" /> : <CheckSquare className="h-4 w-4 mr-2" />}
+              {isSelectMode ? "Cancel" : "Select"}
+            </Button>
+            
+            {isSelectMode && (
+              <>
+                <Button variant="outline" size="sm" onClick={selectAllBundles} data-testid="button-select-all">
+                  Select All
+                </Button>
+                <Button variant="outline" size="sm" onClick={deselectAllBundles} data-testid="button-deselect-all">
+                  Clear
+                </Button>
+                <div className="flex-1" />
+                <Badge variant="secondary" className="text-xs">
+                  {selectedBundleIds.size} selected
+                </Badge>
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  disabled={selectedBundleIds.size === 0 || bulkDeleteMutation.isPending}
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
+                  data-testid="button-bulk-delete"
+                >
+                  {bulkDeleteMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Delete Selected
+                </Button>
+              </>
+            )}
+          </div>
         </CardHeader>
       </Card>
 
@@ -547,35 +717,47 @@ export default function EvidencePage() {
       ) : (
         <div className="flex flex-col gap-3 sm:gap-4">
           {filteredBundles.map((bundle) => (
-            <Card key={bundle.id} className="hover-elevate cursor-pointer overflow-hidden" data-testid={`bundle-card-${bundle.id}`}>
+            <Card key={bundle.id} className={`hover-elevate cursor-pointer overflow-hidden ${selectedBundleIds.has(bundle.id) ? "ring-2 ring-primary" : ""}`} data-testid={`bundle-card-${bundle.id}`}>
               <Collapsible open={expandedBundles.has(bundle.id)} onOpenChange={() => toggleBundle(bundle.id)}>
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="pb-3 px-3 sm:px-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        {expandedBundles.has(bundle.id) ? (
-                          <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-                            <span className="truncate">{bundle.siteName}</span>
-                          </CardTitle>
-                          <CardDescription className="flex items-center gap-2 mt-1 flex-wrap">
-                            <span className="font-mono text-[10px] sm:text-xs">REF: {bundle.caseReference.substring(0, 8)}</span>
-                            {bundle.vrm && (
-                              <>
-                                <Separator orientation="vertical" className="h-3 hidden sm:block" />
-                                <UKNumberPlate vrm={bundle.vrm} size="sm" />
-                              </>
-                            )}
-                          </CardDescription>
+                <CardHeader className="pb-3 px-3 sm:px-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      {isSelectMode && (
+                        <Checkbox
+                          checked={selectedBundleIds.has(bundle.id)}
+                          onCheckedChange={() => toggleBundleSelection(bundle.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0"
+                          data-testid={`checkbox-bundle-${bundle.id}`}
+                        />
+                      )}
+                      <CollapsibleTrigger asChild>
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                          {expandedBundles.has(bundle.id) ? (
+                            <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                              <MapPin className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                              <span className="truncate">{bundle.siteName}</span>
+                            </CardTitle>
+                            <CardDescription className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="font-mono text-[10px] sm:text-xs">REF: {bundle.caseReference.substring(0, 8)}</span>
+                              {bundle.vrm && (
+                                <>
+                                  <Separator orientation="vertical" className="h-3 hidden sm:block" />
+                                  <UKNumberPlate vrm={bundle.vrm} size="sm" />
+                                </>
+                              )}
+                            </CardDescription>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 sm:gap-3 ml-6 sm:ml-0 flex-wrap">
-                        <Badge variant="outline" className="text-[10px] sm:text-xs">
+                      </CollapsibleTrigger>
+                    </div>
+                    <div className="flex items-center gap-2 sm:gap-3 ml-6 sm:ml-0 flex-wrap">
+                      <Badge variant="outline" className="text-[10px] sm:text-xs">
                           {bundle.uploadSource === "camera" ? <Camera className="h-3 w-3 mr-1" /> : <FileImage className="h-3 w-3 mr-1" />}
                           {bundle.evidenceCount}
                         </Badge>
@@ -583,10 +765,27 @@ export default function EvidencePage() {
                         <span className="text-[10px] sm:text-xs text-muted-foreground hidden sm:inline">
                           {new Date(bundle.createdAt).toLocaleDateString()}
                         </span>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBundle(bundle);
+                          }}
+                          disabled={deletingBundleId === bundle.id || bundle.status === "analysing"}
+                          title="Delete this case"
+                          data-testid={`button-delete-bundle-${bundle.id}`}
+                        >
+                          {deletingBundleId === bundle.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
                     </div>
                   </CardHeader>
-                </CollapsibleTrigger>
                 <CollapsibleContent>
                   <CardContent className="pt-0">
                     <Separator className="mb-4" />
@@ -959,6 +1158,121 @@ export default function EvidencePage() {
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bundle/Case Delete Confirmation */}
+      <AlertDialog open={bundleDeleteConfirmOpen} onOpenChange={setBundleDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete Case
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>Are you sure you want to delete this entire case? This will permanently remove:</p>
+              {bundleToDelete && (
+                <div className="bg-muted p-3 rounded-md text-sm space-y-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    <span className="font-medium">{bundleToDelete.siteName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs">REF: {bundleToDelete.caseReference.substring(0, 8)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <FileImage className="h-4 w-4" />
+                    <span>{bundleToDelete.evidenceCount} evidence file(s)</span>
+                  </div>
+                  {bundleToDelete.analysis && (
+                    <div className="flex items-center gap-2 text-amber-600">
+                      <Brain className="h-4 w-4" />
+                      <span>Analysis report will be deleted</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="text-destructive font-medium">This action cannot be undone.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-bundle">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteBundle}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteBundleMutation.isPending}
+              data-testid="button-confirm-delete-bundle"
+            >
+              {deleteBundleMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Case
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete Multiple Cases
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>Are you sure you want to delete {selectedBundleIds.size} case(s)?</p>
+              <div className="bg-muted p-3 rounded-md text-sm space-y-2 max-h-[200px] overflow-y-auto">
+                {Array.from(selectedBundleIds).map(id => {
+                  const bundle = bundles.find(b => b.id === id);
+                  return bundle ? (
+                    <div key={id} className="flex items-center gap-2 py-1 border-b last:border-0">
+                      <MapPin className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{bundle.siteName}</span>
+                      <Badge variant="outline" className="text-[10px] ml-auto shrink-0">
+                        {bundle.evidenceCount} files
+                      </Badge>
+                    </div>
+                  ) : null;
+                })}
+              </div>
+              <div className="flex items-center gap-2 text-amber-600 bg-amber-50 dark:bg-amber-950/30 p-2 rounded-md">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span className="text-sm">
+                  All evidence files and analysis reports will be permanently deleted.
+                </span>
+              </div>
+              <p className="text-destructive font-medium">This action cannot be undone.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-bulk-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={bulkDeleteMutation.isPending}
+              data-testid="button-confirm-bulk-delete"
+            >
+              {bulkDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete {selectedBundleIds.size} Case(s)
                 </>
               )}
             </AlertDialogAction>

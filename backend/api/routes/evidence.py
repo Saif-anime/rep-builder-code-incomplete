@@ -1082,3 +1082,268 @@ async def delete_evidence_item(
         "analysisStale": analysis_stale,
         "requiresReanalysis": analysis_stale
     }
+
+
+@router.delete("/bundles/{bundle_id}", status_code=status.HTTP_200_OK)
+async def delete_bundle(
+    bundle_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete an entire evidence bundle and its associated case.
+    - Validates bundle exists
+    - Blocks deletion if PCN is issued
+    - Removes all evidence files from storage
+    - Deletes all related database records
+    """
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    case = None
+    if bundle.case_id:
+        case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+    
+    pcn_blocking_statuses = ["PCN_ISSUED", "pcn_issued", "CLOSED", "closed", "ISSUED", "issued"]
+    if case and case.status and case.status.upper() in [s.upper() for s in pcn_blocking_statuses]:
+        raise HTTPException(
+            status_code=403, 
+            detail="Cannot delete - PCN has been issued or case is closed"
+        )
+    
+    case_analysis = None
+    if case:
+        case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+        if case_analysis and case_analysis.recommendation and "Issue PCN" in str(case_analysis.recommendation):
+            pipeline = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+            if pipeline and pipeline.decision and isinstance(pipeline.decision, dict):
+                if pipeline.decision.get("pcn_issued") or pipeline.decision.get("issued_at"):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Cannot delete - PCN has been issued for this case"
+                    )
+    
+    if bundle.status == "analysing":
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot delete while analysis is in progress"
+        )
+    
+    bundle_name = bundle.name or f"Bundle {bundle_id}"
+    site_name = None
+    case_reference = None
+    evidence_count = 0
+    
+    if case:
+        case_reference = case.case_reference
+        if case.site_id:
+            site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
+            if site:
+                site_name = site.site_name
+    
+    def resolve_file_path(path: str) -> str:
+        if not path:
+            return path
+        if path.startswith("/uploads/"):
+            relative = path[len("/uploads/"):]
+            return os.path.join(settings.UPLOAD_DIR, relative)
+        if os.path.isabs(path):
+            return path
+        return os.path.join(settings.UPLOAD_DIR, path)
+    
+    evidence_files = db.query(Evidence).filter(Evidence.bundle_id == bundle_id).all()
+    evidence_count = len(evidence_files)
+    
+    for evidence in evidence_files:
+        try:
+            stored_path = evidence.image_path or evidence.video_path
+            if stored_path:
+                actual_path = resolve_file_path(stored_path)
+                if os.path.exists(actual_path):
+                    os.remove(actual_path)
+                    logger.info(f"Deleted file: {actual_path}")
+            
+            if evidence.thumbnail_path:
+                thumb_path = resolve_file_path(evidence.thumbnail_path)
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+        except OSError as e:
+            logger.warning(f"Failed to delete file: {e}")
+    
+    from backend.db.models import Detection, NumberPlate, ParkingEvent
+    
+    for evidence in evidence_files:
+        db.query(CaseEvidence).filter(CaseEvidence.evidence_id == evidence.id).delete()
+        db.query(Detection).filter(Detection.evidence_id == evidence.id).delete()
+        db.query(NumberPlate).filter(NumberPlate.evidence_id == evidence.id).delete()
+        db.query(ParkingEvent).filter(ParkingEvent.evidence_id == evidence.id).delete()
+        db.delete(evidence)
+    
+    if case:
+        db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
+        db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).delete()
+        db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).delete()
+        db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).delete()
+        db.delete(case)
+    
+    db.delete(bundle)
+    db.commit()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="delete",
+        entity_type="bundle",
+        entity_id=str(bundle_id),
+        details={
+            "bundle_name": bundle_name,
+            "site_name": site_name,
+            "case_reference": case_reference,
+            "evidence_count": evidence_count,
+            "case_id": case.id if case else None
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Bundle '{bundle_name}' deleted successfully",
+        "bundleId": bundle_id,
+        "evidenceDeleted": evidence_count
+    }
+
+
+from pydantic import BaseModel
+
+class BulkDeleteRequest(BaseModel):
+    bundle_ids: List[int]
+
+@router.post("/bundles/bulk-delete", status_code=status.HTTP_200_OK)
+async def bulk_delete_bundles(
+    request: BulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete multiple evidence bundles at once.
+    - Validates all bundles can be deleted
+    - Returns partial success if some fail
+    """
+    if not request.bundle_ids:
+        raise HTTPException(status_code=400, detail="No bundle IDs provided")
+    
+    if len(request.bundle_ids) > 50:
+        raise HTTPException(status_code=400, detail="Cannot delete more than 50 bundles at once")
+    
+    results = {
+        "success": [],
+        "failed": [],
+        "blocked": []
+    }
+    
+    def resolve_file_path(path: str) -> str:
+        if not path:
+            return path
+        if path.startswith("/uploads/"):
+            relative = path[len("/uploads/"):]
+            return os.path.join(settings.UPLOAD_DIR, relative)
+        if os.path.isabs(path):
+            return path
+        return os.path.join(settings.UPLOAD_DIR, path)
+    
+    for bundle_id in request.bundle_ids:
+        try:
+            bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+            if not bundle:
+                results["failed"].append({"id": bundle_id, "reason": "Not found"})
+                continue
+            
+            case = None
+            if bundle.case_id:
+                case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+            
+            pcn_blocking_statuses = ["PCN_ISSUED", "pcn_issued", "CLOSED", "closed", "ISSUED", "issued"]
+            if case and case.status and case.status.upper() in [s.upper() for s in pcn_blocking_statuses]:
+                results["blocked"].append({"id": bundle_id, "reason": "PCN issued or case closed"})
+                continue
+            
+            if case:
+                case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+                if case_analysis and case_analysis.recommendation and "Issue PCN" in str(case_analysis.recommendation):
+                    pipeline = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+                    if pipeline and pipeline.decision and isinstance(pipeline.decision, dict):
+                        if pipeline.decision.get("pcn_issued") or pipeline.decision.get("issued_at"):
+                            results["blocked"].append({"id": bundle_id, "reason": "PCN issued"})
+                            continue
+            
+            if bundle.status == "analysing":
+                results["blocked"].append({"id": bundle_id, "reason": "Analysis in progress"})
+                continue
+            
+            bundle_name = bundle.name or f"Bundle {bundle_id}"
+            
+            evidence_files = db.query(Evidence).filter(Evidence.bundle_id == bundle_id).all()
+            evidence_count = len(evidence_files)
+            
+            for evidence in evidence_files:
+                try:
+                    stored_path = evidence.image_path or evidence.video_path
+                    if stored_path:
+                        actual_path = resolve_file_path(stored_path)
+                        if os.path.exists(actual_path):
+                            os.remove(actual_path)
+                    if evidence.thumbnail_path:
+                        thumb_path = resolve_file_path(evidence.thumbnail_path)
+                        if os.path.exists(thumb_path):
+                            os.remove(thumb_path)
+                except OSError:
+                    pass
+            
+            from backend.db.models import Detection, NumberPlate, ParkingEvent
+            
+            for evidence in evidence_files:
+                db.query(CaseEvidence).filter(CaseEvidence.evidence_id == evidence.id).delete()
+                db.query(Detection).filter(Detection.evidence_id == evidence.id).delete()
+                db.query(NumberPlate).filter(NumberPlate.evidence_id == evidence.id).delete()
+                db.query(ParkingEvent).filter(ParkingEvent.evidence_id == evidence.id).delete()
+                db.delete(evidence)
+            
+            if case:
+                db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).delete()
+                db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).delete()
+                db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).delete()
+                db.query(CaseEvidence).filter(CaseEvidence.case_id == case.id).delete()
+                db.delete(case)
+            
+            db.delete(bundle)
+            db.commit()
+            
+            audit_log = AuditLog(
+                user_id=current_user.id,
+                action="bulk_delete",
+                entity_type="bundle",
+                entity_id=str(bundle_id),
+                details={
+                    "bundle_name": bundle_name,
+                    "evidence_count": evidence_count,
+                    "bulk_operation": True
+                }
+            )
+            db.add(audit_log)
+            db.commit()
+            
+            results["success"].append({"id": bundle_id, "name": bundle_name, "evidenceDeleted": evidence_count})
+            
+        except Exception as e:
+            logger.error(f"Failed to delete bundle {bundle_id}: {e}")
+            results["failed"].append({"id": bundle_id, "reason": str(e)})
+            db.rollback()
+    
+    return {
+        "success": True,
+        "deleted": len(results["success"]),
+        "blocked": len(results["blocked"]),
+        "failed": len(results["failed"]),
+        "results": results
+    }
