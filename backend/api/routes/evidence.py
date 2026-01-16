@@ -894,3 +894,191 @@ async def select_weather_hour(
     except Exception as e:
         logger.error(f"Weather selection error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to select weather: {str(e)}")
+
+
+@router.delete("/{evidence_id}", status_code=status.HTTP_200_OK)
+async def delete_evidence_item(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a single evidence item from a bundle.
+    - Validates evidence exists
+    - Blocks deletion if PCN is issued
+    - Blocks deletion if analysis is in progress
+    - Removes file from storage
+    - Recalculates bundle timestamps and counts
+    - Marks analysis as stale if exists
+    """
+    evidence = db.query(Evidence).filter(Evidence.id == evidence_id).first()
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    
+    bundle_id = evidence.bundle_id
+    bundle = None
+    case = None
+    
+    if bundle_id:
+        bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+        if bundle and bundle.case_id:
+            case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+    
+    if case and case.status in ["PCN_ISSUED", "pcn_issued", "CLOSED", "closed"]:
+        raise HTTPException(
+            status_code=403, 
+            detail="Cannot delete evidence - PCN has been issued for this case"
+        )
+    
+    if bundle and bundle.status == "analysing":
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot delete evidence while analysis is in progress"
+        )
+    
+    stored_path = evidence.image_path or evidence.video_path
+    file_name = os.path.basename(stored_path) if stored_path else f"evidence_{evidence_id}"
+    capture_time = evidence.timestamp.isoformat() if evidence.timestamp else "Unknown"
+    
+    def resolve_file_path(path: str) -> str:
+        if not path:
+            return path
+        if path.startswith("/uploads/"):
+            relative = path[len("/uploads/"):]
+            return os.path.join(settings.UPLOAD_DIR, relative)
+        if os.path.isabs(path):
+            return path
+        return os.path.join(settings.UPLOAD_DIR, path)
+    
+    try:
+        if stored_path:
+            actual_path = resolve_file_path(stored_path)
+            if os.path.exists(actual_path):
+                os.remove(actual_path)
+                logger.info(f"Deleted file: {actual_path}")
+        
+        if evidence.thumbnail_path:
+            thumb_path = resolve_file_path(evidence.thumbnail_path)
+            if os.path.exists(thumb_path):
+                os.remove(thumb_path)
+                logger.info(f"Deleted thumbnail: {thumb_path}")
+    except OSError as e:
+        logger.warning(f"Failed to delete file from storage: {e}")
+    
+    from backend.db.models import CaseEvidence, Detection, NumberPlate, ParkingEvent
+    db.query(CaseEvidence).filter(CaseEvidence.evidence_id == evidence_id).delete()
+    db.query(Detection).filter(Detection.evidence_id == evidence_id).delete()
+    db.query(NumberPlate).filter(NumberPlate.evidence_id == evidence_id).delete()
+    db.query(ParkingEvent).filter(ParkingEvent.evidence_id == evidence_id).delete()
+    
+    db.delete(evidence)
+    db.commit()
+    
+    new_time_window = None
+    remaining_count = 0
+    analysis_stale = False
+    observe_from = None
+    observe_to = None
+    duration_minutes = None
+    
+    if bundle:
+        remaining_evidence = db.query(Evidence).filter(Evidence.bundle_id == bundle_id).all()
+        remaining_count = len(remaining_evidence)
+        
+        bundle.file_count = remaining_count
+        
+        if remaining_count == 0:
+            bundle.status = "empty"
+            bundle.name = (bundle.name or "") + " (Empty - Needs Upload)"
+        
+        if remaining_evidence:
+            timestamps = [e.timestamp for e in remaining_evidence if e.timestamp]
+            if timestamps:
+                observe_from = min(timestamps)
+                observe_to = max(timestamps)
+                duration_minutes = int((observe_to - observe_from).total_seconds() / 60)
+                new_time_window = {
+                    "start": observe_from.isoformat(),
+                    "end": observe_to.isoformat(),
+                    "durationMinutes": duration_minutes
+                }
+        
+        if bundle.analysis_completed_at or bundle.ai_result:
+            analysis_stale = True
+            if bundle.ai_result and isinstance(bundle.ai_result, dict):
+                updated_result = dict(bundle.ai_result)
+                updated_result["stale"] = True
+                updated_result["stale_reason"] = "Evidence deleted after analysis"
+                updated_result["stale_at"] = datetime.utcnow().isoformat()
+                bundle.ai_result = updated_result
+        
+        db.commit()
+        
+        if case:
+            case.evidence_count = remaining_count
+            db.commit()
+            
+            case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+            if case_analysis:
+                analysis_stale = True
+                if case_analysis.time_window and isinstance(case_analysis.time_window, dict):
+                    updated_tw = dict(case_analysis.time_window)
+                    updated_tw["stale"] = True
+                    updated_tw["stale_reason"] = "Evidence deleted after analysis"
+                    case_analysis.time_window = updated_tw
+                db.commit()
+            
+            pipeline = db.query(CasePipelineResults).filter(
+                CasePipelineResults.case_id == case.id
+            ).first()
+            if pipeline:
+                if new_time_window:
+                    updated_timeline = pipeline.evidence_timeline or {}
+                    if isinstance(updated_timeline, dict):
+                        updated_timeline = dict(updated_timeline)
+                    updated_timeline["timeRange"] = {
+                        "first": new_time_window["start"],
+                        "last": new_time_window["end"],
+                        "durationMinutes": duration_minutes
+                    }
+                    updated_timeline["stale"] = True
+                    updated_timeline["stale_reason"] = "Evidence deleted"
+                    pipeline.evidence_timeline = updated_timeline
+                
+                if pipeline.decision and isinstance(pipeline.decision, dict):
+                    updated_decision = dict(pipeline.decision)
+                    updated_decision["stale"] = True
+                    updated_decision["stale_reason"] = "Evidence deleted - requires re-analysis"
+                    pipeline.decision = updated_decision
+                
+                db.commit()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="delete",
+        entity_type="evidence",
+        entity_id=str(evidence_id),
+        details={
+            "file_name": file_name,
+            "capture_time": capture_time,
+            "bundle_id": bundle_id,
+            "case_id": case.id if case else None,
+            "remaining_evidence_count": remaining_count,
+            "analysis_marked_stale": analysis_stale,
+            "new_observe_from": observe_from.isoformat() if observe_from else None,
+            "new_observe_to": observe_to.isoformat() if observe_to else None,
+            "new_duration_minutes": duration_minutes
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Evidence {evidence_id} deleted successfully",
+        "bundleId": bundle_id,
+        "remainingCount": remaining_count,
+        "newTimeWindow": new_time_window,
+        "analysisStale": analysis_stale,
+        "requiresReanalysis": analysis_stale
+    }

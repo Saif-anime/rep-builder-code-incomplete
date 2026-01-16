@@ -23,6 +23,7 @@ import {
   FileVideo,
   FileImage,
   Maximize2,
+  Trash2,
 } from "lucide-react";
 import type { Evidence } from "@shared/schema";
 
@@ -31,6 +32,9 @@ interface EvidenceViewerProps {
   allEvidence?: Evidence[];
   className?: string;
   showBadge?: boolean;
+  onDelete?: (evidenceId: number) => void;
+  isDeleting?: boolean;
+  canDelete?: boolean;
 }
 
 interface FullscreenViewerProps {
@@ -405,6 +409,9 @@ export function EvidenceViewer({
   allEvidence, 
   className = "",
   showBadge = true,
+  onDelete,
+  isDeleting = false,
+  canDelete = true,
 }: EvidenceViewerProps) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   
@@ -418,6 +425,13 @@ export function EvidenceViewer({
 
   const handleClick = () => {
     setIsFullscreenOpen(true);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDelete && canDelete && !isDeleting) {
+      onDelete(evidence.id);
+    }
   };
 
   const ThumbnailContent = (
@@ -459,6 +473,20 @@ export function EvidenceViewer({
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
         <Maximize2 className="h-6 w-6 text-white drop-shadow-lg" />
       </div>
+      
+      {onDelete && (
+        <button
+          onClick={handleDeleteClick}
+          disabled={!canDelete || isDeleting}
+          className={`absolute top-1 right-1 p-1.5 rounded-md bg-destructive/90 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 ${
+            !canDelete || isDeleting ? "cursor-not-allowed opacity-50" : "hover:bg-destructive"
+          }`}
+          title={!canDelete ? "Cannot delete - analysis in progress or PCN issued" : "Delete evidence"}
+          data-testid={`button-delete-evidence-${evidence.id}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
       
       {showBadge && (
         <Badge variant="secondary" className="absolute bottom-1 right-1 text-[10px]">

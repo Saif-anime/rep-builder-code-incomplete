@@ -1,0 +1,109 @@
+You are working on the Euro Parking Enforcement System.
+
+GOAL:
+Add a DELETE button for EACH individual evidence item (image/video)
+inside an evidence bundle, allowing operators to delete evidence safely,
+without breaking analysis, timestamps, or case integrity.
+
+DO NOT delete entire bundles — only single evidence items.
+
+------------------------------------
+UI REQUIREMENTS
+------------------------------------
+1. In the Evidence Files grid:
+   - Add a 🗑️ Delete icon on each evidence thumbnail
+   - Icon appears on hover (top-right corner)
+   - Icon must be disabled during analysis
+
+2. On click:
+   - Show confirmation modal:
+     "Are you sure you want to delete this evidence file?"
+     - Explain deletion is permanent
+     - Show filename + capture time
+
+3. Buttons:
+   - Cancel
+   - Delete (danger style)
+
+------------------------------------
+BACKEND API
+------------------------------------
+Create endpoint:
+
+DELETE /api/evidence/:evidenceId
+
+Rules:
+- Validate evidence exists
+- Ensure evidence is NOT locked by issued PCN
+- Ensure user has permission
+- Remove file from storage (S3 / local / Replit FS)
+- Remove DB record
+- Log deletion event (user, time, reason)
+
+------------------------------------
+DATABASE RULES
+------------------------------------
+If evidence is deleted:
+- Recalculate:
+  - Evidence count
+  - Observe From / Observe To timestamps
+  - Duration
+- If deleted evidence affected time window:
+  - Re-run time calculation
+- If no evidence remains:
+  - Mark bundle as "Empty – Needs Upload"
+
+------------------------------------
+ANALYSIS SAFETY
+------------------------------------
+If analysis exists:
+- Mark analysis as STALE
+- Require manual re-analysis
+- Display warning:
+  "Evidence changed after analysis – re-analysis required"
+
+If analysis is running:
+- Block deletion
+- Show message:
+  "Cannot delete evidence while analysis is in progress"
+
+------------------------------------
+UI STATE UPDATE
+------------------------------------
+After delete:
+- Remove thumbnail instantly (optimistic UI)
+- Update evidence count
+- Update timestamps
+- Disable PCN issue button if required
+
+------------------------------------
+ERROR HANDLING
+------------------------------------
+If delete fails:
+- Restore thumbnail
+- Show clear error message
+- Log failure server-side
+
+------------------------------------
+AUDIT LOGGING (MANDATORY)
+------------------------------------
+Store:
+- Evidence ID
+- Bundle ID
+- File name
+- Deleted by (user)
+- Timestamp
+- Reason (optional input)
+
+------------------------------------
+FINAL VALIDATION
+------------------------------------
+✓ Cannot delete locked evidence
+✓ Cannot delete during analysis
+✓ Observe time recalculates correctly
+✓ Analysis invalidated safely
+✓ UI updates instantly
+✓ No orphan files
+✓ No silent failures
+
+Implement using clean, readable, production-ready code.

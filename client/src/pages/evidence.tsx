@@ -29,8 +29,20 @@ import {
   FileVideo,
   CheckCircle2,
   AlertTriangle,
-  Eye
+  Eye,
+  Trash2,
+  AlertCircle
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceAnalysisReport } from "@/components/evidence-analysis-report";
@@ -87,6 +99,10 @@ export default function EvidencePage() {
   } | null>(null);
   const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [lookupError, setLookupError] = useState<string | null>(null);
+  
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [evidenceToDelete, setEvidenceToDelete] = useState<Evidence | null>(null);
+  const [deletingEvidenceId, setDeletingEvidenceId] = useState<number | null>(null);
 
   const { data: bundles = [], isLoading, refetch } = useQuery<EvidenceBundle[]>({
     queryKey: ["/api/evidence/bundles"],
@@ -146,6 +162,64 @@ export default function EvidencePage() {
       toast({ title: "Analysis failed", description: error.message, variant: "destructive" });
     },
   });
+
+  const deleteEvidenceMutation = useMutation({
+    mutationFn: async (evidenceId: number) => {
+      setDeletingEvidenceId(evidenceId);
+      const response = await fetch(`/api/evidence/${evidenceId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Delete failed");
+      }
+      return response.json();
+    },
+    onSuccess: (data: { analysisStale?: boolean; remainingCount?: number }) => {
+      const message = data.analysisStale 
+        ? "Evidence deleted. Analysis marked as stale - re-analysis required."
+        : "Evidence deleted successfully";
+      toast({ title: "Evidence deleted", description: message });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      setDeleteConfirmOpen(false);
+      setEvidenceToDelete(null);
+      setDeletingEvidenceId(null);
+      
+      if (selectedBundle) {
+        const updatedFiles = selectedBundle.evidenceFiles.filter(f => f.id !== evidenceToDelete?.id);
+        if (updatedFiles.length === 0) {
+          setSelectedBundle(null);
+        } else {
+          setSelectedBundle({
+            ...selectedBundle,
+            evidenceFiles: updatedFiles,
+            evidenceCount: updatedFiles.length
+          });
+        }
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      setDeletingEvidenceId(null);
+      setDeleteConfirmOpen(false);
+      setEvidenceToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+    },
+  });
+
+  const handleDeleteEvidence = (evidence: Evidence) => {
+    setEvidenceToDelete(evidence);
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDeleteEvidence = () => {
+    if (evidenceToDelete) {
+      deleteEvidenceMutation.mutate(evidenceToDelete.id);
+    }
+  };
 
   // Use ref to track vehicle data for stale closure access in mutation callbacks
   const vehicleDataRef = useRef(vehicleData);
@@ -635,7 +709,15 @@ export default function EvidencePage() {
               <Separator />
 
               <div>
-                <h4 className="font-medium mb-3 text-sm sm:text-base">All Evidence Files</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-sm sm:text-base">All Evidence Files</h4>
+                  {selectedBundle.status === "analysing" && (
+                    <Badge variant="outline" className="text-amber-600 border-amber-300">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      Analysis in progress
+                    </Badge>
+                  )}
+                </div>
                 <ScrollArea className="h-[180px] sm:h-[200px]">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pr-4">
                     {selectedBundle.evidenceFiles.map((file) => (
@@ -643,6 +725,9 @@ export default function EvidencePage() {
                         key={file.id}
                         evidence={file}
                         allEvidence={selectedBundle.evidenceFiles}
+                        onDelete={() => handleDeleteEvidence(file)}
+                        isDeleting={deletingEvidenceId === file.id}
+                        canDelete={selectedBundle.status !== "analysing"}
                       />
                     ))}
                   </div>
@@ -818,6 +903,65 @@ export default function EvidencePage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete Evidence
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>Are you sure you want to delete this evidence file? This action cannot be undone.</p>
+              {evidenceToDelete && (
+                <div className="bg-muted p-3 rounded-md text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline">#{evidenceToDelete.id}</Badge>
+                    <span className="text-muted-foreground">
+                      {evidenceToDelete.imagePath ? "Image" : "Video"}
+                    </span>
+                  </div>
+                  {evidenceToDelete.timestamp && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      Captured: {new Date(evidenceToDelete.timestamp).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedBundle?.analysis && (
+                <div className="flex items-center gap-2 text-amber-600 bg-amber-50 dark:bg-amber-950/30 p-2 rounded-md">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">
+                    This bundle has been analyzed. Deleting evidence will mark the analysis as stale and require re-analysis.
+                  </span>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteEvidence}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteEvidenceMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteEvidenceMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
