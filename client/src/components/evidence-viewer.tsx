@@ -478,13 +478,13 @@ export function EvidenceViewer({
         <button
           onClick={handleDeleteClick}
           disabled={!canDelete || isDeleting}
-          className={`absolute top-1 right-1 p-1.5 rounded-md bg-destructive/90 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 ${
-            !canDelete || isDeleting ? "cursor-not-allowed opacity-50" : "hover:bg-destructive"
+          className={`absolute top-1 right-1 p-1.5 rounded-md bg-destructive text-white transition-all z-20 shadow-md ${
+            !canDelete || isDeleting ? "cursor-not-allowed opacity-50" : "hover:bg-destructive/80 hover:scale-110"
           }`}
           title={!canDelete ? "Cannot delete - analysis in progress or PCN issued" : "Delete evidence"}
           data-testid={`button-delete-evidence-${evidence.id}`}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="h-4 w-4" />
         </button>
       )}
       
