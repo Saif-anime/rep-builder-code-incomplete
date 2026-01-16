@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Eye, Download, Camera, Upload, Loader2, CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react";
+import { Eye, Download, Camera, Upload, Loader2, CheckCircle, XCircle, Clock, AlertTriangle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Evidence } from "@shared/schema";
 import { format } from "date-fns";
@@ -10,6 +10,9 @@ interface EvidenceCardProps {
   evidence: Evidence;
   onClick?: () => void;
   onDownload?: () => void;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+  canDelete?: boolean;
   className?: string;
 }
 
@@ -74,7 +77,7 @@ function getStatusBadgeConfig(status: string): {
   }
 }
 
-export function EvidenceCard({ evidence, onClick, onDownload, className }: EvidenceCardProps) {
+export function EvidenceCard({ evidence, onClick, onDownload, onDelete, isDeleting = false, canDelete = true, className }: EvidenceCardProps) {
   return (
     <Card
       className={cn(
@@ -150,6 +153,23 @@ export function EvidenceCard({ evidence, onClick, onDownload, className }: Evide
           >
             <Download className="h-4 w-4" />
           </Button>
+          {onDelete && (
+            <Button
+              size="icon"
+              variant="destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canDelete && !isDeleting) {
+                  onDelete();
+                }
+              }}
+              disabled={!canDelete || isDeleting}
+              title={!canDelete ? "Cannot delete - analysis in progress or PCN issued" : "Delete evidence"}
+              data-testid={`button-delete-evidence-${evidence.id}`}
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </Button>
+          )}
         </div>
       </div>
 

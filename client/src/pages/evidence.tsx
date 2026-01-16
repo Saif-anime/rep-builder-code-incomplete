@@ -600,6 +600,9 @@ export default function EvidencePage() {
                         <EvidenceGallery 
                           evidence={bundle.evidenceFiles} 
                           maxVisible={6}
+                          onDelete={handleDeleteEvidence}
+                          deletingEvidenceId={deletingEvidenceId}
+                          canDelete={bundle.status !== "analysing"}
                         />
                         
                         <div className="flex gap-2 mt-4">

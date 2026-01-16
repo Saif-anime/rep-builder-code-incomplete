@@ -550,10 +550,16 @@ export function EvidenceGallery({
   evidence,
   maxVisible = 6,
   className = "",
+  onDelete,
+  deletingEvidenceId,
+  canDelete = true,
 }: { 
   evidence: Evidence[];
   maxVisible?: number;
   className?: string;
+  onDelete?: (evidence: Evidence) => void;
+  deletingEvidenceId?: number | null;
+  canDelete?: boolean;
 }) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [initialIndex, setInitialIndex] = useState(0);
@@ -574,6 +580,9 @@ export function EvidenceGallery({
             key={item.id}
             evidence={item}
             allEvidence={evidence}
+            onDelete={onDelete ? () => onDelete(item) : undefined}
+            isDeleting={deletingEvidenceId === item.id}
+            canDelete={canDelete}
           />
         ))}
         {remainingCount > 0 && (
