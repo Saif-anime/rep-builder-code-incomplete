@@ -1180,8 +1180,8 @@ async def run_case_pipeline(
         ai_confidence = 85  # Default confidence for validation mode
         
         # Check if human decision aligns with evidence quality
-        if not is_valid_for_pcn:
-            ai_agreement_notes.append(f"Evidence quality concern: {pcn_block_reason or 'Unknown issue'}")
+        if evidence_summary and not evidence_summary.is_valid_for_pcn:
+            ai_agreement_notes.append(f"Evidence quality concern: {evidence_summary.pcn_block_reason or 'Unknown issue'}")
             if human_pre_decision == "valid":
                 ai_agrees = False
                 ai_agreement_notes.append("AI disagrees: Evidence appears insufficient for PCN issuance")

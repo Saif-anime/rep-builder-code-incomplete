@@ -68,6 +68,14 @@ The system employs a full-stack architecture consisting of a React frontend, a P
   6. Decision Logic: COMPLIANT / NON_COMPLIANT / REVIEW_REQUIRED
   7. DVLA data takes priority over Vision GPT for EV verification
   8. Conflicting evidence (Vision sees EV badging but DVLA says petrol) triggers REVIEW_REQUIRED
+- **Human Pre-Review Workflow:** Allows operators to specify if evidence was already reviewed before AI analysis:
+  1. Modal appears when clicking "Analyse Case" asking if human already reviewed
+  2. If yes, operator marks evidence as "valid" or "faulty" with optional remarks
+  3. AI then validates the human decision instead of full analysis
+  4. AI agreement status (agrees/disagrees) displayed with color-coded badges
+  5. AI notes any conflicts between human decision and detected evidence
+  6. Database fields: human_reviewed_before_ai, human_pre_decision, human_pre_remarks, ai_agreement_status
+  7. Endpoint: POST /api/evidence/{bundle_id}/human-pre-review
 
 ## External Dependencies
 - **AI Integration:** OpenAI (GPT-4.1 for violation analysis, GPT-4o for Vision GPT image analysis).
