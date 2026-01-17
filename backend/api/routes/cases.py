@@ -622,6 +622,17 @@ async def run_case_pipeline(
     
     logger.info(f"Running pipeline for case: {case.id}")
     
+    # Check if this bundle was already reviewed by human before AI
+    human_pre_reviewed = False
+    human_pre_decision = None
+    human_pre_remarks = None
+    if bundle:
+        human_pre_reviewed = getattr(bundle, 'human_reviewed_before_ai', False) or False
+        human_pre_decision = getattr(bundle, 'human_pre_decision', None)
+        human_pre_remarks = getattr(bundle, 'human_pre_remarks', None)
+        if human_pre_reviewed:
+            logger.info(f"Human pre-review detected: decision={human_pre_decision}, remarks={human_pre_remarks}")
+    
     # Get site info from the case
     site = None
     site_name = "Unknown Site"
@@ -1157,8 +1168,101 @@ async def run_case_pipeline(
         bay_rule_evaluation["explanation"] = f"Vehicle not properly parked within bay markings. {bay_position_violation['summary']}"
     
     # Generate final decision based on evidence summary validation and loading bay analysis
-    # Bay Position Violation takes precedence if detected
-    if bay_position_violation.get("detected") and bay_position_violation.get("confidence", 0) >= 60:
+    
+    # HUMAN PRE-REVIEW VALIDATION MODE
+    # If a human already reviewed this evidence, AI validates the human decision instead of full analysis
+    if human_pre_reviewed and human_pre_decision:
+        logger.info(f"Running AI validation of human pre-review decision: {human_pre_decision}")
+        
+        # AI validation of human decision
+        ai_agrees = True
+        ai_agreement_notes = []
+        ai_confidence = 85  # Default confidence for validation mode
+        
+        # Check if human decision aligns with evidence quality
+        if not is_valid_for_pcn:
+            ai_agreement_notes.append(f"Evidence quality concern: {pcn_block_reason or 'Unknown issue'}")
+            if human_pre_decision == "valid":
+                ai_agrees = False
+                ai_agreement_notes.append("AI disagrees: Evidence appears insufficient for PCN issuance")
+        
+        # Check duration if human said valid
+        if human_pre_decision == "valid" and duration_minutes is not None:
+            if duration_minutes < 0:
+                ai_agrees = False
+                ai_agreement_notes.append(f"AI disagrees: Duration calculation issue (negative minutes)")
+        
+        # Check for bay-specific analysis results that might contradict human decision
+        if human_pre_decision == "valid":
+            # If loading bay detected loading activity but human says valid PCN
+            if loading_bay_result and loading_bay_result.decision.value == "DO_NOT_ISSUE":
+                ai_agrees = False
+                ai_agreement_notes.append("AI disagrees: Active loading/unloading detected - PCN not recommended")
+            # If disabled bay shows valid badge but human says valid PCN
+            if disabled_bay_result and disabled_bay_result.decision.value == "COMPLIANT":
+                ai_agrees = False
+                ai_agreement_notes.append("AI disagrees: Valid Blue Badge detected - PCN not recommended")
+            # If parent child bay shows child present but human says valid PCN
+            if parent_child_result and parent_child_result.decision.value == "COMPLIANT":
+                ai_agrees = False
+                ai_agreement_notes.append("AI disagrees: Child detected with vehicle - PCN not recommended")
+            # If EV bay shows compliant but human says valid PCN
+            if ev_bay_result and ev_bay_result.decision.value == "COMPLIANT":
+                ai_agrees = False
+                ai_agreement_notes.append("AI disagrees: EV vehicle compliant with bay rules - PCN not recommended")
+        
+        # If human said faulty (no PCN), check if evidence strongly suggests PCN should be issued
+        if human_pre_decision == "faulty":
+            # Bay position violation detected
+            if bay_position_violation.get("detected") and bay_position_violation.get("confidence", 0) >= 75:
+                ai_agreement_notes.append("AI notes: Bay position violation detected but human marked as faulty")
+                # Don't disagree - human may have valid reason not visible in evidence
+        
+        # Set AI agreement status on the bundle
+        if bundle:
+            bundle.ai_agreement_status = "agrees" if ai_agrees else "disagrees"
+            db.commit()
+        
+        # Generate validation decision
+        if human_pre_decision == "valid":
+            decision = {
+                "status": "PCN_ELIGIBLE" if ai_agrees else "REVIEW_REQUIRED",
+                "overallConfidence": ai_confidence if ai_agrees else 50,
+                "legalRisk": "low" if ai_agrees else "high",
+                "recommendation": "Issue PCN - Human and AI both agree evidence is valid" if ai_agrees else "Manual review required - AI disagrees with human decision",
+                "reasoning": f"Human officer pre-reviewed this evidence and determined it was valid for PCN issuance. {'AI validation confirms this assessment.' if ai_agrees else 'However, AI analysis found potential issues that may need review.'}" + (f" Notes: {'; '.join(ai_agreement_notes)}" if ai_agreement_notes else ""),
+                "plainEnglishExplanation": f"This evidence was reviewed by a human officer before AI analysis. The officer determined the evidence is correct for enforcement. {'AI agrees with this decision.' if ai_agrees else 'AI has concerns - please review the highlighted issues.'}",
+                "blockers": ai_agreement_notes if not ai_agrees else [],
+                "humanPreReview": {
+                    "reviewedByHuman": True,
+                    "humanDecision": human_pre_decision,
+                    "humanRemarks": human_pre_remarks,
+                    "aiAgrees": ai_agrees,
+                    "aiNotes": ai_agreement_notes
+                }
+            }
+        else:  # faulty
+            decision = {
+                "status": "NO_PCN",
+                "overallConfidence": ai_confidence,
+                "legalRisk": "low",
+                "recommendation": "No PCN - Human identified evidence as faulty" + (" (AI agrees)" if ai_agrees else " (AI has notes)"),
+                "reasoning": f"Human officer pre-reviewed this evidence and determined it has issues that prevent PCN issuance. Human remarks: {human_pre_remarks or 'None provided'}",
+                "plainEnglishExplanation": f"This evidence was reviewed by a human officer before AI analysis. The officer determined there are issues with the evidence that prevent enforcement. {'AI agrees with this assessment.' if ai_agrees else 'AI has additional notes.'}",
+                "blockers": [f"Human marked as faulty: {human_pre_remarks}" if human_pre_remarks else "Human marked evidence as faulty"],
+                "humanPreReview": {
+                    "reviewedByHuman": True,
+                    "humanDecision": human_pre_decision,
+                    "humanRemarks": human_pre_remarks,
+                    "aiAgrees": ai_agrees,
+                    "aiNotes": ai_agreement_notes
+                }
+            }
+        
+        logger.info(f"Human pre-review validation complete: AI {'agrees' if ai_agrees else 'disagrees'} with human decision of '{human_pre_decision}'")
+    
+    # STANDARD AI ANALYSIS MODE - Bay Position Violation takes precedence if detected
+    elif bay_position_violation.get("detected") and bay_position_violation.get("confidence", 0) >= 60:
         # Bay position violation detected - eligible for PCN
         decision = {
             "status": "PCN_ELIGIBLE",
