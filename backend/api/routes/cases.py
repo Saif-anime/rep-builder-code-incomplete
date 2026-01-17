@@ -1974,7 +1974,7 @@ async def issue_pcn(
     if not vrm:
         vehicle = db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).first()
         if vehicle:
-            vrm = vehicle.vrm
+            vrm = vehicle.registration_number
     
     if not vrm:
         vrm = "UNKNOWN"
