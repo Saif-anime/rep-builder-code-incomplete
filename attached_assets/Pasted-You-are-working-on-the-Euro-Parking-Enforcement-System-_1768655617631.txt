@@ -1,0 +1,127 @@
+You are working on the Euro Parking Enforcement System.
+
+OBJECTIVE:
+When evidence is uploaded, AI must FIRST ask whether
+the evidence has already been reviewed by a human.
+
+AI behaviour must change based on human confirmation.
+
+-----------------------------------
+FLOW OVERVIEW
+-----------------------------------
+1. Evidence is uploaded
+2. System asks:
+   "Has this evidence already been checked by a human?"
+3. Based on answer:
+   - YES → AI validates human decision
+   - NO  → AI performs full analysis
+
+-----------------------------------
+UI CHANGE (MANDATORY)
+-----------------------------------
+After evidence upload, show a modal:
+
+🧑‍⚖️ Human Review Status
+
+Question:
+"Has this evidence already been checked by a human officer?"
+
+Options:
+🔘 Yes – Human already reviewed
+🔘 No – AI should analyse now
+
+Button:
+➡ Continue
+
+-----------------------------------
+OPTION 1: YES (Human Reviewed)
+-----------------------------------
+If user selects YES:
+
+Show secondary question:
+"What was the human decision?"
+
+Options:
+✔ Evidence Correct (PCN allowed)
+✖ Evidence Faulty (PCN issue)
+
+Optional text area:
+"Human remarks (optional)"
+
+-----------------------------------
+AI BEHAVIOUR (YES PATH)
+-----------------------------------
+AI MUST NOT re-analyse from scratch.
+
+AI TASK:
+- Cross-check AI findings with human decision
+- Validate consistency only
+- Highlight discrepancies
+
+AI OUTPUT:
+- "AI agrees with human assessment"
+OR
+- "AI found potential mismatch with human assessment"
+
+AI MUST NOT:
+- Override human decision
+- Auto-change PCN eligibility
+
+-----------------------------------
+OPTION 2: NO (AI Analyse)
+-----------------------------------
+If user selects NO:
+
+AI TASK:
+- Perform full evidence analysis
+- Extract:
+  - Timestamp from image/video
+  - Location
+  - Vehicle visibility
+  - Weather conditions
+  - Signage clarity
+- Generate confidence score
+
+AI OUTPUT:
+- AI analysis report
+- Mark status:
+  "AI Analysed – Pending Human Review"
+
+-----------------------------------
+BACKEND LOGIC
+-----------------------------------
+Store in evidence_case:
+
+- uploadedAt
+- aiAnalysisStatus (pending | completed)
+- humanReviewedBeforeAI (true | false)
+- humanDecision (valid | faulty | null)
+- aiAgreementStatus (agree | disagree | n/a)
+
+-----------------------------------
+PCN SAFETY RULES
+-----------------------------------
+- AI analysis alone cannot issue PCN
+- Human confirmation always required
+- If human marked faulty → PCN blocked permanently
+
+-----------------------------------
+UI STATUS BADGES
+-----------------------------------
+Show on evidence card:
+
+🧠 AI Analysed – Awaiting Human Review
+✔ Human Reviewed – Valid
+✖ Human Reviewed – Faulty
+🧠 AI vs Human – Discrepancy Found
+
+-----------------------------------
+STRICT REQUIREMENTS
+-----------------------------------
+- Human decision has priority
+- AI cannot silently re-analyse
+- Every decision must be auditable
+- No PCN without human confirmation
+
+Implement clean, modular, production-ready code.
+Do not add unrelated features.

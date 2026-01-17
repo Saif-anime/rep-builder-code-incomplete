@@ -293,6 +293,13 @@ class EvidenceBundle(Base):
     analysis_error = Column(Text)
     created_by = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    # Human pre-review tracking
+    human_reviewed_before_ai = Column(Boolean, default=False)
+    human_pre_decision = Column(Text)  # valid / faulty
+    human_pre_remarks = Column(Text)
+    human_pre_reviewed_by = Column(String, ForeignKey("users.id"))
+    human_pre_reviewed_at = Column(DateTime)
+    ai_agreement_status = Column(Text)  # agree / disagree / pending
 
 class Detection(Base):
     __tablename__ = "detections"
