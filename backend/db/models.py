@@ -163,6 +163,11 @@ class CaseAnalysis(Base):
     incorrect_sections = Column(JSONB)
     verified_by = Column(String, ForeignKey("users.id"))
     verified_at = Column(DateTime)
+    
+    human_check_status = Column(Text)
+    human_check_reason = Column(Text)
+    human_checked_by = Column(String, ForeignKey("users.id"))
+    human_checked_at = Column(DateTime)
 
 class CaseVehicle(Base):
     __tablename__ = "case_vehicles"

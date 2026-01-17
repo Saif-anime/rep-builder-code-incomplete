@@ -1,0 +1,129 @@
+You are working on the Euro Parking Enforcement System.
+
+CONTEXT:
+In the Evidence section, officers upload images/videos.
+AI may analyse them, but FINAL responsibility must be human-verified.
+
+GOAL:
+Add a clear "Human Checked" section to each Evidence Case
+to confirm whether the evidence is CORRECT or FAULTY for PCN issuing.
+
+-----------------------------------
+WHERE TO ADD
+-----------------------------------
+Evidence Page
+(e.g. /evidence and /evidence/:id)
+
+-----------------------------------
+NEW SECTION UI
+-----------------------------------
+Add a new panel titled:
+
+🧑‍⚖️ Human Verification
+
+This section must appear AFTER evidence thumbnails
+and BEFORE PCN decision actions.
+
+-----------------------------------
+VERIFICATION OPTIONS
+-----------------------------------
+Add 2 primary buttons:
+
+✔ Evidence Correct (PCN Allowed)
+✖ Evidence Faulty (PCN Must NOT Be Issued)
+
+-----------------------------------
+BEHAVIOUR RULES
+-----------------------------------
+1. Evidence Correct:
+   - Confirms human agrees with analysis
+   - Allows PCN workflow to continue
+   - Shows green status badge:
+     "Checked by Human – Valid"
+
+2. Evidence Faulty:
+   - Human confirms evidence is NOT reliable
+   - PCN issuance must be BLOCKED
+   - Show red status badge:
+     "Checked by Human – Faulty Evidence"
+   - Disable any "Issue PCN" buttons
+
+-----------------------------------
+MANDATORY COMMENT
+-----------------------------------
+If "Evidence Faulty" is selected:
+- Require reason input (mandatory)
+
+Examples:
+- Vehicle not clearly visible
+- Timestamp mismatch
+- Bay markings unclear
+- Wrong location
+- Weather obscures evidence
+
+-----------------------------------
+BACKEND API
+-----------------------------------
+Create endpoint:
+
+POST /api/evidence/:caseId/human-check
+
+Payload:
+{
+  status: "valid" | "faulty",
+  reason: string | null,
+  checkedBy: userId,
+  checkedAt: timestamp
+}
+
+-----------------------------------
+DATABASE FIELDS
+-----------------------------------
+Store in evidence_case table:
+
+- humanCheckStatus
+- humanCheckReason
+- humanCheckedBy
+- humanCheckedAt
+
+-----------------------------------
+PCN SAFETY LOGIC (CRITICAL)
+-----------------------------------
+IF humanCheckStatus === "faulty":
+- Block PCN generation
+- Show warning banner:
+  "PCN blocked due to faulty evidence (human verified)"
+
+-----------------------------------
+UI DISPLAY
+-----------------------------------
+Show permanently on case card:
+
+✔ Human Checked – Valid
+or
+✖ Human Checked – Faulty
+
+Include:
+- Officer name
+- Date & time
+- Reason (if faulty)
+
+-----------------------------------
+AUDIT REQUIREMENTS
+-----------------------------------
+Log:
+- Who checked
+- Decision
+- Reason
+- Timestamp
+
+-----------------------------------
+STRICT RULES
+-----------------------------------
+- Human decision overrides AI
+- AI result must NOT auto-change
+- Faulty evidence can NEVER issue PCN
+- Decision must be immutable after save
+
+Implement clean, production-ready code.
+Do NOT add unrelated features.
