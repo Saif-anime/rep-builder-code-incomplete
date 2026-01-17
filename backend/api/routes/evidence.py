@@ -78,7 +78,13 @@ def bundle_to_dict(b: EvidenceBundle, pipeline_results=None):
         "analysisError": b.analysis_error,
         "createdBy": b.created_by,
         "createdAt": b.created_at.isoformat() if b.created_at else None,
-        "timeRange": time_range
+        "timeRange": time_range,
+        "humanReviewedBeforeAi": b.human_reviewed_before_ai,
+        "humanPreDecision": b.human_pre_decision,
+        "humanPreRemarks": b.human_pre_remarks,
+        "humanPreReviewedBy": b.human_pre_reviewed_by,
+        "humanPreReviewedAt": b.human_pre_reviewed_at.isoformat() if b.human_pre_reviewed_at else None,
+        "aiAgreementStatus": b.ai_agreement_status
     }
 
 @router.get("")
@@ -1350,6 +1356,74 @@ async def bulk_delete_bundles(
         "blocked": len(results["blocked"]),
         "failed": len(results["failed"]),
         "results": results
+    }
+
+
+@router.post("/{bundle_id}/human-pre-review")
+async def set_human_pre_review(
+    bundle_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Set the human pre-review status before AI analysis.
+    
+    This endpoint is called before AI analysis begins to capture whether
+    a human has already reviewed the evidence.
+    
+    If humanReviewed is True, the AI will only validate the human decision
+    rather than performing full analysis.
+    
+    If humanReviewed is False, the AI will perform full analysis.
+    """
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    human_reviewed = body.get("humanReviewed", False)
+    decision = body.get("decision")  # valid / faulty
+    remarks = (body.get("remarks") or "").strip()
+    
+    if human_reviewed:
+        if decision not in ["valid", "faulty"]:
+            raise HTTPException(status_code=400, detail="Decision must be 'valid' or 'faulty' when human reviewed")
+        
+        bundle.human_reviewed_before_ai = True
+        bundle.human_pre_decision = decision
+        bundle.human_pre_remarks = remarks if remarks else None
+        bundle.human_pre_reviewed_by = current_user.id
+        bundle.human_pre_reviewed_at = datetime.utcnow()
+        bundle.ai_agreement_status = "pending"
+    else:
+        bundle.human_reviewed_before_ai = False
+        bundle.human_pre_decision = None
+        bundle.human_pre_remarks = None
+        bundle.human_pre_reviewed_by = None
+        bundle.human_pre_reviewed_at = None
+        bundle.ai_agreement_status = None
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="SET_HUMAN_PRE_REVIEW",
+        entity_type="evidence_bundle",
+        entity_id=str(bundle_id),
+        details={
+            "bundle_id": bundle_id,
+            "human_reviewed": human_reviewed,
+            "decision": decision if human_reviewed else None,
+            "remarks": remarks if human_reviewed and remarks else None
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "bundleId": bundle_id,
+        "humanReviewedBeforeAi": bundle.human_reviewed_before_ai,
+        "humanPreDecision": bundle.human_pre_decision,
+        "aiMode": "validate" if human_reviewed else "analyse"
     }
 
 
