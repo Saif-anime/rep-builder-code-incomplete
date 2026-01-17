@@ -22,6 +22,7 @@ import RecommendationsPage from "@/pages/recommendations";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 import AnprScansPage from "@/pages/anpr-scans";
+import PcnPage from "@/pages/pcn";
 
 function ProtectedRoutes() {
   const [location] = useLocation();
@@ -30,6 +31,7 @@ function ProtectedRoutes() {
     <Switch location={location}>
       <Route path="/" component={DashboardPage} />
       <Route path="/evidence" component={EvidencePage} />
+      <Route path="/pcn" component={PcnPage} />
       <Route path="/admin/users" component={UsersPage} />
       <Route path="/admin/sites" component={AdminSitesPage} />
       <Route path="/sites/:siteId/signage" component={SiteSignagePage} />
