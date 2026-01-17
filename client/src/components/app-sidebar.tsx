@@ -9,6 +9,7 @@ import {
   MapPin,
   Flag,
   Lightbulb,
+  Receipt,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,11 @@ const mainNavItems = [
     title: "Evidence",
     url: "/evidence",
     icon: FileImage,
+  },
+  {
+    title: "Penalty Notices",
+    url: "/pcn",
+    icon: Receipt,
   },
   {
     title: "Flagged Sessions",
