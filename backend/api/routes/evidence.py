@@ -1547,7 +1547,8 @@ async def ai_review_human_decision(
         "human_reason": human_reason if human_decision == "faulty" else None
     }
     
-    api_key = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = os.getenv("AI_INTEGRATIONS_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+    base_url = os.getenv("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://api.openai.com/v1")
     if not api_key:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
     
@@ -1586,7 +1587,7 @@ Respond with JSON only:
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
+                f"{base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
