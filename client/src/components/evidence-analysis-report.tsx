@@ -59,6 +59,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { HourlyWeatherSelector } from "@/components/hourly-weather-selector";
+import { HumanReviewModal } from "@/components/human-review-modal";
 import type { CaseAnalysis, CaseVehicle, Evidence, BayType } from "@shared/schema";
 
 interface EvidenceAnalysisReportProps {
@@ -909,6 +910,45 @@ export function EvidenceAnalysisReport({
   const [verificationComments, setVerificationComments] = useState("");
   const [incorrectSections, setIncorrectSections] = useState<string[]>([]);
   
+  // Human pre-review modal state
+  const [humanReviewModalOpen, setHumanReviewModalOpen] = useState(false);
+  const [humanPreReviewPending, setHumanPreReviewPending] = useState(false);
+  
+  // Handle human pre-review submission
+  const handleHumanPreReview = async (data: { humanReviewed: boolean; decision?: "valid" | "faulty"; remarks?: string }) => {
+    setHumanPreReviewPending(true);
+    try {
+      // First set the pre-review status
+      await apiRequest("POST", `/api/evidence/${bundleId}/human-pre-review`, {
+        humanReviewed: data.humanReviewed,
+        decision: data.decision,
+        remarks: data.remarks,
+      });
+      
+      // Then run the analysis pipeline
+      await apiRequest("POST", `/api/cases/${bundleId}/reanalyze-evidence`);
+      await apiRequest("POST", `/api/cases/${bundleId}/pipeline/run`);
+      
+      toast({ 
+        title: "Analysis complete", 
+        description: data.humanReviewed 
+          ? "AI has validated the human decision" 
+          : "Evidence analyzed with full AI review" 
+      });
+      
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/pipeline/results`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/evidence`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/cases/${bundleId}/weather`] });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Analysis failed";
+      toast({ title: "Analysis failed", description: message, variant: "destructive" });
+    } finally {
+      setHumanPreReviewPending(false);
+      setHumanReviewModalOpen(false);
+    }
+  };
+  
   const VERIFICATION_SECTIONS = [
     { id: "vehicle", label: "Vehicle Detection" },
     { id: "timestamp", label: "Timestamp / Duration" },
@@ -1072,11 +1112,11 @@ export function EvidenceAnalysisReport({
             Run the analysis to determine PCN eligibility
           </p>
           <Button 
-            onClick={() => runPipelineMutation.mutate()}
-            disabled={runPipelineMutation.isPending}
+            onClick={() => setHumanReviewModalOpen(true)}
+            disabled={humanPreReviewPending}
             data-testid="button-run-analysis"
           >
-            {runPipelineMutation.isPending ? (
+            {humanPreReviewPending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Analysing...
@@ -1088,6 +1128,12 @@ export function EvidenceAnalysisReport({
               </>
             )}
           </Button>
+          <HumanReviewModal
+            open={humanReviewModalOpen}
+            onClose={() => setHumanReviewModalOpen(false)}
+            onSubmit={handleHumanPreReview}
+            isLoading={humanPreReviewPending}
+          />
         </CardContent>
       </Card>
     );
@@ -1123,11 +1169,11 @@ export function EvidenceAnalysisReport({
           <Button 
             variant="outline"
             size="sm"
-            onClick={() => runPipelineMutation.mutate()}
-            disabled={runPipelineMutation.isPending}
+            onClick={() => setHumanReviewModalOpen(true)}
+            disabled={humanPreReviewPending}
             data-testid="button-reanalyse"
           >
-            {runPipelineMutation.isPending ? (
+            {humanPreReviewPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               "Analyse Evidence"
@@ -2527,6 +2573,13 @@ export function EvidenceAnalysisReport({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <HumanReviewModal
+        open={humanReviewModalOpen}
+        onClose={() => setHumanReviewModalOpen(false)}
+        onSubmit={handleHumanPreReview}
+        isLoading={humanPreReviewPending}
+      />
     </div>
   );
 }
