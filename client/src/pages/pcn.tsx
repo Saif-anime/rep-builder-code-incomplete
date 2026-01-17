@@ -1,14 +1,13 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
   Search,
   Filter,
-  Plus,
   Eye,
   Download,
-  Loader2,
   Printer,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,62 +34,57 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ViolationBadge } from "@/components/violation-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
-import type { ParkingEvent } from "@shared/schema";
 
-interface PCNEvent extends ParkingEvent {
-  plateText?: string;
+interface PCN {
+  id: number;
+  pcnNumber: string;
+  caseId: string;
+  siteId: number | null;
+  vrm: string;
+  status: string;
+  eligibility: string;
+  amount: number;
+  explanation: string | null;
+  issuedAt: string | null;
+  createdAt: string | null;
 }
 
 export default function PCNPage() {
-  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedPCN, setSelectedPCN] = useState<PCNEvent | null>(null);
+  const [selectedPCN, setSelectedPCN] = useState<PCN | null>(null);
 
-  const { data: events, isLoading } = useQuery<PCNEvent[]>({
-    queryKey: ["/api/parking-events", { hasPcn: true, status: statusFilter }],
+  const { data: pcns, isLoading } = useQuery<PCN[]>({
+    queryKey: ["/api/pcns"],
   });
 
-  const generatePCNMutation = useMutation({
-    mutationFn: async (eventId: number) => {
-      return apiRequest("POST", `/api/parking-events/${eventId}/generate-pcn`);
-    },
-    onSuccess: () => {
-      toast({
-        title: "PCN generated",
-        description: "Penalty Charge Notice has been generated successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/parking-events"] });
-    },
-    onError: () => {
-      toast({
-        title: "Generation failed",
-        description: "Failed to generate PCN. Please try again.",
-        variant: "destructive",
-      });
-    },
+  const filteredPcns = pcns?.filter((p) => {
+    const matchesSearch = !searchQuery || 
+      p.pcnNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.vrm?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === "all" || p.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
   });
 
-  const filteredEvents = events?.filter((e) => {
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        e.pcnNumber?.toLowerCase().includes(query) ||
-        e.plateText?.toLowerCase().includes(query)
-      );
+  const getStatusBadge = (status: string) => {
+    switch (status?.toUpperCase()) {
+      case "ISSUED":
+        return <Badge variant="default">Issued</Badge>;
+      case "PAID":
+        return <Badge className="bg-green-600">Paid</Badge>;
+      case "APPEALED":
+        return <Badge variant="secondary">Appealed</Badge>;
+      case "CANCELLED":
+        return <Badge variant="outline">Cancelled</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
     }
-    return true;
-  });
-
-  const confirmedWithoutPCN = events?.filter(
-    (e) => e.status === "confirmed" && !e.pcnNumber
-  );
+  };
 
   return (
     <div className="space-y-6">
@@ -102,46 +96,6 @@ export default function PCNPage() {
           </p>
         </div>
       </div>
-
-      {confirmedWithoutPCN && confirmedWithoutPCN.length > 0 && (
-        <Card className="border-orange-500/30 bg-orange-500/5">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-orange-500/10">
-                  <FileText className="h-5 w-5 text-orange-500" />
-                </div>
-                <div>
-                  <p className="font-medium text-sm">
-                    {confirmedWithoutPCN.length} confirmed violation(s) awaiting PCN generation
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Generate PCNs for these confirmed violations
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  confirmedWithoutPCN.forEach((e) =>
-                    generatePCNMutation.mutate(e.id)
-                  );
-                }}
-                disabled={generatePCNMutation.isPending}
-                data-testid="button-generate-all-pcn"
-              >
-                {generatePCNMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4 mr-2" />
-                )}
-                Generate All
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
@@ -161,8 +115,10 @@ export default function PCNPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="appealed">Appealed</SelectItem>
+            <SelectItem value="ISSUED">Issued</SelectItem>
+            <SelectItem value="PAID">Paid</SelectItem>
+            <SelectItem value="APPEALED">Appealed</SelectItem>
+            <SelectItem value="CANCELLED">Cancelled</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -172,110 +128,92 @@ export default function PCNPage() {
           <div className="p-4 space-y-4">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4">
-                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-24" />
               </div>
             ))}
           </div>
         </Card>
-      ) : filteredEvents && filteredEvents.filter((e) => e.pcnNumber).length > 0 ? (
+      ) : filteredPcns && filteredPcns.length > 0 ? (
         <Card>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>PCN Number</TableHead>
-                <TableHead>Plate</TableHead>
-                <TableHead>Violation</TableHead>
+                <TableHead>Vehicle</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Issued</TableHead>
+                <TableHead>Issued Date</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredEvents
-                .filter((e) => e.pcnNumber)
-                .map((event) => (
-                  <TableRow key={event.id} data-testid={`pcn-row-${event.id}`}>
-                    <TableCell>
-                      <span className="font-mono font-bold text-sm">
-                        {event.pcnNumber}
+              {filteredPcns.map((pcn) => (
+                <TableRow key={pcn.id} data-testid={`pcn-row-${pcn.id}`}>
+                  <TableCell>
+                    <span className="font-mono font-bold text-sm">
+                      {pcn.pcnNumber}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1 rounded-md border-2 border-yellow-400 bg-yellow-300 px-2 py-0.5 w-fit dark:border-yellow-500 dark:bg-yellow-400">
+                      <span className="font-mono text-xs font-bold text-black">
+                        {pcn.vrm || "N/A"}
                       </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 rounded-md border-2 border-yellow-400 bg-yellow-300 px-2 py-0.5 w-fit dark:border-yellow-500 dark:bg-yellow-400">
-                        <span className="font-mono text-xs font-bold text-black">
-                          {event.plateText || "N/A"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {event.violationType && (
-                        <ViolationBadge type={event.violationType} showIcon={false} />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium">
-                        £{event.pcnAmount?.toFixed(2) || "0.00"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          event.status === "confirmed"
-                            ? "default"
-                            : event.status === "appealed"
-                            ? "secondary"
-                            : "outline"
-                        }
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-medium">
+                      £{pcn.amount?.toFixed(2) || "0.00"}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {getStatusBadge(pcn.status)}
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {pcn.issuedAt
+                        ? format(new Date(pcn.issuedAt), "dd/MM/yyyy HH:mm")
+                        : "N/A"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setSelectedPCN(pcn)}
+                        data-testid={`button-view-pcn-${pcn.id}`}
                       >
-                        {event.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {event.pcnIssuedAt
-                          ? format(new Date(event.pcnIssuedAt), "dd/MM/yyyy")
-                          : "N/A"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setSelectedPCN(event)}
-                          data-testid={`button-view-pcn-${event.id}`}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          data-testid={`button-download-pcn-${event.id}`}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          data-testid={`button-print-pcn-${event.id}`}
-                        >
-                          <Printer className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        data-testid={`button-download-pcn-${pcn.id}`}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        data-testid={`button-print-pcn-${pcn.id}`}
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </Card>
       ) : (
         <EmptyState
-          icon={FileText}
+          icon={Receipt}
           title="No PCNs Generated"
           description="Penalty Charge Notices will appear here once violations are confirmed and PCNs are generated."
         />
@@ -295,23 +233,33 @@ export default function PCNPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Vehicle</span>
-                  <p className="font-mono font-bold">{selectedPCN.plateText || "N/A"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Violation Type</span>
-                  {selectedPCN.violationType && (
-                    <ViolationBadge type={selectedPCN.violationType} className="mt-1" />
-                  )}
+                  <p className="font-mono font-bold">{selectedPCN.vrm || "N/A"}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Amount</span>
                   <p className="font-bold text-lg">
-                    £{selectedPCN.pcnAmount?.toFixed(2) || "0.00"}
+                    £{selectedPCN.amount?.toFixed(2) || "0.00"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status</span>
+                  <div className="mt-1">{getStatusBadge(selectedPCN.status)}</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Eligibility</span>
+                  <p className="font-medium capitalize">{selectedPCN.eligibility || "Standard"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Issued</span>
+                  <p className="font-mono text-xs">
+                    {selectedPCN.issuedAt
+                      ? format(new Date(selectedPCN.issuedAt), "dd/MM/yyyy HH:mm")
+                      : "N/A"}
                   </p>
                 </div>
               </div>
 
-              {selectedPCN.aiExplanation && (
+              {selectedPCN.explanation && (
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">
@@ -319,7 +267,7 @@ export default function PCNPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm">{selectedPCN.aiExplanation}</p>
+                    <p className="text-sm">{selectedPCN.explanation}</p>
                   </CardContent>
                 </Card>
               )}
