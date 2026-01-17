@@ -1219,6 +1219,66 @@ export function EvidenceAnalysisReport({
         </Card>
       )}
 
+      {decision?.humanPreReview?.reviewedByHuman && (
+        <Card className={`border-2 ${
+          decision.humanPreReview.aiAgrees 
+            ? "border-green-500 bg-green-50/50 dark:bg-green-900/10"
+            : "border-amber-500 bg-amber-50/50 dark:bg-amber-900/10"
+        }`} data-testid="card-human-pre-review">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <UserCheck className={`h-5 w-5 mt-0.5 ${decision.humanPreReview.aiAgrees ? "text-green-600" : "text-amber-600"}`} />
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="font-medium text-sm">Human Pre-Review</span>
+                  <Badge 
+                    variant="outline" 
+                    className={decision.humanPreReview.humanDecision === "valid" 
+                      ? "text-green-600 border-green-400 bg-green-50 dark:bg-green-900/20" 
+                      : "text-destructive border-destructive bg-destructive/5"
+                    }
+                  >
+                    {decision.humanPreReview.humanDecision === "valid" ? (
+                      <><CheckCircle2 className="h-3 w-3 mr-1" /> Evidence Correct</>
+                    ) : (
+                      <><XCircle className="h-3 w-3 mr-1" /> Evidence Faulty</>
+                    )}
+                  </Badge>
+                  <Badge 
+                    variant="outline" 
+                    className={decision.humanPreReview.aiAgrees 
+                      ? "text-blue-600 border-blue-400 bg-blue-50 dark:bg-blue-900/20" 
+                      : "text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-900/20"
+                    }
+                  >
+                    {decision.humanPreReview.aiAgrees ? (
+                      <><CheckCircle2 className="h-3 w-3 mr-1" /> AI Agrees</>
+                    ) : (
+                      <><AlertTriangle className="h-3 w-3 mr-1" /> AI Disagrees</>
+                    )}
+                  </Badge>
+                </div>
+                {decision.humanPreReview.humanRemarks && (
+                  <p className="text-sm text-muted-foreground italic mb-2">
+                    "{decision.humanPreReview.humanRemarks}"
+                  </p>
+                )}
+                {decision.humanPreReview.aiNotes && decision.humanPreReview.aiNotes.length > 0 && (
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <span className="font-medium">AI Notes:</span>
+                    <ul className="list-disc list-inside">
+                      {decision.humanPreReview.aiNotes.map((note: string, idx: number) => (
+                        <li key={idx}>{note}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <HumanVerificationPanel 
         bundleId={bundleId} 
         caseAnalysis={caseAnalysis}
