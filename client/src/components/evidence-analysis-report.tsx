@@ -548,7 +548,8 @@ function HumanVerificationPanel({ bundleId, caseAnalysis, onVerificationComplete
 
   const aiReviewMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/evidence/${bundleId}/ai-review-human`);
+      const response = await apiRequest("POST", `/api/evidence/${bundleId}/ai-review-human`);
+      return response.json();
     },
     onSuccess: (data: { aiReview: { agrees: boolean; reasoning: string; confidence: number }; verdict: string }) => {
       toast({
