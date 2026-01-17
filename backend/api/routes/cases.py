@@ -418,15 +418,25 @@ async def get_case_bundles(
         "createdAt": b.created_at.isoformat() if b.created_at else None
     } for b in bundles]
 
-@router.get("/{case_id}/analysis")
+@router.get("/{id}/analysis")
 async def get_case_analysis(
-    case_id: str,
+    id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case_id).first()
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if not case:
+        return None
+    
+    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
     if not analysis:
         return None
+    
+    verifier = None
+    if analysis.verified_by:
+        verifier = db.query(User).filter(User.id == analysis.verified_by).first()
+    
     return {
         "id": analysis.id,
         "caseId": analysis.case_id,
@@ -441,7 +451,78 @@ async def get_case_analysis(
         "recommendation": analysis.recommendation,
         "timelineSummary": analysis.timeline_summary,
         "timeWindow": analysis.time_window,
-        "generatedAt": analysis.generated_at.isoformat() if analysis.generated_at else None
+        "generatedAt": analysis.generated_at.isoformat() if analysis.generated_at else None,
+        "verificationStatus": analysis.verification_status,
+        "verificationComments": analysis.verification_comments,
+        "incorrectSections": analysis.incorrect_sections,
+        "verifiedBy": analysis.verified_by,
+        "verifiedByName": verifier.full_name if verifier else None,
+        "verifiedAt": analysis.verified_at.isoformat() if analysis.verified_at else None
+    }
+
+@router.post("/{id}/analysis/verify")
+async def verify_case_analysis(
+    id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found for this case")
+    
+    verification_status = body.get("verificationStatus")
+    if verification_status not in ["accurate", "partial", "incorrect"]:
+        raise HTTPException(status_code=400, detail="Invalid verification status. Must be 'accurate', 'partial', or 'incorrect'")
+    
+    comments = body.get("comments", "")
+    incorrect_sections = body.get("incorrectSections", [])
+    
+    if verification_status in ["partial", "incorrect"] and not comments:
+        raise HTTPException(status_code=400, detail="Comments are required when marking analysis as partial or incorrect")
+    
+    analysis.verification_status = verification_status
+    analysis.verification_comments = comments
+    analysis.incorrect_sections = incorrect_sections
+    analysis.verified_by = current_user.id
+    analysis.verified_at = datetime.utcnow()
+    
+    if verification_status == "incorrect":
+        case.status = "AI_REVIEW_REQUIRED"
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="VERIFY_ANALYSIS",
+        entity_type="case_analysis",
+        entity_id=str(analysis.id),
+        details={
+            "case_id": case.id,
+            "verification_status": verification_status,
+            "comments": comments,
+            "incorrect_sections": incorrect_sections
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    verifier = db.query(User).filter(User.id == analysis.verified_by).first()
+    
+    return {
+        "success": True,
+        "message": f"Analysis marked as {verification_status}",
+        "verification": {
+            "status": analysis.verification_status,
+            "comments": analysis.verification_comments,
+            "incorrectSections": analysis.incorrect_sections,
+            "verifiedBy": analysis.verified_by,
+            "verifiedByName": verifier.full_name if verifier else None,
+            "verifiedAt": analysis.verified_at.isoformat() if analysis.verified_at else None
+        }
     }
 
 @router.get("/{case_id}/vehicles")
@@ -1825,6 +1906,126 @@ async def get_case_pcn(
         "issuedAt": pcn.issued_at.isoformat() if pcn.issued_at else None,
         "createdAt": pcn.created_at.isoformat() if pcn.created_at else None
     }
+
+
+@router.post("/{id}/pipeline/issue-pcn")
+async def issue_pcn(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Issue a PCN for a case that has passed pipeline analysis.
+    
+    Safety checks:
+    - Verification status must not be "incorrect" (blocks completely)
+    - Verification status "partial" shows warning but allows issuance
+    - Case must have completed analysis with PCN_ELIGIBLE decision
+    """
+    import uuid
+    
+    case, bundle = resolve_case_from_id(db, id)
+    
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    if not case_analysis:
+        raise HTTPException(status_code=400, detail="Case has not been analysed yet")
+    
+    if case_analysis.verification_status == "incorrect":
+        raise HTTPException(
+            status_code=403, 
+            detail="Cannot issue PCN - AI analysis has been marked as incorrect and requires human review"
+        )
+    
+    if case_analysis.recommendation not in ["Issue PCN", "ISSUE_PCN"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"PCN not recommended for this case. Recommendation: {case_analysis.recommendation}"
+        )
+    
+    existing_pcn = db.query(Pcn).filter(Pcn.case_id == case.id).first()
+    if existing_pcn:
+        raise HTTPException(status_code=400, detail="PCN already issued for this case")
+    
+    pipeline = db.query(CasePipelineResults).filter(CasePipelineResults.case_id == case.id).first()
+    
+    vrm = None
+    if pipeline and pipeline.decision and isinstance(pipeline.decision, dict):
+        vehicle_info = pipeline.decision.get("vehicleInfo", {})
+        vrm = vehicle_info.get("vrm") or vehicle_info.get("plate")
+    
+    if not vrm:
+        vehicle = db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).first()
+        if vehicle:
+            vrm = vehicle.vrm
+    
+    if not vrm:
+        vrm = "UNKNOWN"
+    
+    timestamp = datetime.utcnow()
+    date_part = timestamp.strftime("%y%m%d")
+    random_part = str(uuid.uuid4().hex)[:6].upper()
+    pcn_number = f"PCN-{date_part}-{random_part}"
+    
+    default_amount = 60.00
+    pcn = Pcn(
+        pcn_number=pcn_number,
+        case_id=case.id,
+        site_id=case.site_id,
+        vrm=vrm,
+        status="ISSUED",
+        eligibility="standard",
+        amount=default_amount,
+        explanation=case_analysis.summary or "Parking violation detected",
+        issued_at=timestamp,
+        created_at=timestamp
+    )
+    db.add(pcn)
+    
+    case.status = "PCN_ISSUED"
+    
+    if pipeline and pipeline.decision and isinstance(pipeline.decision, dict):
+        pipeline.decision["pcn_issued"] = True
+        pipeline.decision["issued_at"] = timestamp.isoformat()
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(pipeline, "decision")
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="issue_pcn",
+        entity_type="pcn",
+        entity_id=pcn_number,
+        details={
+            "case_id": case.id,
+            "vrm": vrm,
+            "amount": default_amount,
+            "verification_status": case_analysis.verification_status,
+            "verification_warning": "Analysis marked as partial accuracy" if case_analysis.verification_status == "partial" else None
+        }
+    )
+    db.add(audit_log)
+    
+    db.commit()
+    
+    response = {
+        "success": True,
+        "pcn": {
+            "id": pcn.id,
+            "pcnNumber": pcn.pcn_number,
+            "caseId": pcn.case_id,
+            "vrm": vrm,
+            "status": pcn.status,
+            "amount": pcn.amount,
+            "issuedAt": pcn.issued_at.isoformat()
+        }
+    }
+    
+    if case_analysis.verification_status == "partial":
+        response["warning"] = "PCN issued with partial verification - some analysis sections flagged as inaccurate"
+    
+    return response
 
 
 @router.get("/{id}/weather")

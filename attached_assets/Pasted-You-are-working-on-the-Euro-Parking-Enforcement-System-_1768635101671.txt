@@ -1,0 +1,148 @@
+You are working on the Euro Parking Enforcement System.
+
+GOAL:
+After evidence is uploaded and analysed by AI, allow a HUMAN OPERATOR
+(parking officer/admin) to VERIFY whether the AI analysis is accurate
+based on manual review.
+
+This is NOT re-analysis.
+This is a confirmation / disagreement workflow.
+
+------------------------------------
+WHEN THIS OPTION APPEARS
+------------------------------------
+- Evidence bundle exists
+- AI analysis is completed
+- Analysis status is NOT "Pending"
+
+Add a new button:
+✔ "Verify AI Analysis"
+
+------------------------------------
+UI REQUIREMENTS
+------------------------------------
+1. In Evidence / Analysis view:
+   Add a new section:
+
+   "Human Verification"
+
+2. Button states:
+   - Verify AI Analysis (enabled)
+   - Disabled if:
+     - Analysis is pending
+     - Evidence bundle is empty
+
+3. On click:
+   Open a verification modal with:
+
+   Question:
+   "Does the AI analysis correctly reflect the evidence?"
+
+------------------------------------
+VERIFICATION OPTIONS
+------------------------------------
+Provide 3 choices:
+
+1️⃣ Confirm Accurate
+   - AI analysis matches evidence
+   - No correction required
+
+2️⃣ Partially Accurate
+   - AI is mostly correct
+   - Minor issues exist
+
+3️⃣ Incorrect
+   - AI analysis is wrong
+   - Manual correction required
+
+------------------------------------
+MANDATORY FIELDS
+------------------------------------
+If "Partially Accurate" or "Incorrect" is selected:
+- Require officer comments
+- Allow marking which sections are wrong:
+  - Vehicle
+  - Timestamp
+  - Bay type
+  - Signage
+  - Duration
+  - Decision
+
+------------------------------------
+BACKEND API
+------------------------------------
+Create endpoint:
+
+POST /api/analysis/:bundleId/verify
+
+Payload:
+{
+  verificationStatus: "accurate" | "partial" | "incorrect",
+  comments: string,
+  incorrectSections: string[],
+  verifiedBy: userId,
+  verifiedAt: timestamp
+}
+
+------------------------------------
+DATABASE
+------------------------------------
+Store:
+- verificationStatus
+- comments
+- incorrectSections
+- verifiedBy
+- verifiedAt
+
+Do NOT overwrite AI results.
+
+------------------------------------
+AI LEARNING FEEDBACK
+------------------------------------
+If verificationStatus != "accurate":
+- Tag case as "AI Review Required"
+- Store feedback for model evaluation
+- Do NOT auto-correct without human action
+
+------------------------------------
+UI DISPLAY
+------------------------------------
+Show verification badge:
+
+✔ Verified by Human (Accurate)
+⚠ Partially Verified
+✖ Marked Incorrect
+
+Show:
+- Officer name
+- Date & time
+- Comments (expandable)
+
+------------------------------------
+PCN SAFETY RULES
+------------------------------------
+If verificationStatus is:
+- Incorrect → Block PCN issuance
+- Partial → Allow PCN with warning
+- Accurate → Normal flow
+
+------------------------------------
+AUDIT LOGGING
+------------------------------------
+Log:
+- Who verified
+- What decision was made
+- Timestamp
+- Evidence bundle reference
+
+------------------------------------
+FINAL VALIDATION CHECK
+------------------------------------
+✓ Verification does not modify AI output
+✓ Human decision is traceable
+✓ PCN rules respected
+✓ Clear separation: AI vs Human
+✓ Feedback stored safely
+✓ UI shows verification status clearly
+
+Implement clean, maintainable, production-ready code.

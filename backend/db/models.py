@@ -157,6 +157,12 @@ class CaseAnalysis(Base):
     supporting_evidence_ids = Column(JSONB)
     partial_failures = Column(JSONB)
     generated_at = Column(DateTime, server_default=func.now(), nullable=False)
+    
+    verification_status = Column(Text)
+    verification_comments = Column(Text)
+    incorrect_sections = Column(JSONB)
+    verified_by = Column(String, ForeignKey("users.id"))
+    verified_at = Column(DateTime)
 
 class CaseVehicle(Base):
     __tablename__ = "case_vehicles"

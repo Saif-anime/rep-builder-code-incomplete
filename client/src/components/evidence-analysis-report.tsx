@@ -4,6 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   CheckCircle2,
   XCircle,
@@ -49,6 +53,8 @@ import {
   Wind,
   Droplets,
   ParkingSquare,
+  UserCheck,
+  ClipboardCheck,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -605,6 +611,92 @@ export function EvidenceAnalysisReport({
     },
   });
 
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<"accurate" | "partial" | "incorrect" | null>(null);
+  const [verificationComments, setVerificationComments] = useState("");
+  const [incorrectSections, setIncorrectSections] = useState<string[]>([]);
+  
+  const VERIFICATION_SECTIONS = [
+    { id: "vehicle", label: "Vehicle Detection" },
+    { id: "timestamp", label: "Timestamp / Duration" },
+    { id: "bay_type", label: "Bay Type" },
+    { id: "signage", label: "Signage Analysis" },
+    { id: "duration", label: "Duration Calculation" },
+    { id: "decision", label: "Decision / Recommendation" },
+  ];
+
+  const { data: caseAnalysis, refetch: refetchAnalysis } = useQuery<{
+    verificationStatus: string | null;
+    verificationComments: string | null;
+    incorrectSections: string[] | null;
+    verifiedBy: string | null;
+    verifiedByName: string | null;
+    verifiedAt: string | null;
+  }>({
+    queryKey: [`/api/cases/${bundleId}/analysis`],
+    enabled: !!bundleId,
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (data: { verificationStatus: string; comments: string; incorrectSections: string[] }) => {
+      return apiRequest("POST", `/api/cases/${bundleId}/analysis/verify`, data);
+    },
+    onSuccess: () => {
+      toast({ title: "Verification saved", description: "AI analysis has been verified" });
+      setVerifyDialogOpen(false);
+      refetchAnalysis();
+      queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleVerify = () => {
+    if (!verificationStatus) return;
+    verifyMutation.mutate({
+      verificationStatus,
+      comments: verificationComments,
+      incorrectSections,
+    });
+  };
+
+  const toggleSection = (sectionId: string) => {
+    setIncorrectSections(prev =>
+      prev.includes(sectionId) ? prev.filter(s => s !== sectionId) : [...prev, sectionId]
+    );
+  };
+
+  const getVerificationBadge = () => {
+    if (!caseAnalysis?.verificationStatus) return null;
+    
+    switch (caseAnalysis.verificationStatus) {
+      case "accurate":
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 gap-1">
+            <UserCheck className="h-3 w-3" />
+            Verified Accurate
+          </Badge>
+        );
+      case "partial":
+        return (
+          <Badge variant="secondary" className="bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Partially Verified
+          </Badge>
+        );
+      case "incorrect":
+        return (
+          <Badge variant="destructive" className="gap-1">
+            <XCircle className="h-3 w-3" />
+            Marked Incorrect
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
+
   const decision = pipelineResults?.decision;
   const regulations = pipelineResults?.regulationEvaluation;
   const signage = pipelineResults?.signageCompliance;
@@ -701,25 +793,83 @@ export function EvidenceAnalysisReport({
 
   return (
     <div className="space-y-4" data-testid="analysis-report">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-lg flex items-center gap-2">
-          <Scale className="h-5 w-5" />
-          Enforcement Assessment
-        </h3>
-        <Button 
-          variant="outline"
-          size="sm"
-          onClick={() => runPipelineMutation.mutate()}
-          disabled={runPipelineMutation.isPending}
-          data-testid="button-reanalyse"
-        >
-          {runPipelineMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            "Analyse Evidence"
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            <Scale className="h-5 w-5" />
+            Enforcement Assessment
+          </h3>
+          {getVerificationBadge()}
+        </div>
+        <div className="flex items-center gap-2">
+          {pipelineResults && (
+            <Button 
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setVerificationStatus(null);
+                setVerificationComments("");
+                setIncorrectSections([]);
+                setVerifyDialogOpen(true);
+              }}
+              data-testid="button-verify-analysis"
+            >
+              <ClipboardCheck className="h-4 w-4 mr-1" />
+              Verify AI Analysis
+            </Button>
           )}
-        </Button>
+          <Button 
+            variant="outline"
+            size="sm"
+            onClick={() => runPipelineMutation.mutate()}
+            disabled={runPipelineMutation.isPending}
+            data-testid="button-reanalyse"
+          >
+            {runPipelineMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Analyse Evidence"
+            )}
+          </Button>
+        </div>
       </div>
+      
+      {caseAnalysis?.verificationStatus && (
+        <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-900/10 dark:border-blue-800">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <UserCheck className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm">Human Verification</span>
+                  {getVerificationBadge()}
+                </div>
+                {caseAnalysis.verifiedByName && caseAnalysis.verifiedAt && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Verified by {caseAnalysis.verifiedByName} on{" "}
+                    {new Date(caseAnalysis.verifiedAt).toLocaleString()}
+                  </p>
+                )}
+                {caseAnalysis.verificationComments && (
+                  <p className="text-sm mt-2 text-muted-foreground italic">
+                    "{caseAnalysis.verificationComments}"
+                  </p>
+                )}
+                {caseAnalysis.incorrectSections && caseAnalysis.incorrectSections.length > 0 && (
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Issues with:</span>
+                    {caseAnalysis.incorrectSections.map((section) => (
+                      <Badge key={section} variant="outline" className="text-xs">
+                        {VERIFICATION_SECTIONS.find(s => s.id === section)?.label || section}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className={`border-2 ${
         pcnDecision === "ISSUE_PCN" ? "border-destructive bg-destructive/5" :
@@ -752,19 +902,36 @@ export function EvidenceAnalysisReport({
             </div>
             
             {pcnDecision === "ISSUE_PCN" && evidenceSummary?.isValidForPcn && (
-              <Button 
-                variant="destructive"
-                onClick={() => issuePcnMutation.mutate()}
-                disabled={issuePcnMutation.isPending}
-                data-testid="button-issue-pcn"
-              >
-                {issuePcnMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              <div className="flex flex-col items-end gap-2">
+                {caseAnalysis?.verificationStatus === "incorrect" ? (
+                  <Badge variant="outline" className="text-destructive border-destructive">
+                    <XCircle className="h-3 w-3 mr-1" />
+                    PCN Blocked - Verification Failed
+                  </Badge>
                 ) : (
-                  <FileText className="h-4 w-4 mr-2" />
+                  <>
+                    {caseAnalysis?.verificationStatus === "partial" && (
+                      <Badge variant="outline" className="text-amber-600 border-amber-400">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Partial Verification
+                      </Badge>
+                    )}
+                    <Button 
+                      variant="destructive"
+                      onClick={() => issuePcnMutation.mutate()}
+                      disabled={issuePcnMutation.isPending}
+                      data-testid="button-issue-pcn"
+                    >
+                      {issuePcnMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <FileText className="h-4 w-4 mr-2" />
+                      )}
+                      Issue PCN
+                    </Button>
+                  </>
                 )}
-                Issue PCN
-              </Button>
+              </div>
             )}
             
             {pcnDecision === "ISSUE_PCN" && !evidenceSummary?.isValidForPcn && (
@@ -1926,6 +2093,118 @@ export function EvidenceAnalysisReport({
         <span data-testid="text-site-name">{siteName}</span>
         <span data-testid="text-case-ref">Case: {caseReference.substring(0, 8)}</span>
       </div>
+
+      <Dialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5" />
+              Verify AI Analysis
+            </DialogTitle>
+            <DialogDescription>
+              Does the AI analysis correctly reflect the evidence?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-3">
+              <Label>Verification Status</Label>
+              <div className="grid gap-2">
+                <Button
+                  variant={verificationStatus === "accurate" ? "default" : "outline"}
+                  className="justify-start gap-2"
+                  onClick={() => setVerificationStatus("accurate")}
+                  data-testid="button-verify-accurate"
+                >
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  Confirm Accurate
+                  <span className="text-xs text-muted-foreground ml-auto">AI matches evidence</span>
+                </Button>
+                <Button
+                  variant={verificationStatus === "partial" ? "default" : "outline"}
+                  className="justify-start gap-2"
+                  onClick={() => setVerificationStatus("partial")}
+                  data-testid="button-verify-partial"
+                >
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Partially Accurate
+                  <span className="text-xs text-muted-foreground ml-auto">Minor issues exist</span>
+                </Button>
+                <Button
+                  variant={verificationStatus === "incorrect" ? "default" : "outline"}
+                  className="justify-start gap-2"
+                  onClick={() => setVerificationStatus("incorrect")}
+                  data-testid="button-verify-incorrect"
+                >
+                  <XCircle className="h-4 w-4 text-destructive" />
+                  Incorrect
+                  <span className="text-xs text-muted-foreground ml-auto">Manual correction required</span>
+                </Button>
+              </div>
+            </div>
+
+            {(verificationStatus === "partial" || verificationStatus === "incorrect") && (
+              <>
+                <div className="space-y-2">
+                  <Label>Which sections are incorrect?</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {VERIFICATION_SECTIONS.map((section) => (
+                      <div key={section.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={section.id}
+                          checked={incorrectSections.includes(section.id)}
+                          onCheckedChange={() => toggleSection(section.id)}
+                          data-testid={`checkbox-section-${section.id}`}
+                        />
+                        <label
+                          htmlFor={section.id}
+                          className="text-sm cursor-pointer"
+                        >
+                          {section.label}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="comments">Comments (required)</Label>
+                  <Textarea
+                    id="comments"
+                    placeholder="Describe what is incorrect..."
+                    value={verificationComments}
+                    onChange={(e) => setVerificationComments(e.target.value)}
+                    className="min-h-[80px]"
+                    data-testid="textarea-verification-comments"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerifyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleVerify}
+              disabled={
+                !verificationStatus ||
+                verifyMutation.isPending ||
+                ((verificationStatus === "partial" || verificationStatus === "incorrect") && !verificationComments.trim())
+              }
+              data-testid="button-submit-verification"
+            >
+              {verifyMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <ClipboardCheck className="h-4 w-4 mr-2" />
+              )}
+              Submit Verification
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
