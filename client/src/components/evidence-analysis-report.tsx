@@ -504,6 +504,205 @@ function getSeverityBadge(severity: string | null) {
   }
 }
 
+interface HumanVerificationPanelProps {
+  bundleId: string | number;
+  caseAnalysis: {
+    humanCheckStatus: string | null;
+    humanCheckReason: string | null;
+    humanCheckedBy: string | null;
+    humanCheckedByName: string | null;
+    humanCheckedAt: string | null;
+  } | null | undefined;
+  onVerificationComplete: () => void;
+}
+
+function HumanVerificationPanel({ bundleId, caseAnalysis, onVerificationComplete }: HumanVerificationPanelProps) {
+  const { toast } = useToast();
+  const [showFaultyDialog, setShowFaultyDialog] = useState(false);
+  const [faultyReason, setFaultyReason] = useState("");
+
+  const humanCheckMutation = useMutation({
+    mutationFn: async (data: { status: "valid" | "faulty"; reason?: string }) => {
+      return apiRequest("POST", `/api/evidence/${bundleId}/human-check`, data);
+    },
+    onSuccess: (_, variables) => {
+      toast({
+        title: variables.status === "valid" ? "Evidence Verified" : "Evidence Marked Faulty",
+        description: variables.status === "valid" 
+          ? "Evidence confirmed correct - PCN issuance allowed"
+          : "Evidence marked as faulty - PCN issuance blocked",
+        variant: variables.status === "valid" ? "default" : "destructive",
+      });
+      setShowFaultyDialog(false);
+      setFaultyReason("");
+      onVerificationComplete();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleMarkValid = () => {
+    humanCheckMutation.mutate({ status: "valid" });
+  };
+
+  const handleMarkFaulty = () => {
+    if (!faultyReason.trim()) {
+      toast({ title: "Reason required", description: "Please provide a reason for marking evidence as faulty", variant: "destructive" });
+      return;
+    }
+    humanCheckMutation.mutate({ status: "faulty", reason: faultyReason });
+  };
+
+  if (caseAnalysis?.humanCheckStatus) {
+    const isValid = caseAnalysis.humanCheckStatus === "valid";
+    return (
+      <Card className={`border-2 ${isValid ? "border-green-500 bg-green-50/50 dark:bg-green-900/10" : "border-destructive bg-destructive/5"}`} data-testid="card-human-verification">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className={`p-3 rounded-full ${isValid ? "bg-green-100 dark:bg-green-900/30" : "bg-destructive/10"}`}>
+              {isValid ? (
+                <CheckCircle2 className="h-8 w-8 text-green-600" />
+              ) : (
+                <XCircle className="h-8 w-8 text-destructive" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
+                <span className="font-semibold text-lg">Human Verification</span>
+                <Badge variant={isValid ? "default" : "destructive"} className={isValid ? "bg-green-600" : ""}>
+                  {isValid ? "Checked by Human - Valid" : "Checked by Human - Faulty Evidence"}
+                </Badge>
+              </div>
+              {caseAnalysis.humanCheckedByName && caseAnalysis.humanCheckedAt && (
+                <p className="text-sm text-muted-foreground">
+                  Verified by <span className="font-medium">{caseAnalysis.humanCheckedByName}</span> on{" "}
+                  {new Date(caseAnalysis.humanCheckedAt).toLocaleString()}
+                </p>
+              )}
+              {!isValid && caseAnalysis.humanCheckReason && (
+                <div className="mt-3 p-3 bg-destructive/10 rounded-lg border border-destructive/20">
+                  <p className="text-sm font-medium text-destructive">Reason:</p>
+                  <p className="text-sm text-destructive/80 mt-1">{caseAnalysis.humanCheckReason}</p>
+                </div>
+              )}
+              {!isValid && (
+                <div className="mt-4 p-3 bg-destructive/10 rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  <p className="text-sm font-medium text-destructive">PCN blocked due to faulty evidence (human verified)</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card className="border-2 border-blue-400 bg-blue-50/50 dark:bg-blue-900/10" data-testid="card-human-verification">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
+              <ClipboardCheck className="h-8 w-8 text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-semibold text-lg">Human Verification</span>
+                <Badge variant="outline" className="text-blue-600 border-blue-400">Required</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Review the evidence and confirm whether it is correct for PCN issuance.
+                This decision is final and cannot be changed.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="default"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={handleMarkValid}
+                  disabled={humanCheckMutation.isPending}
+                  data-testid="button-evidence-correct"
+                >
+                  {humanCheckMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Evidence Correct (PCN Allowed)
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setShowFaultyDialog(true)}
+                  disabled={humanCheckMutation.isPending}
+                  data-testid="button-evidence-faulty"
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Evidence Faulty (PCN Must NOT Be Issued)
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showFaultyDialog} onOpenChange={setShowFaultyDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Mark Evidence as Faulty
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently block PCN issuance for this case. Please provide a reason.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="faulty-reason">Reason (Required)</Label>
+              <Textarea
+                id="faulty-reason"
+                placeholder="e.g., Vehicle not clearly visible, Timestamp mismatch, Bay markings unclear, Wrong location, Weather obscures evidence..."
+                value={faultyReason}
+                onChange={(e) => setFaultyReason(e.target.value)}
+                rows={4}
+                data-testid="input-faulty-reason"
+              />
+            </div>
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  This decision is <strong>immutable</strong>. Once marked as faulty, this evidence cannot be used for PCN issuance.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowFaultyDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleMarkFaulty}
+              disabled={humanCheckMutation.isPending || !faultyReason.trim()}
+              data-testid="button-confirm-faulty"
+            >
+              {humanCheckMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-2" />
+              )}
+              Confirm - Mark as Faulty
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function EvidenceAnalysisReport({
   bundleId,
   caseReference,
@@ -632,6 +831,11 @@ export function EvidenceAnalysisReport({
     verifiedBy: string | null;
     verifiedByName: string | null;
     verifiedAt: string | null;
+    humanCheckStatus: string | null;
+    humanCheckReason: string | null;
+    humanCheckedBy: string | null;
+    humanCheckedByName: string | null;
+    humanCheckedAt: string | null;
   }>({
     queryKey: [`/api/cases/${bundleId}/analysis`],
     enabled: !!bundleId,
@@ -841,7 +1045,7 @@ export function EvidenceAnalysisReport({
               <UserCheck className="h-5 w-5 text-blue-600 mt-0.5" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">Human Verification</span>
+                  <span className="font-medium text-sm">AI Analysis Verification</span>
                   {getVerificationBadge()}
                 </div>
                 {caseAnalysis.verifiedByName && caseAnalysis.verifiedAt && (
@@ -870,6 +1074,15 @@ export function EvidenceAnalysisReport({
           </CardContent>
         </Card>
       )}
+
+      <HumanVerificationPanel 
+        bundleId={bundleId} 
+        caseAnalysis={caseAnalysis}
+        onVerificationComplete={() => {
+          refetchAnalysis();
+          queryClient.invalidateQueries({ queryKey: ["/api/evidence/bundles"] });
+        }}
+      />
 
       <Card className={`border-2 ${
         pcnDecision === "ISSUE_PCN" ? "border-destructive bg-destructive/5" :
@@ -903,13 +1116,24 @@ export function EvidenceAnalysisReport({
             
             {pcnDecision === "ISSUE_PCN" && evidenceSummary?.isValidForPcn && (
               <div className="flex flex-col items-end gap-2">
-                {caseAnalysis?.verificationStatus === "incorrect" ? (
+                {caseAnalysis?.humanCheckStatus === "faulty" ? (
+                  <Badge variant="outline" className="text-destructive border-destructive">
+                    <XCircle className="h-3 w-3 mr-1" />
+                    PCN Blocked - Faulty Evidence
+                  </Badge>
+                ) : caseAnalysis?.verificationStatus === "incorrect" ? (
                   <Badge variant="outline" className="text-destructive border-destructive">
                     <XCircle className="h-3 w-3 mr-1" />
                     PCN Blocked - Verification Failed
                   </Badge>
                 ) : (
                   <>
+                    {caseAnalysis?.humanCheckStatus === "valid" && (
+                      <Badge variant="outline" className="text-green-600 border-green-400 bg-green-50 dark:bg-green-900/20">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Human Verified
+                      </Badge>
+                    )}
                     {caseAnalysis?.verificationStatus === "partial" && (
                       <Badge variant="outline" className="text-amber-600 border-amber-400">
                         <AlertTriangle className="h-3 w-3 mr-1" />

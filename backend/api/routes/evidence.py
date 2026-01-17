@@ -1351,3 +1351,131 @@ async def bulk_delete_bundles(
         "failed": len(results["failed"]),
         "results": results
     }
+
+
+@router.post("/{bundle_id}/human-check")
+async def human_check_evidence(
+    bundle_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Human verification of evidence validity for PCN issuance.
+    
+    Status options:
+    - "valid": Evidence is correct, PCN allowed
+    - "faulty": Evidence has issues, PCN MUST NOT be issued
+    
+    Faulty status requires a mandatory reason.
+    This decision is immutable after save and overrides AI analysis.
+    """
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    if not bundle.case_id:
+        raise HTTPException(status_code=400, detail="Bundle has no associated case")
+    
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    status_val = body.get("status")
+    if status_val not in ["valid", "faulty"]:
+        raise HTTPException(status_code=400, detail="Status must be 'valid' or 'faulty'")
+    
+    reason = (body.get("reason") or "").strip()
+    
+    if status_val == "faulty" and not reason:
+        raise HTTPException(status_code=400, detail="Reason is required when marking evidence as faulty")
+    
+    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    
+    if analysis and analysis.human_check_status:
+        raise HTTPException(
+            status_code=403, 
+            detail="Human check decision is immutable - evidence has already been verified"
+        )
+    
+    if not analysis:
+        analysis = CaseAnalysis(
+            case_id=case.id,
+            recommendation="Pending",
+            human_check_status=status_val,
+            human_check_reason=reason if status_val == "faulty" else None,
+            human_checked_by=current_user.id,
+            human_checked_at=datetime.utcnow()
+        )
+        db.add(analysis)
+    else:
+        analysis.human_check_status = status_val
+        analysis.human_check_reason = reason if status_val == "faulty" else None
+        analysis.human_checked_by = current_user.id
+        analysis.human_checked_at = datetime.utcnow()
+    
+    if status_val == "faulty":
+        case.status = "EVIDENCE_FAULTY"
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="HUMAN_CHECK_EVIDENCE",
+        entity_type="case_analysis",
+        entity_id=str(analysis.id) if analysis.id else case.id,
+        details={
+            "case_id": case.id,
+            "bundle_id": bundle_id,
+            "status": status_val,
+            "reason": reason if status_val == "faulty" else None,
+            "decision": "PCN_ALLOWED" if status_val == "valid" else "PCN_BLOCKED"
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    checker = db.query(User).filter(User.id == current_user.id).first()
+    
+    return {
+        "success": True,
+        "message": f"Evidence marked as {status_val}",
+        "humanCheck": {
+            "status": analysis.human_check_status,
+            "reason": analysis.human_check_reason,
+            "checkedBy": analysis.human_checked_by,
+            "checkedByName": checker.full_name if checker else None,
+            "checkedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None
+        },
+        "pcnAllowed": status_val == "valid"
+    }
+
+
+@router.get("/{bundle_id}/human-check")
+async def get_human_check_status(
+    bundle_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the human check status for a bundle's case."""
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    if not bundle.case_id:
+        return None
+    
+    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == bundle.case_id).first()
+    if not analysis or not analysis.human_check_status:
+        return None
+    
+    checker = None
+    if analysis.human_checked_by:
+        checker = db.query(User).filter(User.id == analysis.human_checked_by).first()
+    
+    return {
+        "status": analysis.human_check_status,
+        "reason": analysis.human_check_reason,
+        "checkedBy": analysis.human_checked_by,
+        "checkedByName": checker.full_name if checker else None,
+        "checkedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None,
+        "pcnAllowed": analysis.human_check_status == "valid"
+    }

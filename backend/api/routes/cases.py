@@ -437,6 +437,10 @@ async def get_case_analysis(
     if analysis.verified_by:
         verifier = db.query(User).filter(User.id == analysis.verified_by).first()
     
+    human_checker = None
+    if analysis.human_checked_by:
+        human_checker = db.query(User).filter(User.id == analysis.human_checked_by).first()
+    
     return {
         "id": analysis.id,
         "caseId": analysis.case_id,
@@ -457,7 +461,12 @@ async def get_case_analysis(
         "incorrectSections": analysis.incorrect_sections,
         "verifiedBy": analysis.verified_by,
         "verifiedByName": verifier.full_name if verifier else None,
-        "verifiedAt": analysis.verified_at.isoformat() if analysis.verified_at else None
+        "verifiedAt": analysis.verified_at.isoformat() if analysis.verified_at else None,
+        "humanCheckStatus": analysis.human_check_status,
+        "humanCheckReason": analysis.human_check_reason,
+        "humanCheckedBy": analysis.human_checked_by,
+        "humanCheckedByName": human_checker.full_name if human_checker else None,
+        "humanCheckedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None
     }
 
 @router.post("/{id}/analysis/verify")
@@ -1932,6 +1941,12 @@ async def issue_pcn(
     case_analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
     if not case_analysis:
         raise HTTPException(status_code=400, detail="Case has not been analysed yet")
+    
+    if case_analysis.human_check_status == "faulty":
+        raise HTTPException(
+            status_code=403, 
+            detail="Cannot issue PCN - Evidence has been marked as faulty by human verification"
+        )
     
     if case_analysis.verification_status == "incorrect":
         raise HTTPException(
