@@ -1535,7 +1535,7 @@ async def ai_review_human_decision(
     human_reason = analysis.human_check_reason or "No reason provided"
     
     case_context = {
-        "site_name": site.name if site else "Unknown",
+        "site_name": site.site_name if site else "Unknown",
         "bay_type": analysis.bay_type or case.bay_type or "Unknown",
         "evidence_count": len(evidence_items),
         "ai_recommendation": analysis.recommendation,
