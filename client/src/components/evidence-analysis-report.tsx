@@ -512,6 +512,10 @@ interface HumanVerificationPanelProps {
     humanCheckedBy: string | null;
     humanCheckedByName: string | null;
     humanCheckedAt: string | null;
+    aiReviewAgrees: boolean | null;
+    aiReviewReasoning: string | null;
+    aiReviewConfidence: number | null;
+    aiReviewedAt: string | null;
   } | null | undefined;
   onVerificationComplete: () => void;
 }
@@ -542,6 +546,23 @@ function HumanVerificationPanel({ bundleId, caseAnalysis, onVerificationComplete
     },
   });
 
+  const aiReviewMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/evidence/${bundleId}/ai-review-human`);
+    },
+    onSuccess: (data: { aiReview: { agrees: boolean; reasoning: string; confidence: number }; verdict: string }) => {
+      toast({
+        title: data.aiReview.agrees ? "AI Agrees with Decision" : "AI Disagrees with Decision",
+        description: data.verdict,
+        variant: data.aiReview.agrees ? "default" : "destructive",
+      });
+      onVerificationComplete();
+    },
+    onError: (error: Error) => {
+      toast({ title: "AI Review Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleMarkValid = () => {
     humanCheckMutation.mutate({ status: "valid" });
   };
@@ -556,6 +577,8 @@ function HumanVerificationPanel({ bundleId, caseAnalysis, onVerificationComplete
 
   if (caseAnalysis?.humanCheckStatus) {
     const isValid = caseAnalysis.humanCheckStatus === "valid";
+    const hasAiReview = caseAnalysis.aiReviewAgrees !== null && caseAnalysis.aiReviewAgrees !== undefined;
+    
     return (
       <Card className={`border-2 ${isValid ? "border-green-500 bg-green-50/50 dark:bg-green-900/10" : "border-destructive bg-destructive/5"}`} data-testid="card-human-verification">
         <CardContent className="p-6">
@@ -593,6 +616,76 @@ function HumanVerificationPanel({ bundleId, caseAnalysis, onVerificationComplete
                   <p className="text-sm font-medium text-destructive">PCN blocked due to faulty evidence (human verified)</p>
                 </div>
               )}
+
+              <Separator className="my-4" />
+              
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-purple-500" />
+                  <span className="font-medium">AI Review of Human Decision</span>
+                </div>
+                
+                {hasAiReview ? (
+                  <Card className={`border ${caseAnalysis.aiReviewAgrees ? "border-green-400 bg-green-50/50 dark:bg-green-900/10" : "border-amber-400 bg-amber-50/50 dark:bg-amber-900/10"}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-full ${caseAnalysis.aiReviewAgrees ? "bg-green-100 dark:bg-green-900/30" : "bg-amber-100 dark:bg-amber-900/30"}`}>
+                          {caseAnalysis.aiReviewAgrees ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <AlertTriangle className="h-5 w-5 text-amber-600" />
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <Badge variant={caseAnalysis.aiReviewAgrees ? "default" : "secondary"} className={caseAnalysis.aiReviewAgrees ? "bg-green-600" : "bg-amber-500"}>
+                              {caseAnalysis.aiReviewAgrees ? "AI Agrees" : "AI Disagrees"}
+                            </Badge>
+                            {caseAnalysis.aiReviewConfidence !== null && (
+                              <Badge variant="outline" className="font-mono">
+                                {Math.round((caseAnalysis.aiReviewConfidence || 0) * 100)}% Confidence
+                              </Badge>
+                            )}
+                          </div>
+                          {caseAnalysis.aiReviewReasoning && (
+                            <p className="text-sm text-muted-foreground whitespace-pre-line">{caseAnalysis.aiReviewReasoning}</p>
+                          )}
+                          {caseAnalysis.aiReviewedAt && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Reviewed: {new Date(caseAnalysis.aiReviewedAt).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground flex-1">
+                      Request AI to review your decision and confirm if it was correct.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => aiReviewMutation.mutate()}
+                      disabled={aiReviewMutation.isPending}
+                      data-testid="button-request-ai-review"
+                    >
+                      {aiReviewMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Reviewing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Request AI Review
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -836,6 +929,10 @@ export function EvidenceAnalysisReport({
     humanCheckedBy: string | null;
     humanCheckedByName: string | null;
     humanCheckedAt: string | null;
+    aiReviewAgrees: boolean | null;
+    aiReviewReasoning: string | null;
+    aiReviewConfidence: number | null;
+    aiReviewedAt: string | null;
   }>({
     queryKey: [`/api/cases/${bundleId}/analysis`],
     enabled: !!bundleId,

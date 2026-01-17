@@ -168,6 +168,12 @@ class CaseAnalysis(Base):
     human_check_reason = Column(Text)
     human_checked_by = Column(String, ForeignKey("users.id"))
     human_checked_at = Column(DateTime)
+    
+    ai_review_of_human = Column(Text)
+    ai_review_agrees = Column(Boolean)
+    ai_review_reasoning = Column(Text)
+    ai_review_confidence = Column(Float)
+    ai_reviewed_at = Column(DateTime)
 
 class CaseVehicle(Base):
     __tablename__ = "case_vehicles"

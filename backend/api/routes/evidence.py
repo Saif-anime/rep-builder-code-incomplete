@@ -1477,5 +1477,184 @@ async def get_human_check_status(
         "checkedBy": analysis.human_checked_by,
         "checkedByName": checker.full_name if checker else None,
         "checkedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None,
-        "pcnAllowed": analysis.human_check_status == "valid"
+        "pcnAllowed": analysis.human_check_status == "valid",
+        "aiReview": {
+            "agrees": analysis.ai_review_agrees,
+            "reasoning": analysis.ai_review_reasoning,
+            "confidence": analysis.ai_review_confidence,
+            "reviewedAt": analysis.ai_reviewed_at.isoformat() if analysis.ai_reviewed_at else None
+        } if analysis.ai_review_agrees is not None else None
+    }
+
+
+@router.post("/{bundle_id}/ai-review-human")
+async def ai_review_human_decision(
+    bundle_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Request AI to review the human's decision and confirm if it was correct.
+    
+    This endpoint uses GPT-4.1 to analyze the evidence and compare it against
+    the human's decision, providing an independent AI assessment.
+    """
+    import os
+    import json
+    import httpx
+    
+    bundle = db.query(EvidenceBundle).filter(EvidenceBundle.id == bundle_id).first()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    
+    if not bundle.case_id:
+        raise HTTPException(status_code=400, detail="Bundle has no associated case")
+    
+    case = db.query(EnforcementCase).filter(EnforcementCase.id == bundle.case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    analysis = db.query(CaseAnalysis).filter(CaseAnalysis.case_id == case.id).first()
+    if not analysis:
+        raise HTTPException(status_code=400, detail="No analysis found for this case")
+    
+    if not analysis.human_check_status:
+        raise HTTPException(status_code=400, detail="Human verification required before AI review")
+    
+    evidence_items = db.query(Evidence).join(
+        CaseEvidence, CaseEvidence.evidence_id == Evidence.id
+    ).filter(CaseEvidence.case_id == case.id).all()
+    
+    vehicles = db.query(CaseVehicle).filter(CaseVehicle.case_id == case.id).all()
+    
+    site = None
+    if case.site_id:
+        site = db.query(ParkingSite).filter(ParkingSite.id == case.site_id).first()
+    
+    human_decision = analysis.human_check_status
+    human_reason = analysis.human_check_reason or "No reason provided"
+    
+    case_context = {
+        "site_name": site.name if site else "Unknown",
+        "bay_type": analysis.bay_type or case.bay_type or "Unknown",
+        "evidence_count": len(evidence_items),
+        "ai_recommendation": analysis.recommendation,
+        "ai_confidence": analysis.confidence_score,
+        "violations": analysis.violations,
+        "vehicle_count": len(vehicles),
+        "vehicles": [{"vrm": v.registration_number, "make": v.make, "colour": v.colour} for v in vehicles[:3]],
+        "human_decision": human_decision,
+        "human_reason": human_reason if human_decision == "faulty" else None
+    }
+    
+    api_key = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    
+    prompt = f"""You are a UK parking enforcement AI specialist reviewing a human operator's decision.
+
+CASE CONTEXT:
+- Site: {case_context['site_name']}
+- Bay Type: {case_context['bay_type']}
+- Evidence Files: {case_context['evidence_count']} items
+- Vehicles Detected: {case_context['vehicle_count']}
+{f"- Vehicle: {case_context['vehicles'][0]['vrm']} ({case_context['vehicles'][0]['make']} {case_context['vehicles'][0]['colour']})" if case_context['vehicles'] else ""}
+
+AI ANALYSIS RESULTS:
+- Recommendation: {case_context['ai_recommendation']}
+- Confidence: {case_context['ai_confidence']}
+- Violations Found: {json.dumps(case_context['violations']) if case_context['violations'] else 'None'}
+
+HUMAN OPERATOR'S DECISION:
+- Decision: {"EVIDENCE VALID (PCN Allowed)" if human_decision == "valid" else "EVIDENCE FAULTY (PCN Blocked)"}
+{f"- Reason Given: {human_reason}" if human_decision == "faulty" else ""}
+
+YOUR TASK:
+Evaluate if the human operator's decision appears reasonable based on:
+1. Whether the decision aligns with the AI analysis
+2. Whether the reasoning (if provided) is sound for parking enforcement
+3. Whether the decision is appropriate for UK parking enforcement standards
+
+Respond with JSON only:
+{{
+  "agrees": true/false,
+  "confidence": 0.0-1.0,
+  "reasoning": "Detailed explanation of your assessment",
+  "recommendation": "Any suggestions for the operator"
+}}"""
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4.1-mini",
+                    "messages": [
+                        {"role": "system", "content": "You are a UK parking enforcement specialist AI. Respond with valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 1000
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=500, detail="AI service unavailable")
+            
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+            
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            content = content.strip()
+            
+            ai_assessment = json.loads(content)
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse AI response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse AI response")
+    except Exception as e:
+        logger.error(f"AI review failed: {e}")
+        raise HTTPException(status_code=500, detail=f"AI review failed: {str(e)}")
+    
+    analysis.ai_review_agrees = ai_assessment.get("agrees", False)
+    analysis.ai_review_reasoning = ai_assessment.get("reasoning", "") + (
+        f"\n\nRecommendation: {ai_assessment.get('recommendation', '')}" if ai_assessment.get('recommendation') else ""
+    )
+    analysis.ai_review_confidence = ai_assessment.get("confidence", 0.5)
+    analysis.ai_reviewed_at = datetime.utcnow()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="AI_REVIEW_HUMAN_DECISION",
+        entity_type="case_analysis",
+        entity_id=str(analysis.id),
+        details={
+            "case_id": case.id,
+            "bundle_id": bundle_id,
+            "human_decision": human_decision,
+            "ai_agrees": ai_assessment.get("agrees"),
+            "ai_confidence": ai_assessment.get("confidence")
+        }
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "aiReview": {
+            "agrees": analysis.ai_review_agrees,
+            "reasoning": analysis.ai_review_reasoning,
+            "confidence": analysis.ai_review_confidence,
+            "reviewedAt": analysis.ai_reviewed_at.isoformat()
+        },
+        "humanDecision": human_decision,
+        "verdict": "AI AGREES with human decision" if analysis.ai_review_agrees else "AI DISAGREES with human decision"
     }

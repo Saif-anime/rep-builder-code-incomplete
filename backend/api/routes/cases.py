@@ -466,7 +466,11 @@ async def get_case_analysis(
         "humanCheckReason": analysis.human_check_reason,
         "humanCheckedBy": analysis.human_checked_by,
         "humanCheckedByName": human_checker.full_name if human_checker else None,
-        "humanCheckedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None
+        "humanCheckedAt": analysis.human_checked_at.isoformat() if analysis.human_checked_at else None,
+        "aiReviewAgrees": analysis.ai_review_agrees,
+        "aiReviewReasoning": analysis.ai_review_reasoning,
+        "aiReviewConfidence": analysis.ai_review_confidence,
+        "aiReviewedAt": analysis.ai_reviewed_at.isoformat() if analysis.ai_reviewed_at else None
     }
 
 @router.post("/{id}/analysis/verify")
