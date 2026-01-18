@@ -246,7 +246,7 @@ export function HourlyWeatherSelector({
               {data.message}
             </div>
           ) : data?.hourly ? (
-            <ScrollArea className="flex-1 min-h-0">
+            <ScrollArea className="h-[350px]">
               <div className="space-y-2 pr-4">
                 {data.hourly.map((hour) => {
                   const isObserveHour = defaultHour === hour.hour;
