@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
@@ -9,6 +9,7 @@ import {
   Printer,
   Receipt,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,10 +57,132 @@ export default function PCNPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedPCN, setSelectedPCN] = useState<PCN | null>(null);
+  const { toast } = useToast();
 
   const { data: pcns, isLoading } = useQuery<PCN[]>({
     queryKey: ["/api/pcns"],
   });
+
+  const generatePCNContent = useCallback((pcn: PCN) => {
+    const issuedDate = pcn.issuedAt 
+      ? new Date(pcn.issuedAt).toLocaleDateString('en-GB', { 
+          day: '2-digit', month: '2-digit', year: 'numeric', 
+          hour: '2-digit', minute: '2-digit' 
+        })
+      : 'N/A';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>PCN ${pcn.pcnNumber}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #1e40af; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { color: #1e40af; margin: 0; font-size: 24px; }
+          .header p { color: #666; margin: 5px 0 0; }
+          .pcn-number { background: #1e40af; color: white; padding: 10px 20px; font-size: 18px; font-weight: bold; display: inline-block; margin: 20px 0; }
+          .details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+          .detail-box { border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
+          .detail-box label { color: #666; font-size: 12px; display: block; margin-bottom: 5px; }
+          .detail-box .value { font-size: 16px; font-weight: bold; }
+          .vrm { background: #fcd34d; border: 2px solid #f59e0b; padding: 8px 15px; font-family: monospace; font-weight: bold; display: inline-block; }
+          .amount { color: #dc2626; font-size: 24px; }
+          .explanation { background: #f3f4f6; padding: 20px; border-radius: 5px; margin-top: 20px; }
+          .explanation h3 { margin-top: 0; color: #374151; }
+          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666; text-align: center; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>PENALTY CHARGE NOTICE</h1>
+          <p>Euro Parking Services</p>
+        </div>
+        
+        <div style="text-align: center;">
+          <div class="pcn-number">${pcn.pcnNumber}</div>
+        </div>
+        
+        <div class="details">
+          <div class="detail-box">
+            <label>Vehicle Registration</label>
+            <div class="vrm">${pcn.vrm || 'N/A'}</div>
+          </div>
+          <div class="detail-box">
+            <label>Amount Due</label>
+            <div class="value amount">£${pcn.amount?.toFixed(2) || '0.00'}</div>
+          </div>
+          <div class="detail-box">
+            <label>Status</label>
+            <div class="value">${pcn.status}</div>
+          </div>
+          <div class="detail-box">
+            <label>Date Issued</label>
+            <div class="value">${issuedDate}</div>
+          </div>
+          <div class="detail-box">
+            <label>Case Reference</label>
+            <div class="value">${pcn.caseId || 'N/A'}</div>
+          </div>
+          <div class="detail-box">
+            <label>Eligibility</label>
+            <div class="value">${pcn.eligibility || 'Standard'}</div>
+          </div>
+        </div>
+        
+        ${pcn.explanation ? `
+        <div class="explanation">
+          <h3>Violation Details</h3>
+          <p>${pcn.explanation}</p>
+        </div>
+        ` : ''}
+        
+        <div class="footer">
+          <p>This is an official Penalty Charge Notice issued by Euro Parking Services.</p>
+          <p>For queries or appeals, please quote your PCN number: ${pcn.pcnNumber}</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }, []);
+
+  const handleDownload = useCallback((pcn: PCN) => {
+    const content = generatePCNContent(pcn);
+    const blob = new Blob([content], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PCN-${pcn.pcnNumber}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast({
+      title: "PCN Downloaded",
+      description: `${pcn.pcnNumber} has been downloaded successfully.`,
+    });
+  }, [generatePCNContent, toast]);
+
+  const handlePrint = useCallback((pcn: PCN) => {
+    const content = generatePCNContent(pcn);
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(content);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    } else {
+      toast({
+        title: "Print Failed",
+        description: "Please allow pop-ups to print the PCN.",
+        variant: "destructive",
+      });
+    }
+  }, [generatePCNContent, toast]);
 
   const filteredPcns = pcns?.filter((p) => {
     const matchesSearch = !searchQuery || 
@@ -193,6 +316,8 @@ export default function PCNPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => handleDownload(pcn)}
+                        title="Download PCN"
                         data-testid={`button-download-pcn-${pcn.id}`}
                       >
                         <Download className="h-4 w-4" />
@@ -200,6 +325,8 @@ export default function PCNPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => handlePrint(pcn)}
+                        title="Print PCN"
                         data-testid={`button-print-pcn-${pcn.id}`}
                       >
                         <Printer className="h-4 w-4" />
@@ -273,13 +400,20 @@ export default function PCNPage() {
               )}
 
               <div className="flex justify-end gap-3">
-                <Button variant="outline" data-testid="button-print-pcn-dialog">
+                <Button 
+                  variant="outline" 
+                  onClick={() => handlePrint(selectedPCN)}
+                  data-testid="button-print-pcn-dialog"
+                >
                   <Printer className="h-4 w-4 mr-2" />
                   Print
                 </Button>
-                <Button data-testid="button-download-pcn-dialog">
+                <Button 
+                  onClick={() => handleDownload(selectedPCN)}
+                  data-testid="button-download-pcn-dialog"
+                >
                   <Download className="h-4 w-4 mr-2" />
-                  Download PDF
+                  Download
                 </Button>
               </div>
             </div>
