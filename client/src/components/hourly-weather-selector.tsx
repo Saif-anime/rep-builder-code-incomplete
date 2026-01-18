@@ -188,7 +188,7 @@ export function HourlyWeatherSelector({
           Select Hour
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[80vh]">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Cloud className="h-5 w-5" />
@@ -199,8 +199,8 @@ export function HourlyWeatherSelector({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
+        <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-hidden">
+          <div className="flex items-center gap-4 flex-shrink-0">
             <div className="flex-1">
               <Label htmlFor="weather-date" className="text-xs text-muted-foreground">
                 Date
@@ -246,8 +246,8 @@ export function HourlyWeatherSelector({
               {data.message}
             </div>
           ) : data?.hourly ? (
-            <ScrollArea className="h-[400px] pr-4">
-              <div className="space-y-2">
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-2 pr-4">
                 {data.hourly.map((hour) => {
                   const isObserveHour = defaultHour === hour.hour;
                   return (
@@ -264,9 +264,9 @@ export function HourlyWeatherSelector({
                     }`}
                     data-testid={`button-hour-${hour.hour}`}
                   >
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-3">
-                        <div className="flex flex-col items-center w-16">
+                        <div className="flex flex-col items-center w-14">
                           <span className="text-sm font-medium">
                             {formatHour(hour.hour)}
                           </span>
@@ -283,11 +283,11 @@ export function HourlyWeatherSelector({
 
                         <div className="flex items-center gap-2">
                           {getWeatherIcon(hour.condition, hour.is_day)}
-                          <span className="text-sm">{hour.weather_description}</span>
+                          <span className="text-sm truncate max-w-[100px]">{hour.weather_description}</span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4 text-xs">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
                         {hour.temperature_c !== null && (
                           <div className="flex items-center gap-1">
                             <Thermometer className="h-3 w-3 text-orange-500" />
