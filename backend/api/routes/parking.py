@@ -228,3 +228,42 @@ async def resolve_flag(
     db.commit()
     
     return {"success": True, "flagId": flag_id}
+
+@router.post("/api/flags/{flag_id}/dismiss")
+async def dismiss_flag(
+    flag_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "operator"))
+):
+    flag = db.query(SessionFlag).filter(SessionFlag.id == flag_id).first()
+    if not flag:
+        raise HTTPException(status_code=404, detail={"error": "Flag not found"})
+    
+    flag.status = "DISMISSED"
+    flag.resolved_at = datetime.utcnow()
+    flag.resolved_by = current_user.id
+    flag.resolution_notes = body.get("notes")
+    db.commit()
+    
+    return {"success": True, "flagId": flag_id}
+
+@router.post("/api/flags/{flag_id}/override")
+async def override_flag(
+    flag_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "operator"))
+):
+    flag = db.query(SessionFlag).filter(SessionFlag.id == flag_id).first()
+    if not flag:
+        raise HTTPException(status_code=404, detail={"error": "Flag not found"})
+    
+    new_recommendation = body.get("recommendation")
+    reason = body.get("reason", "")
+    
+    flag.recommendation = new_recommendation
+    flag.resolution_notes = f"Override by operator: {reason}"
+    db.commit()
+    
+    return {"success": True, "flagId": flag_id, "newRecommendation": new_recommendation}
